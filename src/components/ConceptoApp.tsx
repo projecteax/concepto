@@ -6,7 +6,7 @@ import { ShowDashboard } from './ShowDashboard';
 import { GlobalAssetsManager } from './GlobalAssetsManager';
 import { CharacterDetail } from './CharacterDetail';
 import { EpisodeList } from './EpisodeList';
-import { EpisodeDetail } from './EpisodeDetail';
+import EpisodeDetail from './EpisodeDetail';
 import { Show, GlobalAsset, Episode, Character, EpisodeCharacter, EpisodeLocation, AssetConcept } from '@/types';
 import { useFirebaseData } from '@/hooks/useFirebaseData';
 

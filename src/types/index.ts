@@ -111,9 +111,19 @@ export interface EpisodeScene {
   locationName?: string;
   characters: SceneCharacter[];
   gadgets: SceneGadget[];
+  shots: SceneShot[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface SceneShot {
+  id: string;
+  shotNumber: number;
+  title: string;
+  description?: string;
   storyboards: Storyboard[];
   inspirationImages: string[];
-  cameraShots: CameraShot[];
+  cameraShot: CameraShot;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -135,7 +145,6 @@ export interface Storyboard {
   id: string;
   imageUrl: string;
   description?: string;
-  shotNumber: number;
 }
 
 export interface CameraShot {
