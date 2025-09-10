@@ -35,8 +35,7 @@ export interface UploadResult {
  */
 export async function uploadToS3(
   file: File,
-  key: string,
-  _onProgress?: (progress: UploadProgress) => void
+  key: string
 ): Promise<UploadResult> {
   try {
     // Validate file

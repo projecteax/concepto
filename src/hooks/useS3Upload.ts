@@ -42,12 +42,7 @@ export function useS3Upload(): UseS3UploadReturn {
       const key = generateFileKey(prefix, file.name);
 
       // Upload to S3
-      const result = await uploadToS3(file, key, (progress: UploadProgress) => {
-        setUploadState(prev => ({
-          ...prev,
-          progress: progress.percentage,
-        }));
-      });
+      const result = await uploadToS3(file, key);
 
       // Success
       setUploadState({

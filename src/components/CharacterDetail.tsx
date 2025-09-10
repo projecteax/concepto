@@ -52,7 +52,7 @@ export function CharacterDetail({
   const [uploadedImages, setUploadedImages] = useState<File[]>([]);
   const [uploadedImageUrls, setUploadedImageUrls] = useState<string[]>([]);
   const [uploadingFiles, setUploadingFiles] = useState<Map<string, { progress: number; error?: string }>>(new Map());
-  const [imageFormData, setImageFormData] = useState<Map<number, { description: string; relevanceScale: number }>>(new Map());
+  const [imageFormData, setImageFormData] = useState<Map<number, { description: string; relevanceScale: number; conceptType?: 'pose' | 'clothing' | 'general' | 'expression' | 'action' }>>(new Map());
   
   // Gallery states
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'relevance' | 'name'>('newest');
