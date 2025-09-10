@@ -43,12 +43,21 @@ export async function uploadToS3(
       throw new Error('No file provided');
     }
 
+    // Check environment variables
     if (!BUCKET_NAME) {
-      throw new Error('R2 bucket name not configured');
+      throw new Error('R2 bucket name not configured. Please check your .env.local file.');
     }
 
     if (!process.env.NEXT_PUBLIC_R2_ENDPOINT) {
-      throw new Error('R2 endpoint not configured');
+      throw new Error('R2 endpoint not configured. Please check your .env.local file.');
+    }
+
+    if (!process.env.NEXT_PUBLIC_R2_ACCESS_KEY_ID) {
+      throw new Error('R2 access key not configured. Please check your .env.local file.');
+    }
+
+    if (!process.env.NEXT_PUBLIC_R2_SECRET_ACCESS_KEY) {
+      throw new Error('R2 secret key not configured. Please check your .env.local file.');
     }
 
     // Convert File to ArrayBuffer to avoid stream issues

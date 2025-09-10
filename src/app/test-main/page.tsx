@@ -2,12 +2,28 @@
 
 import { useState } from 'react';
 import { Show, Episode, EpisodeScene, SceneShot } from '@/types';
-import { Plus, Camera, Palette, X, ArrowLeft } from 'lucide-react';
+import { Plus, Camera, Palette, X, ArrowLeft, ImageIcon } from 'lucide-react';
+import StoryboardDrawer from '@/components/StoryboardDrawer';
+import ProtectedRoute from '@/components/ProtectedRoute';
+import UserHeader from '@/components/UserHeader';
+import CommentThread from '@/components/CommentThread';
 
 export default function TestMainPage() {
   const [currentView, setCurrentView] = useState<'shows' | 'episode-detail'>('shows');
   const [selectedShow, setSelectedShow] = useState<Show | null>(null);
   const [selectedEpisode, setSelectedEpisode] = useState<Episode | null>(null);
+  
+  // Script editing states
+  const [editingScripts, setEditingScripts] = useState<{[sceneId: string]: string}>({});
+  
+  // Drawing states
+  const [showDrawer, setShowDrawer] = useState(false);
+  const [drawingContext, setDrawingContext] = useState<{
+    shotId: string;
+    sceneId: string;
+    type: 'storyboard' | 'inspiration';
+  } | null>(null);
+  const [uploadingDrawing, setUploadingDrawing] = useState(false);
 
   const demoShow: Show = {
     id: 'demo-show',
@@ -100,9 +116,182 @@ export default function TestMainPage() {
     });
   };
 
+  // Script editing functions
+  const handleScriptChange = (sceneId: string, value: string) => {
+    setEditingScripts(prev => ({
+      ...prev,
+      [sceneId]: value
+    }));
+  };
+
+  const handleSaveScript = (sceneId: string) => {
+    const scriptContent = editingScripts[sceneId];
+    if (scriptContent !== undefined && selectedEpisode) {
+      const updatedScenes = selectedEpisode.scenes.map(s => 
+        s.id === sceneId ? { ...s, script: scriptContent, updatedAt: new Date() } : s
+      );
+      setSelectedEpisode({
+        ...selectedEpisode,
+        scenes: updatedScenes
+      });
+      
+      // Clear the editing state
+      setEditingScripts(prev => {
+        const newState = { ...prev };
+        delete newState[sceneId];
+        return newState;
+      });
+    }
+  };
+
+  const handleCancelScriptEdit = (sceneId: string) => {
+    setEditingScripts(prev => {
+      const newState = { ...prev };
+      delete newState[sceneId];
+      return newState;
+    });
+  };
+
+  // Drawing functions
+  const handleOpenDrawer = (shotId: string, sceneId: string, type: 'storyboard' | 'inspiration') => {
+    setDrawingContext({ shotId, sceneId, type });
+    setShowDrawer(true);
+  };
+
+  const handleSaveDrawing = async (imageData: string) => {
+    if (!drawingContext || !selectedEpisode) return;
+
+    setUploadingDrawing(true);
+    try {
+      // Check if R2 is properly configured
+      const hasValidR2Config = process.env.NEXT_PUBLIC_R2_BUCKET && 
+                               process.env.NEXT_PUBLIC_R2_BUCKET !== 'your-r2-bucket-name' &&
+                               process.env.NEXT_PUBLIC_R2_ACCESS_KEY_ID &&
+                               process.env.NEXT_PUBLIC_R2_ACCESS_KEY_ID !== 'your-r2-access-key-id';
+
+      let uploadedUrl = imageData; // Default to data URL
+
+      if (hasValidR2Config) {
+        // Convert data URL to File object for upload
+        const response = await fetch(imageData);
+        const blob = await response.blob();
+        const file = new File([blob], `storyboard-${Date.now()}.png`, { type: 'image/png' });
+
+        // Upload to R2
+        const { uploadToS3 } = await import('@/lib/s3-service');
+        uploadedUrl = await uploadToS3(file, 'storyboards/');
+      } else {
+        console.log('R2 not configured, using local storage');
+      }
+
+      const currentScenes = selectedEpisode.scenes || [];
+      const updatedScenes = currentScenes.map(scene => {
+        if (scene.id === drawingContext.sceneId) {
+          return {
+            ...scene,
+            shots: scene.shots.map(shot => {
+              if (shot.id === drawingContext.shotId) {
+                if (drawingContext.type === 'storyboard') {
+                  const newStoryboard = {
+                    id: `storyboard-${Date.now()}`,
+                    imageUrl: uploadedUrl,
+                    description: 'Drawn storyboard',
+                  };
+                  return {
+                    ...shot,
+                    storyboards: [...shot.storyboards, newStoryboard],
+                    updatedAt: new Date(),
+                  };
+                } else {
+                  return {
+                    ...shot,
+                    inspirationImages: [...shot.inspirationImages, uploadedUrl],
+                    updatedAt: new Date(),
+                  };
+                }
+              }
+              return shot;
+            }),
+            updatedAt: new Date(),
+          };
+        }
+        return scene;
+      });
+
+      setSelectedEpisode({
+        ...selectedEpisode,
+        scenes: updatedScenes,
+      });
+      setShowDrawer(false);
+      setDrawingContext(null);
+    } catch (error) {
+      console.error('Error saving drawing:', error);
+      
+      // Show user-friendly error message
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      if (errorMessage.includes('not configured')) {
+        alert(`Configuration Error: ${errorMessage}\n\nPlease check your .env.local file and ensure all R2 credentials are properly set.`);
+      } else {
+        alert(`Upload Error: ${errorMessage}\n\nFalling back to local storage.`);
+      }
+      
+      // Fallback: save as data URL if upload fails
+      const currentScenes = selectedEpisode.scenes || [];
+      const updatedScenes = currentScenes.map(scene => {
+        if (scene.id === drawingContext.sceneId) {
+          return {
+            ...scene,
+            shots: scene.shots.map(shot => {
+              if (shot.id === drawingContext.shotId) {
+                if (drawingContext.type === 'storyboard') {
+                  const newStoryboard = {
+                    id: `storyboard-${Date.now()}`,
+                    imageUrl: imageData,
+                    description: 'Drawn storyboard (local)',
+                  };
+                  return {
+                    ...shot,
+                    storyboards: [...shot.storyboards, newStoryboard],
+                    updatedAt: new Date(),
+                  };
+                } else {
+                  return {
+                    ...shot,
+                    inspirationImages: [...shot.inspirationImages, imageData],
+                    updatedAt: new Date(),
+                  };
+                }
+              }
+              return shot;
+            }),
+            updatedAt: new Date(),
+          };
+        }
+        return scene;
+      });
+
+      setSelectedEpisode({
+        ...selectedEpisode,
+        scenes: updatedScenes,
+      });
+      setShowDrawer(false);
+      setDrawingContext(null);
+    } finally {
+      setUploadingDrawing(false);
+    }
+  };
+
+  const handleCloseDrawer = () => {
+    setShowDrawer(false);
+    setDrawingContext(null);
+  };
+
   if (currentView === 'shows') {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <ProtectedRoute>
+        <div className="min-h-screen bg-gray-50">
+          <UserHeader />
+          <div className="flex items-center justify-center" style={{ minHeight: 'calc(100vh - 80px)' }}>
         <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-8">
           <h1 className="text-2xl font-bold text-gray-900 mb-6 text-center">Demo Shows</h1>
           <div className="space-y-4">
@@ -115,13 +304,17 @@ export default function TestMainPage() {
             </button>
           </div>
         </div>
-      </div>
+          </div>
+        </div>
+      </ProtectedRoute>
     );
   }
 
   if (currentView === 'episode-detail' && selectedEpisode) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <ProtectedRoute>
+        <div className="min-h-screen bg-gray-50">
+          <UserHeader />
         {/* Header */}
         <div className="bg-white border-b border-gray-200">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -162,11 +355,51 @@ export default function TestMainPage() {
                 {(selectedEpisode.scenes || []).map((scene, index) => (
                   <div key={scene.id} className="border border-gray-200 rounded-lg p-6">
                     <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center space-x-3">
-                        <div className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-sm font-medium font-mono">
-                          SCENE_{scene.sceneNumber.toString().padStart(2, '0')}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-3">
+                            <div className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-sm font-medium font-mono">
+                              SCENE_{scene.sceneNumber.toString().padStart(2, '0')}
+                            </div>
+                            <h3 className="text-lg font-medium text-gray-900">{scene.title}</h3>
+                            <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium">
+                              EDIT MODE
+                            </span>
+                          </div>
+                          <CommentThread targetType="scene" targetId={scene.id} />
                         </div>
-                        <h3 className="text-lg font-medium text-gray-900">{scene.title}</h3>
+                    </div>
+
+                    {/* Script Section */}
+                    <div className="mb-6">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Scene Script
+                      </label>
+                      <div className="relative">
+                        <textarea
+                          value={editingScripts[scene.id] !== undefined ? editingScripts[scene.id] : (scene.script || '')}
+                          onChange={(e) => handleScriptChange(scene.id, e.target.value)}
+                          placeholder={`SCENE_${scene.sceneNumber.toString().padStart(2, '0')}\n\nFADE IN:\n\nINT. LOCATION - DAY\n\n[Enter your script here...]`}
+                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none font-mono text-sm"
+                          rows={6}
+                        />
+                        
+                        {/* Save/Cancel buttons - only show when editing */}
+                        {editingScripts[scene.id] !== undefined && (
+                          <div className="absolute top-2 right-2 flex space-x-2">
+                            <button
+                              onClick={() => handleSaveScript(scene.id)}
+                              className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700 transition-colors flex items-center space-x-1"
+                            >
+                              <span>Save</span>
+                            </button>
+                            <button
+                              onClick={() => handleCancelScriptEdit(scene.id)}
+                              className="px-3 py-1 bg-gray-500 text-white rounded text-sm hover:bg-gray-600 transition-colors flex items-center space-x-1"
+                            >
+                              <span>Cancel</span>
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -258,13 +491,23 @@ export default function TestMainPage() {
                                         </div>
                                       )}
                                       
-                                      <button
-                                        className="w-full border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-indigo-400 hover:bg-indigo-50 transition-colors"
-                                      >
-                                        <Palette className="w-6 h-6 text-gray-400 mx-auto mb-2" />
-                                        <p className="text-sm text-gray-600">Draw Storyboard</p>
-                                        <p className="text-xs text-gray-400">Use Apple Pencil or mouse</p>
-                                      </button>
+                                      <div className="space-y-2">
+                                        <button
+                                          onClick={() => handleOpenDrawer(shot.id, scene.id, 'storyboard')}
+                                          className="w-full border-2 border-dashed border-gray-300 rounded-lg p-3 text-center hover:border-indigo-400 hover:bg-indigo-50 transition-colors"
+                                        >
+                                          <Palette className="w-5 h-5 text-gray-400 mx-auto mb-1" />
+                                          <p className="text-sm text-gray-600">Draw Storyboard</p>
+                                          <p className="text-xs text-gray-400">Use Apple Pencil or mouse</p>
+                                        </button>
+                                        <button
+                                          className="w-full border-2 border-dashed border-gray-300 rounded-lg p-3 text-center hover:border-indigo-400 hover:bg-indigo-50 transition-colors"
+                                        >
+                                          <ImageIcon className="w-5 h-5 text-gray-400 mx-auto mb-1" />
+                                          <p className="text-sm text-gray-600">Upload Image</p>
+                                          <p className="text-xs text-gray-400">Choose from device</p>
+                                        </button>
+                                      </div>
                                     </div>
                                   </div>
                                   
@@ -295,9 +538,9 @@ export default function TestMainPage() {
                                       <button
                                         className="w-full border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-indigo-400 hover:bg-indigo-50 transition-colors"
                                       >
-                                        <Palette className="w-6 h-6 text-gray-400 mx-auto mb-2" />
-                                        <p className="text-sm text-gray-600">Draw Inspiration</p>
-                                        <p className="text-xs text-gray-400">Use Apple Pencil or mouse</p>
+                                        <ImageIcon className="w-6 h-6 text-gray-400 mx-auto mb-2" />
+                                        <p className="text-sm text-gray-600">Upload Image</p>
+                                        <p className="text-xs text-gray-400">Choose from device</p>
                                       </button>
                                     </div>
                                   </div>
@@ -340,7 +583,18 @@ export default function TestMainPage() {
             </div>
           </div>
         </div>
-      </div>
+        
+        {/* Storyboard Drawer */}
+        {showDrawer && drawingContext && (
+          <StoryboardDrawer
+            onSave={handleSaveDrawing}
+            onClose={handleCloseDrawer}
+            title={`Draw ${drawingContext.type === 'storyboard' ? 'Storyboard' : 'Inspiration Image'}`}
+            isUploading={uploadingDrawing}
+          />
+        )}
+        </div>
+      </ProtectedRoute>
     );
   }
 

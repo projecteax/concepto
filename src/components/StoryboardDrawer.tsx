@@ -19,6 +19,7 @@ interface StoryboardDrawerProps {
   onClose: () => void;
   initialImage?: string;
   title?: string;
+  isUploading?: boolean;
 }
 
 interface DrawingTool {
@@ -42,7 +43,7 @@ const colors = [
   '#6600ff', '#ff0066', '#ffffff'
 ];
 
-export default function StoryboardDrawer({ onSave, onClose, title = "Draw Storyboard" }: StoryboardDrawerProps) {
+export default function StoryboardDrawer({ onSave, onClose, title = "Draw Storyboard", isUploading = false }: StoryboardDrawerProps) {
   const canvasRef = useRef<ReactSketchCanvasRef>(null);
   const [selectedTool, setSelectedTool] = useState('pen');
   const [selectedColor, setSelectedColor] = useState('#000000');
@@ -213,10 +214,11 @@ export default function StoryboardDrawer({ onSave, onClose, title = "Draw Storyb
             </button>
             <button
               onClick={handleSave}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center space-x-2"
+              disabled={isUploading}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Save className="w-4 h-4" />
-              <span>Save</span>
+              <span>{isUploading ? 'Saving...' : 'Save'}</span>
             </button>
           </div>
         </div>

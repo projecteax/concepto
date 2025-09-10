@@ -25,7 +25,7 @@ export function useFirebaseData() {
       
       // Add timeout to prevent infinite loading
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Loading timeout')), 5000)
+        setTimeout(() => reject(new Error('Loading timeout')), 3000)
       );
       
       const loadPromise = async () => {
@@ -55,10 +55,8 @@ export function useFirebaseData() {
       setShows([]);
       setGlobalAssets([]);
       setEpisodes([]);
-      // Don't set error for timeout, just continue with empty data
-      if (!(err instanceof Error && err.message === 'Loading timeout')) {
-        setError(err instanceof Error ? err.message : 'Failed to load data');
-      }
+      // Set error for timeout or other issues
+      setError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {
       isLoadingRef.current = false;
       setLoading(false);
@@ -73,7 +71,7 @@ export function useFirebaseData() {
     }, 100);
     
     return () => clearTimeout(timer);
-  }, [loadData]);
+  }, []); // Empty dependency array to prevent initialization issues
 
   // Show operations
   const createShow = async (show: Omit<Show, 'id' | 'createdAt' | 'updatedAt'>) => {

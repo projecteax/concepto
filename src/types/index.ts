@@ -1,3 +1,34 @@
+// User Management
+export interface User {
+  id: string;
+  username: string;
+  name: string;
+  role: 'admin' | 'user';
+}
+
+// Comment System
+export interface Comment {
+  id: string;
+  content: string;
+  authorId: string;
+  authorName: string;
+  createdAt: Date;
+  updatedAt: Date;
+  replies: Comment[];
+  resolved: boolean;
+  resolvedBy?: string;
+  resolvedAt?: Date;
+}
+
+export interface CommentThread {
+  id: string;
+  targetType: 'script' | 'storyboard' | 'scene' | 'shot' | 'character' | 'location';
+  targetId: string;
+  comments: Comment[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 // Show Management
 export interface Show {
   id: string;

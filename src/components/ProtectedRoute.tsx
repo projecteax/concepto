@@ -4,7 +4,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
-export default function Home() {
+interface ProtectedRouteProps {
+  children: React.ReactNode;
+}
+
+export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { user, isLoading } = useAuth();
   const router = useRouter();
 
@@ -29,7 +33,5 @@ export default function Home() {
     return null; // Will redirect to login
   }
 
-  // If user is logged in, redirect to the main app
-  router.push('/app');
-  return null;
+  return <>{children}</>;
 }
