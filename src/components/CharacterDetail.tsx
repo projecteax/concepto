@@ -735,10 +735,10 @@ export function CharacterDetail({
                                             handleSaveUploadedConcept(url, formData?.description || '', formData?.relevanceScale || 3, conceptType);
                                             removeUploadedImage(index);
                                           }}
-                                          disabled={isUploading || hasError}
+                                          disabled={isUploading || !!hasError}
                                           className={cn(
                                             "text-xs px-2 py-1 rounded transition-colors",
-                                            isUploading || hasError
+                                            isUploading || !!hasError
                                               ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                                               : "bg-green-600 text-white hover:bg-green-700"
                                           )}

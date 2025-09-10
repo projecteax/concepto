@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { uploadToS3, generateFileKey, validateFile, UploadProgress, UploadResult } from '@/lib/s3-service';
+import { uploadToS3, generateFileKey, validateFile, UploadResult } from '@/lib/s3-service';
 
 export interface UploadState {
   isUploading: boolean;
