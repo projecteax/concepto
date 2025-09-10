@@ -31,6 +31,10 @@ export function useFirebaseData() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
       console.error('Error loading data:', err);
+      // Set empty arrays as fallback
+      setShows([]);
+      setGlobalAssets([]);
+      setEpisodes([]);
     } finally {
       setLoading(false);
     }

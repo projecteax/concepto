@@ -27,14 +27,19 @@ export const showService = {
   },
 
   async getAll(): Promise<Show[]> {
-    const querySnapshot = await getDocs(collection(db, 'shows'));
-    const assets = querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate() || new Date(),
-      updatedAt: doc.data().updatedAt?.toDate() || new Date(),
-    })) as Show[];
-    return assets;
+    try {
+      const querySnapshot = await getDocs(collection(db, 'shows'));
+      const assets = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate() || new Date(),
+        updatedAt: doc.data().updatedAt?.toDate() || new Date(),
+      })) as Show[];
+      return assets;
+    } catch (error) {
+      console.error('Error fetching shows:', error);
+      return []; // Return empty array on error
+    }
   },
 
   async update(id: string, updates: Partial<Show>): Promise<void> {
@@ -121,12 +126,16 @@ export const episodeService = {
       where('showId', '==', showId)
     );
     const querySnapshot = await getDocs(q);
-    const episodes = querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate() || new Date(),
-      updatedAt: doc.data().updatedAt?.toDate() || new Date(),
-    })) as Episode[];
+    const episodes = querySnapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        ...data,
+        scenes: data.scenes || [], // Ensure scenes array exists
+        createdAt: data.createdAt?.toDate() || new Date(),
+        updatedAt: data.updatedAt?.toDate() || new Date(),
+      } as Episode;
+    });
     
     // Sort episodes by episode number on the client side
     return episodes.sort((a, b) => a.episodeNumber - b.episodeNumber);
