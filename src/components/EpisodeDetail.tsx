@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Show, Episode, EpisodeCharacter, EpisodeLocation, GlobalAsset, EpisodeScene, SceneCharacter, SceneGadget, Character, SceneShot } from '@/types';
 import { 
   ArrowLeft, 
@@ -52,10 +52,24 @@ export default function EpisodeDetail({
   const [isEditing, setIsEditing] = useState(false);
   const [selectedScene, setSelectedScene] = useState<EpisodeScene | null>(null);
   
+  // Local episode state for immediate UI updates
+  const [localEpisode, setLocalEpisode] = useState<Episode>(episode);
+  
+  // Sync local state when episode prop changes
+  useEffect(() => {
+    setLocalEpisode(episode);
+  }, [episode]);
+
+  // Helper function to update both local state and save to Firebase
+  const updateEpisodeAndSave = (updatedEpisode: Episode) => {
+    setLocalEpisode(updatedEpisode);
+    onSave(updatedEpisode);
+  };
+  
   // Form states
-  const [title, setTitle] = useState(episode.title);
-  const [description, setDescription] = useState(episode.description || '');
-  const [script, setScript] = useState(episode.script || '');
+  const [title, setTitle] = useState(localEpisode.title);
+  const [description, setDescription] = useState(localEpisode.description || '');
+  const [script, setScript] = useState(localEpisode.script || '');
   
   // Scene states
   const [showAddScene, setShowAddScene] = useState(false);
@@ -89,7 +103,7 @@ export default function EpisodeDetail({
 
   const handleAddScene = () => {
     if (newSceneTitle.trim()) {
-      const currentScenes = episode.scenes || [];
+      const currentScenes = localEpisode.scenes || [];
       const sceneNumber = currentScenes.length + 1;
       const newScene: EpisodeScene = {
         id: `scene-${Date.now()}`,
@@ -105,10 +119,17 @@ export default function EpisodeDetail({
       };
       
       const updatedEpisode: Episode = {
-        ...episode,
+        ...localEpisode,
         scenes: [...currentScenes, newScene],
       };
+      
+      // Update local state immediately for instant UI feedback
+      setLocalEpisode(updatedEpisode);
+      
+      // Save to Firebase in the background
       onSave(updatedEpisode);
+      
+      // Clear form and close modal
       setNewSceneTitle('');
       setNewSceneDescription('');
       setNewSceneScript('');
@@ -117,7 +138,7 @@ export default function EpisodeDetail({
   };
 
   const handleDeleteScene = (sceneId: string) => {
-    const currentScenes = episode.scenes || [];
+    const currentScenes = localEpisode.scenes || [];
     const updatedScenes = currentScenes
       .filter(scene => scene.id !== sceneId)
       .map((scene, index) => ({
@@ -127,7 +148,7 @@ export default function EpisodeDetail({
       }));
     
     const updatedEpisode: Episode = {
-      ...episode,
+      ...localEpisode,
       scenes: updatedScenes,
     };
     onSave(updatedEpisode);
@@ -136,10 +157,10 @@ export default function EpisodeDetail({
   const handleAddCharacterToScene = (sceneId: string, characterId: string) => {
     if (!characterId) return;
     
-    const character = episode.characters.find(c => c.characterId === characterId);
+    const character = localEpisode.characters.find(c => c.characterId === characterId);
     if (!character) return;
     
-    const currentScenes = episode.scenes || [];
+    const currentScenes = localEpisode.scenes || [];
     const updatedScenes = currentScenes.map(scene => {
       if (scene.id === sceneId) {
         const newSceneCharacter: SceneCharacter = {
@@ -158,14 +179,14 @@ export default function EpisodeDetail({
     });
     
     const updatedEpisode: Episode = {
-      ...episode,
+      ...localEpisode,
       scenes: updatedScenes,
     };
     onSave(updatedEpisode);
   };
 
   const handleRemoveCharacterFromScene = (sceneId: string, characterId: string) => {
-    const currentScenes = episode.scenes || [];
+    const currentScenes = localEpisode.scenes || [];
     const updatedScenes = currentScenes.map(scene => {
       if (scene.id === sceneId) {
         return {
@@ -178,7 +199,7 @@ export default function EpisodeDetail({
     });
     
     const updatedEpisode: Episode = {
-      ...episode,
+      ...localEpisode,
       scenes: updatedScenes,
     };
     onSave(updatedEpisode);
@@ -190,7 +211,7 @@ export default function EpisodeDetail({
     const gadget = globalAssets.find(asset => asset.id === gadgetId && asset.category === 'gadget');
     if (!gadget) return;
     
-    const currentScenes = episode.scenes || [];
+    const currentScenes = localEpisode.scenes || [];
     const updatedScenes = currentScenes.map(scene => {
       if (scene.id === sceneId) {
         const newSceneGadget: SceneGadget = {
@@ -208,14 +229,14 @@ export default function EpisodeDetail({
     });
     
     const updatedEpisode: Episode = {
-      ...episode,
+      ...localEpisode,
       scenes: updatedScenes,
     };
     onSave(updatedEpisode);
   };
 
   const handleRemoveGadgetFromScene = (sceneId: string, gadgetId: string) => {
-    const currentScenes = episode.scenes || [];
+    const currentScenes = localEpisode.scenes || [];
     const updatedScenes = currentScenes.map(scene => {
       if (scene.id === sceneId) {
         return {
@@ -228,17 +249,17 @@ export default function EpisodeDetail({
     });
     
     const updatedEpisode: Episode = {
-      ...episode,
+      ...localEpisode,
       scenes: updatedScenes,
     };
     onSave(updatedEpisode);
   };
 
   const handleAssignLocationToScene = (sceneId: string, locationId: string) => {
-    const location = episode.locations.find(l => l.locationId === locationId);
+    const location = localEpisode.locations.find(l => l.locationId === locationId);
     if (!location) return;
     
-    const currentScenes = episode.scenes || [];
+    const currentScenes = localEpisode.scenes || [];
     const updatedScenes = currentScenes.map(scene => {
       if (scene.id === sceneId) {
         return {
@@ -252,14 +273,14 @@ export default function EpisodeDetail({
     });
     
     const updatedEpisode: Episode = {
-      ...episode,
+      ...localEpisode,
       scenes: updatedScenes,
     };
     onSave(updatedEpisode);
   };
 
   const handleAddShot = (sceneId: string) => {
-    const currentScenes = episode.scenes || [];
+    const currentScenes = localEpisode.scenes || [];
     const updatedScenes = currentScenes.map(scene => {
       if (scene.id === sceneId) {
         const shotNumber = scene.shots.length + 1;
@@ -290,9 +311,14 @@ export default function EpisodeDetail({
     });
     
     const updatedEpisode: Episode = {
-      ...episode,
+      ...localEpisode,
       scenes: updatedScenes,
     };
+    
+    // Update local state immediately for instant UI feedback
+    setLocalEpisode(updatedEpisode);
+    
+    // Save to Firebase in the background
     onSave(updatedEpisode);
   };
 
@@ -304,7 +330,7 @@ export default function EpisodeDetail({
   const handleSaveDrawing = (imageData: string) => {
     if (!drawingContext) return;
 
-    const currentScenes = episode.scenes || [];
+    const currentScenes = localEpisode.scenes || [];
     const updatedScenes = currentScenes.map(scene => {
       if (scene.id === drawingContext.sceneId) {
         return {
@@ -339,7 +365,7 @@ export default function EpisodeDetail({
     });
 
     const updatedEpisode: Episode = {
-      ...episode,
+      ...localEpisode,
       scenes: updatedScenes,
     };
     onSave(updatedEpisode);
@@ -374,8 +400,8 @@ export default function EpisodeDetail({
                 <ArrowLeft className="w-5 h-5" />
               </button>
               <div>
-                <h1 className="text-xl font-semibold text-gray-900">{episode.title}</h1>
-                <p className="text-sm text-gray-500">Episode {episode.episodeNumber} • {show.name}</p>
+                <h1 className="text-xl font-semibold text-gray-900">{localEpisode.title}</h1>
+                <p className="text-sm text-gray-500">Episode {localEpisode.episodeNumber} • {show.name}</p>
               </div>
             </div>
             <div className="flex items-center space-x-3">
@@ -460,7 +486,7 @@ export default function EpisodeDetail({
                     />
                     ) : (
                       <p className="text-gray-700 whitespace-pre-wrap">
-                        {episode.description || 'No description available. Click Edit to add one.'}
+                        {localEpisode.description || 'No description available. Click Edit to add one.'}
                       </p>
                     )}
                   </div>
@@ -468,9 +494,9 @@ export default function EpisodeDetail({
                   {/* Characters */}
                   <div className="bg-white rounded-lg shadow p-6">
                     <h3 className="text-lg font-medium text-gray-900 mb-4">Characters</h3>
-                    {episode.characters.length > 0 ? (
+                    {localEpisode.characters.length > 0 ? (
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {episode.characters.map((char) => {
+                        {localEpisode.characters.map((char) => {
                           const characterAsset = globalAssets.find(asset => 
                             asset.category === 'character' && asset.id === char.characterId
                           ) as Character | undefined;
@@ -506,9 +532,9 @@ export default function EpisodeDetail({
                   {/* Locations */}
                   <div className="bg-white rounded-lg shadow p-6">
                     <h3 className="text-lg font-medium text-gray-900 mb-4">Locations</h3>
-                    {episode.locations.length > 0 ? (
+                    {localEpisode.locations.length > 0 ? (
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {episode.locations.map((location) => {
+                        {localEpisode.locations.map((location) => {
                           return (
                             <div key={location.locationId} className="border border-gray-200 rounded-lg p-4">
                               <div className="flex items-center space-x-3">
@@ -582,7 +608,7 @@ export default function EpisodeDetail({
                   </div>
 
               <div className="space-y-6">
-                {(episode.scenes || []).map((scene, index) => (
+                {(localEpisode.scenes || []).map((scene, index) => (
                   <div key={scene.id} className="border border-gray-200 rounded-lg p-6">
                     <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center space-x-3">
@@ -608,7 +634,7 @@ export default function EpisodeDetail({
                               updatedAt: new Date(),
                             };
                             
-                            const currentScenes = episode.scenes || [];
+                            const currentScenes = localEpisode.scenes || [];
                             const updatedScenes = [
                               ...currentScenes.slice(0, index + 1),
                               newScene,
@@ -648,11 +674,11 @@ export default function EpisodeDetail({
                         type="text"
                         value={scene.title}
                         onChange={(e) => {
-                          const updatedScenes = (episode.scenes || []).map(s => 
+                          const updatedScenes = (localEpisode.scenes || []).map(s => 
                             s.id === scene.id ? { ...s, title: e.target.value, updatedAt: new Date() } : s
                           );
-                          const updatedEpisode: Episode = { ...episode, scenes: updatedScenes };
-                          onSave(updatedEpisode);
+                          const updatedEpisode: Episode = { ...localEpisode, scenes: updatedScenes };
+                          updateEpisodeAndSave(updatedEpisode);
                         }}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                       />
@@ -666,11 +692,11 @@ export default function EpisodeDetail({
                       <textarea
                         value={scene.description || ''}
                         onChange={(e) => {
-                          const updatedScenes = (episode.scenes || []).map(s => 
+                          const updatedScenes = (localEpisode.scenes || []).map(s => 
                             s.id === scene.id ? { ...s, description: e.target.value, updatedAt: new Date() } : s
                           );
-                          const updatedEpisode: Episode = { ...episode, scenes: updatedScenes };
-                          onSave(updatedEpisode);
+                          const updatedEpisode: Episode = { ...localEpisode, scenes: updatedScenes };
+                          updateEpisodeAndSave(updatedEpisode);
                         }}
                         placeholder="Enter scene description..."
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
@@ -713,7 +739,7 @@ export default function EpisodeDetail({
                         <textarea
                           value={scene.script || ''}
                           onChange={(e) => {
-                            const updatedScenes = (episode.scenes || []).map(s => 
+                            const updatedScenes = (localEpisode.scenes || []).map(s => 
                               s.id === scene.id ? { ...s, script: e.target.value, updatedAt: new Date() } : s
                             );
                             const updatedEpisode: Episode = { ...episode, scenes: updatedScenes };
@@ -755,7 +781,7 @@ export default function EpisodeDetail({
                           <button
                                   onClick={() => {
                                     // Remove shot logic here
-                                    const currentScenes = episode.scenes || [];
+                                    const currentScenes = localEpisode.scenes || [];
                                     const updatedScenes = currentScenes.map(s => {
                                       if (s.id === scene.id) {
                                         return {
@@ -787,7 +813,7 @@ export default function EpisodeDetail({
                                   <textarea
                                     value={shot.description || ''}
                                     onChange={(e) => {
-                                      const currentScenes = episode.scenes || [];
+                                      const currentScenes = localEpisode.scenes || [];
                                       const updatedScenes = currentScenes.map(s => {
                                         if (s.id === scene.id) {
                                           return {
@@ -823,7 +849,7 @@ export default function EpisodeDetail({
                                     <select
                                       value={shot.cameraShot.shotType}
                                       onChange={(e) => {
-                                        const currentScenes = episode.scenes || [];
+                                        const currentScenes = localEpisode.scenes || [];
                                         const updatedScenes = currentScenes.map(s => {
                                           if (s.id === scene.id) {
                                             return {
@@ -873,7 +899,7 @@ export default function EpisodeDetail({
                                     <select
                                       value={shot.cameraShot.cameraMovement || 'STATIC'}
                                       onChange={(e) => {
-                                        const currentScenes = episode.scenes || [];
+                                        const currentScenes = localEpisode.scenes || [];
                                         const updatedScenes = currentScenes.map(s => {
                                           if (s.id === scene.id) {
                                             return {
@@ -935,7 +961,7 @@ export default function EpisodeDetail({
                                               <button
                                                 onClick={() => {
                                                   // Remove storyboard logic here
-                                                  const currentScenes = episode.scenes || [];
+                                                  const currentScenes = localEpisode.scenes || [];
                                                   const updatedScenes = currentScenes.map(s => {
                                                     if (s.id === scene.id) {
                                                       return {
@@ -1000,7 +1026,7 @@ export default function EpisodeDetail({
                                               <button
                                                 onClick={() => {
                                                   // Remove inspiration image logic here
-                                                  const currentScenes = episode.scenes || [];
+                                                  const currentScenes = localEpisode.scenes || [];
                                                   const updatedScenes = currentScenes.map(s => {
                                                     if (s.id === scene.id) {
                                                       return {
@@ -1073,7 +1099,7 @@ export default function EpisodeDetail({
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                         >
                           <option value="">Select Location</option>
-                          {episode.locations.map((location) => (
+                          {localEpisode.locations.map((location) => (
                             <option key={location.locationId} value={location.locationId}>
                               {location.locationName}
                       </option>
@@ -1092,7 +1118,7 @@ export default function EpisodeDetail({
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                         >
                           <option value="">Add Character</option>
-                          {episode.characters
+                          {localEpisode.characters
                             .filter(char => !scene.characters.some(sceneChar => sceneChar.characterId === char.characterId))
                             .map((character) => (
                               <option key={character.characterId} value={character.characterId}>
@@ -1154,7 +1180,7 @@ export default function EpisodeDetail({
                 ))}
 
                 {/* Empty State */}
-                {(episode.scenes || []).length === 0 && (
+                {(localEpisode.scenes || []).length === 0 && (
                   <div className="text-center py-12">
                     <Video className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                     <h3 className="text-lg font-medium text-gray-900 mb-2">No scenes yet</h3>
@@ -1187,7 +1213,7 @@ export default function EpisodeDetail({
             </div>
 
             <div className="grid gap-4">
-              {episode.characters.map((character) => (
+              {localEpisode.characters.map((character) => (
                 <div key={character.characterId} className="bg-white rounded-lg shadow p-6">
                   <div className="flex items-center justify-between">
                 <div>
@@ -1223,7 +1249,7 @@ export default function EpisodeDetail({
             </div>
 
             <div className="grid gap-4">
-              {episode.locations.map((location) => (
+              {localEpisode.locations.map((location) => (
                 <div key={location.locationId} className="bg-white rounded-lg shadow p-6">
                   <div className="flex items-center justify-between">
                     <div>
@@ -1271,7 +1297,7 @@ export default function EpisodeDetail({
                           type="text"
                           value={newSceneTitle}
                           onChange={(e) => setNewSceneTitle(e.target.value)}
-                          placeholder={`SCENE_${((episode.scenes || []).length + 1).toString().padStart(2, '0')}`}
+                          placeholder={`SCENE_${((localEpisode.scenes || []).length + 1).toString().padStart(2, '0')}`}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                         />
                 </div>
