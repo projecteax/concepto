@@ -83,7 +83,7 @@ export interface Episode {
   script?: string;
   characters: EpisodeCharacter[];
   locations: EpisodeLocation[];
-  scenes: EpisodeScene[];
+  scenes?: EpisodeScene[];
   createdAt: Date;
   updatedAt: Date;
 }

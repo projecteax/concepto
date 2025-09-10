@@ -81,9 +81,10 @@ export function EpisodeDetail({
 
   const handleAddScene = () => {
     if (newSceneTitle.trim()) {
+      const currentScenes = episode.scenes || [];
       const newScene: EpisodeScene = {
         id: `scene-${Date.now()}`,
-        sceneNumber: episode.scenes.length + 1,
+        sceneNumber: currentScenes.length + 1,
         title: newSceneTitle.trim(),
         description: newSceneDescription.trim() || undefined,
         script: newSceneScript.trim() || undefined,
@@ -98,7 +99,7 @@ export function EpisodeDetail({
       
       const updatedEpisode: Episode = {
         ...episode,
-        scenes: [...episode.scenes, newScene],
+        scenes: [...currentScenes, newScene],
       };
       onSave(updatedEpisode);
       setNewSceneTitle('');
@@ -109,9 +110,10 @@ export function EpisodeDetail({
   };
 
   const handleDeleteScene = (sceneId: string) => {
+    const currentScenes = episode.scenes || [];
     const updatedEpisode: Episode = {
       ...episode,
-      scenes: episode.scenes.filter(scene => scene.id !== sceneId),
+      scenes: currentScenes.filter(scene => scene.id !== sceneId),
     };
     onSave(updatedEpisode);
     if (selectedScene?.id === sceneId) {
@@ -131,7 +133,8 @@ export function EpisodeDetail({
       isPresent: true,
     };
 
-    const updatedScenes = episode.scenes.map(scene => {
+    const currentScenes = episode.scenes || [];
+    const updatedScenes = currentScenes.map(scene => {
       if (scene.id === sceneId) {
         return {
           ...scene,
@@ -159,7 +162,8 @@ export function EpisodeDetail({
       description: gadget.description,
     };
 
-    const updatedScenes = episode.scenes.map(scene => {
+    const currentScenes = episode.scenes || [];
+    const updatedScenes = currentScenes.map(scene => {
       if (scene.id === sceneId) {
         return {
           ...scene,
@@ -181,7 +185,8 @@ export function EpisodeDetail({
     const location = locations.find(l => l.id === locationId);
     if (!location) return;
 
-    const updatedScenes = episode.scenes.map(scene => {
+    const currentScenes = episode.scenes || [];
+    const updatedScenes = currentScenes.map(scene => {
       if (scene.id === sceneId) {
         return {
           ...scene,
@@ -359,7 +364,7 @@ export function EpisodeDetail({
 
             {/* Scenes List */}
             <div className="grid gap-4">
-              {episode.scenes.map((scene) => (
+              {(episode.scenes || []).map((scene) => (
                 <div key={scene.id} className="bg-white rounded-lg shadow p-6">
                   <div className="flex items-center justify-between mb-4">
                     <div>
