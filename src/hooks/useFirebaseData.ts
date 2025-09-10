@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { showService, globalAssetService, episodeService, assetConceptService } from '@/lib/firebase-services';
 import { Show, GlobalAsset, Episode, AssetConcept } from '@/types';
 import { setupDemoData } from '@/lib/demo-data-setup';
@@ -9,30 +9,30 @@ export function useFirebaseData() {
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const isLoadingRef = useRef(false);
 
-  // Load initial data
-  useEffect(() => {
-    // Add a small delay to prevent immediate loading issues
-    const timer = setTimeout(() => {
-      loadData();
-    }, 100);
+  const loadData = useCallback(async () => {
+    // Prevent multiple simultaneous calls
+    if (isLoadingRef.current) {
+      console.log('Data loading already in progress, skipping...');
+      return;
+    }
     
-    return () => clearTimeout(timer);
-  }, []);
-
-  const loadData = async () => {
     try {
+      isLoadingRef.current = true;
       setLoading(true);
       setError(null);
       
       // Add timeout to prevent infinite loading
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Loading timeout')), 10000)
+        setTimeout(() => reject(new Error('Loading timeout')), 5000)
       );
       
       const loadPromise = async () => {
+        console.log('Starting to load shows...');
         // Try to load shows first without demo data setup
         const showsData = await showService.getAll();
+        console.log('Loaded shows:', showsData.length);
         setShows(showsData);
         setGlobalAssets([]);
         setEpisodes([]);
@@ -43,6 +43,7 @@ export function useFirebaseData() {
           await setupDemoData();
           // Reload shows after demo data setup
           const updatedShowsData = await showService.getAll();
+          console.log('Loaded shows after demo setup:', updatedShowsData.length);
           setShows(updatedShowsData);
         }
       };
@@ -59,9 +60,20 @@ export function useFirebaseData() {
         setError(err instanceof Error ? err.message : 'Failed to load data');
       }
     } finally {
+      isLoadingRef.current = false;
       setLoading(false);
     }
-  };
+  }, []);
+
+  // Load initial data
+  useEffect(() => {
+    // Add a small delay to prevent immediate loading issues
+    const timer = setTimeout(() => {
+      loadData();
+    }, 100);
+    
+    return () => clearTimeout(timer);
+  }, [loadData]);
 
   // Show operations
   const createShow = async (show: Omit<Show, 'id' | 'createdAt' | 'updatedAt'>) => {
