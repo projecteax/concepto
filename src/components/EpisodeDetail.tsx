@@ -82,10 +82,11 @@ export function EpisodeDetail({
   const handleAddScene = () => {
     if (newSceneTitle.trim()) {
       const currentScenes = episode.scenes || [];
+      const sceneNumber = currentScenes.length + 1;
       const newScene: EpisodeScene = {
         id: `scene-${Date.now()}`,
-        sceneNumber: currentScenes.length + 1,
-        title: newSceneTitle.trim(),
+        sceneNumber: sceneNumber,
+        title: newSceneTitle.trim() || `SCENE_${sceneNumber.toString().padStart(2, '0')}`,
         description: newSceneDescription.trim() || undefined,
         script: newSceneScript.trim() || undefined,
         characters: [],
@@ -388,8 +389,8 @@ export function EpisodeDetail({
                   <div key={scene.id} className="border border-gray-200 rounded-lg p-6">
                     <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center space-x-3">
-                        <div className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-sm font-medium">
-                          Scene {scene.sceneNumber}
+                        <div className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-sm font-medium font-mono">
+                          SCENE_{scene.sceneNumber.toString().padStart(2, '0')}
                         </div>
                         <h3 className="text-lg font-medium text-gray-900">{scene.title}</h3>
                       </div>
@@ -400,7 +401,7 @@ export function EpisodeDetail({
                             const newScene: EpisodeScene = {
                               id: `scene-${Date.now()}`,
                               sceneNumber: scene.sceneNumber + 1,
-                              title: `New Scene ${scene.sceneNumber + 1}`,
+                              title: `SCENE_${(scene.sceneNumber + 1).toString().padStart(2, '0')}`,
                               description: undefined,
                               script: undefined,
                               characters: [],
@@ -488,19 +489,47 @@ export function EpisodeDetail({
                         <label className="block text-sm font-medium text-gray-700 mb-2">
                           Scene Script
                         </label>
-                        <textarea
-                          value={scene.script || ''}
-                          onChange={(e) => {
-                            const updatedScenes = (episode.scenes || []).map(s => 
-                              s.id === scene.id ? { ...s, script: e.target.value, updatedAt: new Date() } : s
-                            );
-                            const updatedEpisode: Episode = { ...episode, scenes: updatedScenes };
-                            onSave(updatedEpisode);
-                          }}
-                          placeholder="Enter scene script..."
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none font-mono text-sm"
-                          rows={6}
-                        />
+                        <div className="border border-gray-300 rounded-lg overflow-hidden">
+                          {/* Scene Header */}
+                          <div className="bg-gray-50 px-4 py-2 border-b border-gray-300">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-4">
+                                <span className="font-mono text-sm font-medium text-gray-700">
+                                  SCENE_{scene.sceneNumber.toString().padStart(2, '0')}
+                                </span>
+                                {scene.locationName && (
+                                  <span className="text-sm text-gray-600">
+                                    <MapPin className="w-3 h-3 inline mr-1" />
+                                    {scene.locationName}
+                                  </span>
+                                )}
+                                {scene.characters.length > 0 && (
+                                  <span className="text-sm text-gray-600">
+                                    <Users className="w-3 h-3 inline mr-1" />
+                                    {scene.characters.map(c => c.characterName).join(', ')}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {scene.title}
+                              </div>
+                            </div>
+                          </div>
+                          {/* Script Content */}
+                          <textarea
+                            value={scene.script || ''}
+                            onChange={(e) => {
+                              const updatedScenes = (episode.scenes || []).map(s => 
+                                s.id === scene.id ? { ...s, script: e.target.value, updatedAt: new Date() } : s
+                              );
+                              const updatedEpisode: Episode = { ...episode, scenes: updatedScenes };
+                              onSave(updatedEpisode);
+                            }}
+                            placeholder={`SCENE_${scene.sceneNumber.toString().padStart(2, '0')}\n\nFADE IN:\n\nINT. ${scene.locationName || 'LOCATION'} - DAY\n\n[Enter your script here...]`}
+                            className="w-full px-4 py-3 border-none focus:ring-0 focus:outline-none resize-none font-mono text-sm bg-white"
+                            rows={8}
+                          />
+                        </div>
                       </div>
 
                       {/* Quick Asset Assignment */}
@@ -609,7 +638,7 @@ export function EpisodeDetail({
                       className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
                     >
                       <Plus className="w-4 h-4 mr-2" />
-                      Add First Scene
+                      Add SCENE_01
                     </button>
                   </div>
                 )}
@@ -805,14 +834,14 @@ export function EpisodeDetail({
                     <h3 className="text-lg font-medium text-gray-900 mb-4">Add New Scene</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
                           Scene Title
-                  </label>
+                        </label>
                         <input
                           type="text"
                           value={newSceneTitle}
                           onChange={(e) => setNewSceneTitle(e.target.value)}
-                          placeholder="Enter scene title..."
+                          placeholder={`SCENE_${((episode.scenes || []).length + 1).toString().padStart(2, '0')}`}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                         />
                 </div>
