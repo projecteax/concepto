@@ -43,7 +43,7 @@ export function EpisodeDetail({
   onAddLocation,
   onRemoveLocation
 }: EpisodeDetailProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'scenes' | 'characters' | 'locations'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'script' | 'scenes' | 'characters' | 'locations'>('overview');
   const [isEditing, setIsEditing] = useState(false);
   const [selectedScene, setSelectedScene] = useState<EpisodeScene | null>(null);
   
@@ -127,8 +127,8 @@ export function EpisodeDetail({
     if (!character) return;
 
     const sceneCharacter: SceneCharacter = {
-      characterId: character.id,
-      characterName: character.name,
+          characterId: character.id,
+          characterName: character.name,
       role: role.trim() || undefined,
       isPresent: true,
     };
@@ -207,6 +207,7 @@ export function EpisodeDetail({
 
   const tabs = [
     { id: 'overview', label: 'Overview', icon: FileText },
+    { id: 'script', label: 'Script', icon: FileText },
     { id: 'scenes', label: 'Scenes', icon: Video },
     { id: 'characters', label: 'Characters', icon: Users },
     { id: 'locations', label: 'Locations', icon: MapPin },
@@ -279,27 +280,27 @@ export function EpisodeDetail({
             {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id as 'overview' | 'scenes' | 'characters' | 'locations')}
-                  className={cn(
+                  <button
+                    key={tab.id}
+                  onClick={() => setActiveTab(tab.id as 'overview' | 'script' | 'scenes' | 'characters' | 'locations')}
+                    className={cn(
                     "flex items-center space-x-2 py-2 px-1 border-b-2 font-medium text-sm transition-colors",
-                    activeTab === tab.id
+                      activeTab === tab.id
                       ? "border-indigo-500 text-indigo-600"
                       : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                  )}
-                >
+                    )}
+                  >
                   <Icon className="w-4 h-4" />
-                  <span>{tab.label}</span>
-                </button>
+                    <span>{tab.label}</span>
+                  </button>
               );
             })}
           </nav>
-        </div>
+          </div>
 
         {/* Tab Content */}
-        {activeTab === 'overview' && (
-          <div className="space-y-6">
+              {activeTab === 'overview' && (
+                <div className="space-y-6">
             {isEditing ? (
               <div className="bg-white rounded-lg shadow p-6">
                 <div className="space-y-4">
@@ -341,40 +342,309 @@ export function EpisodeDetail({
                   <div className="bg-white rounded-lg shadow p-6">
                     <h3 className="text-lg font-medium text-gray-900 mb-3">Script</h3>
                     <pre className="text-gray-700 whitespace-pre-wrap font-mono text-sm">{episode.script}</pre>
+                      </div>
+                )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+        {activeTab === 'script' && (
+          <div className="space-y-6">
+            {/* Episode Description */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <h2 className="text-lg font-medium text-gray-900 mb-4">Episode Description</h2>
+              {isEditing ? (
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Enter episode description..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                  rows={4}
+                />
+              ) : (
+                <p className="text-gray-700 whitespace-pre-wrap">
+                  {episode.description || 'No description provided'}
+                </p>
+              )}
+            </div>
+
+            {/* Scene-by-Scene Script */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-lg font-medium text-gray-900">Scene-by-Scene Script</h2>
+                <button
+                  onClick={() => setShowAddScene(true)}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Scene
+                </button>
+              </div>
+
+              {/* Scenes List */}
+              <div className="space-y-6">
+                {(episode.scenes || []).map((scene, index) => (
+                  <div key={scene.id} className="border border-gray-200 rounded-lg p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center space-x-3">
+                        <div className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-sm font-medium">
+                          Scene {scene.sceneNumber}
+                        </div>
+                        <h3 className="text-lg font-medium text-gray-900">{scene.title}</h3>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={() => {
+                            // Insert new scene after current one
+                            const newScene: EpisodeScene = {
+                              id: `scene-${Date.now()}`,
+                              sceneNumber: scene.sceneNumber + 1,
+                              title: `New Scene ${scene.sceneNumber + 1}`,
+                              description: undefined,
+                              script: undefined,
+                              characters: [],
+                              gadgets: [],
+                              storyboards: [],
+                              inspirationImages: [],
+                              cameraShots: [],
+                              createdAt: new Date(),
+                              updatedAt: new Date(),
+                            };
+                            
+                            const currentScenes = episode.scenes || [];
+                            const updatedScenes = [
+                              ...currentScenes.slice(0, index + 1),
+                              newScene,
+                              ...currentScenes.slice(index + 1).map(s => ({
+                                ...s,
+                                sceneNumber: s.sceneNumber + 1
+                              }))
+                            ];
+                            
+                            const updatedEpisode: Episode = {
+                              ...episode,
+                              scenes: updatedScenes,
+                            };
+                            onSave(updatedEpisode);
+                          }}
+                          className="p-2 text-gray-400 hover:text-indigo-600 transition-colors"
+                          title="Insert scene after this one"
+                        >
+                          <Plus className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteScene(scene.id)}
+                          className="p-2 text-red-400 hover:text-red-600 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Scene Content */}
+                    <div className="space-y-4">
+                      {/* Scene Title and Description */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Scene Title
+                          </label>
+                          <input
+                            type="text"
+                            value={scene.title}
+                            onChange={(e) => {
+                              const updatedScenes = (episode.scenes || []).map(s => 
+                                s.id === scene.id ? { ...s, title: e.target.value, updatedAt: new Date() } : s
+                              );
+                              const updatedEpisode: Episode = { ...episode, scenes: updatedScenes };
+                              onSave(updatedEpisode);
+                            }}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Scene Description
+                          </label>
+                          <input
+                            type="text"
+                            value={scene.description || ''}
+                            onChange={(e) => {
+                              const updatedScenes = (episode.scenes || []).map(s => 
+                                s.id === scene.id ? { ...s, description: e.target.value, updatedAt: new Date() } : s
+                              );
+                              const updatedEpisode: Episode = { ...episode, scenes: updatedScenes };
+                              onSave(updatedEpisode);
+                            }}
+                            placeholder="Brief scene description..."
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Scene Script */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Scene Script
+                        </label>
+                        <textarea
+                          value={scene.script || ''}
+                          onChange={(e) => {
+                            const updatedScenes = (episode.scenes || []).map(s => 
+                              s.id === scene.id ? { ...s, script: e.target.value, updatedAt: new Date() } : s
+                            );
+                            const updatedEpisode: Episode = { ...episode, scenes: updatedScenes };
+                            onSave(updatedEpisode);
+                          }}
+                          placeholder="Enter scene script..."
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none font-mono text-sm"
+                          rows={6}
+                        />
+                      </div>
+
+                      {/* Quick Asset Assignment */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-gray-200">
+                        {/* Location */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Location</label>
+                          {scene.locationName ? (
+                            <div className="flex items-center space-x-2">
+                              <MapPin className="w-4 h-4 text-gray-400" />
+                              <span className="text-sm text-gray-900">{scene.locationName}</span>
+                            </div>
+                          ) : (
+                            <select
+                              onChange={(e) => handleAssignLocationToScene(scene.id, e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
+                              defaultValue=""
+                            >
+                              <option value="">Select location...</option>
+                              {locations.map((location) => (
+                                <option key={location.id} value={location.id}>
+                                  {location.name}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+
+                        {/* Characters */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Characters</label>
+                          <div className="space-y-1">
+                            {scene.characters.map((char) => (
+                              <div key={char.characterId} className="flex items-center space-x-2">
+                                <Users className="w-4 h-4 text-gray-400" />
+                                <span className="text-sm text-gray-900">{char.characterName}</span>
+                                {char.role && (
+                                  <span className="text-xs text-gray-500">({char.role})</span>
+                                )}
+                              </div>
+                            ))}
+                            <select
+                              onChange={(e) => {
+                                if (e.target.value) {
+                                  handleAddCharacterToScene(scene.id, e.target.value, '');
+                                }
+                              }}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
+                              defaultValue=""
+                            >
+                              <option value="">Add character...</option>
+                              {characters
+                                .filter(char => !scene.characters.some(sc => sc.characterId === char.id))
+                                .map((character) => (
+                                  <option key={character.id} value={character.id}>
+                                    {character.name}
+                                  </option>
+                                ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Gadgets */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Gadgets</label>
+                          <div className="space-y-1">
+                            {scene.gadgets.map((gadget) => (
+                              <div key={gadget.gadgetId} className="flex items-center space-x-2">
+                                <Settings className="w-4 h-4 text-gray-400" />
+                                <span className="text-sm text-gray-900">{gadget.gadgetName}</span>
+                              </div>
+                            ))}
+                            <select
+                              onChange={(e) => {
+                                if (e.target.value) {
+                                  handleAddGadgetToScene(scene.id, e.target.value);
+                                }
+                              }}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
+                              defaultValue=""
+                            >
+                              <option value="">Add gadget...</option>
+                              {gadgets
+                                .filter(gadget => !scene.gadgets.some(sg => sg.gadgetId === gadget.id))
+                                .map((gadget) => (
+                                  <option key={gadget.id} value={gadget.id}>
+                                    {gadget.name}
+                                  </option>
+                                ))}
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Empty State */}
+                {(episode.scenes || []).length === 0 && (
+                  <div className="text-center py-12">
+                    <Video className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No scenes yet</h3>
+                    <p className="text-gray-500 mb-4">Start building your episode by adding your first scene.</p>
+                    <button
+                      onClick={() => setShowAddScene(true)}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add First Scene
+                    </button>
                   </div>
                 )}
               </div>
-            )}
+            </div>
           </div>
         )}
 
         {activeTab === 'scenes' && (
-          <div className="space-y-6">
+                <div className="space-y-6">
             {/* Add Scene Button */}
             <div className="flex justify-between items-center">
               <h2 className="text-lg font-medium text-gray-900">Scenes</h2>
-              <button
+                    <button
                 onClick={() => setShowAddScene(true)}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-              >
+                    >
                 <Plus className="w-4 h-4 mr-2" />
                 Add Scene
-              </button>
-            </div>
+                    </button>
+                  </div>
 
             {/* Scenes List */}
             <div className="grid gap-4">
               {(episode.scenes || []).map((scene) => (
                 <div key={scene.id} className="bg-white rounded-lg shadow p-6">
                   <div className="flex items-center justify-between mb-4">
-                    <div>
+                          <div>
                       <h3 className="text-lg font-medium text-gray-900">
                         Scene {scene.sceneNumber}: {scene.title}
                       </h3>
                       {scene.description && (
                         <p className="text-gray-600 mt-1">{scene.description}</p>
-                      )}
-                    </div>
+                              )}
+                            </div>
                     <div className="flex items-center space-x-2">
                       <button
                         onClick={() => setSelectedScene(scene)}
@@ -382,14 +652,14 @@ export function EpisodeDetail({
                       >
                         <Eye className="w-4 h-4" />
                       </button>
-                      <button
+                          <button
                         onClick={() => handleDeleteScene(scene.id)}
                         className="p-2 text-red-400 hover:text-red-600 transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
 
                   {/* Scene Details */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -479,13 +749,13 @@ export function EpisodeDetail({
                               </option>
                             ))}
                         </select>
-                      </div>
-                    </div>
+                  </div>
+                </div>
                   </div>
 
                   {/* Storyboards and Inspiration Images */}
                   <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
+                          <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Storyboards</label>
                       <div className="flex space-x-2">
                         {scene.storyboards.map((storyboard) => (
@@ -502,9 +772,9 @@ export function EpisodeDetail({
                         ))}
                         <button className="w-16 h-12 border-2 border-dashed border-gray-300 rounded flex items-center justify-center text-gray-400 hover:border-gray-400 transition-colors">
                           <Plus className="w-4 h-4" />
-                        </button>
+                          </button>
+                        </div>
                       </div>
-                    </div>
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Inspiration Images</label>
@@ -525,19 +795,19 @@ export function EpisodeDetail({
                   </div>
                 </div>
               ))}
-            </div>
+      </div>
 
             {/* Add Scene Modal */}
             {showAddScene && (
-              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                 <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
-                  <div className="p-6">
+            <div className="p-6">
                     <h3 className="text-lg font-medium text-gray-900 mb-4">Add New Scene</h3>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                           Scene Title
-                        </label>
+                  </label>
                         <input
                           type="text"
                           value={newSceneTitle}
@@ -545,11 +815,11 @@ export function EpisodeDetail({
                           placeholder="Enter scene title..."
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                         />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                           Description (Optional)
-                        </label>
+                  </label>
                         <textarea
                           value={newSceneDescription}
                           onChange={(e) => setNewSceneDescription(e.target.value)}
@@ -557,46 +827,46 @@ export function EpisodeDetail({
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
                           rows={3}
                         />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                           Script (Optional)
-                        </label>
+                  </label>
                         <textarea
                           value={newSceneScript}
                           onChange={(e) => setNewSceneScript(e.target.value)}
                           placeholder="Enter scene script..."
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
                           rows={4}
-                        />
-                      </div>
+                  />
+                </div>
                     </div>
                     <div className="flex space-x-3 mt-6">
-                      <button
+                  <button
                         onClick={handleAddScene}
                         disabled={!newSceneTitle.trim()}
-                        className={cn(
-                          "flex-1 px-4 py-2 rounded-lg font-medium transition-colors",
+                    className={cn(
+                      "flex-1 px-4 py-2 rounded-lg font-medium transition-colors",
                           newSceneTitle.trim()
                             ? "bg-indigo-600 text-white hover:bg-indigo-700"
-                            : "bg-gray-100 text-gray-400 cursor-not-allowed"
-                        )}
-                      >
+                        : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                    )}
+                  >
                         Add Scene
-                      </button>
-                      <button
+                  </button>
+                  <button
                         onClick={() => setShowAddScene(false)}
-                        className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
+                    className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
                 </div>
               </div>
-            )}
+            </div>
           </div>
-        )}
+            )}
+        </div>
+      )}
 
         {/* Characters and Locations tabs remain the same for now */}
         {activeTab === 'characters' && (
@@ -616,7 +886,7 @@ export function EpisodeDetail({
               {episode.characters.map((character) => (
                 <div key={character.characterId} className="bg-white rounded-lg shadow p-6">
                   <div className="flex items-center justify-between">
-                    <div>
+                <div>
                       <h3 className="text-lg font-medium text-gray-900">{character.characterName}</h3>
                       <p className="text-sm text-gray-500">
                         {character.type} • {character.role || 'No specific role'}
@@ -632,20 +902,20 @@ export function EpisodeDetail({
                 </div>
               ))}
             </div>
-          </div>
+                </div>
         )}
 
         {activeTab === 'locations' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center">
               <h2 className="text-lg font-medium text-gray-900">Episode Locations</h2>
-              <button
+                  <button
                 onClick={() => setShowAddLocation(true)}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
               >
                 <MapPinPlus className="w-4 h-4 mr-2" />
-                Add Location
-              </button>
+                    Add Location
+                  </button>
             </div>
 
             <div className="grid gap-4">
@@ -658,19 +928,19 @@ export function EpisodeDetail({
                         <p className="text-sm text-gray-500 mt-1">{location.description}</p>
                       )}
                     </div>
-                    <button
+                  <button
                       onClick={() => onRemoveLocation(location.locationId)}
                       className="p-2 text-red-400 hover:text-red-600 transition-colors"
-                    >
+                  >
                       <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
+                  </button>
                 </div>
+              </div>
               ))}
             </div>
           </div>
         )}
-      </div>
+        </div>
     </div>
   );
 }
