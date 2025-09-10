@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 export default function TestPage() {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -17,12 +19,12 @@ export default function TestPage() {
             <p>R2 Bucket: {process.env.NEXT_PUBLIC_R2_BUCKET ? '✅ Set' : '❌ Missing'}</p>
           </div>
         </div>
-        <a 
+        <Link 
           href="/" 
           className="inline-block mt-4 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
         >
           Go to Main App
-        </a>
+        </Link>
       </div>
     </div>
   );
