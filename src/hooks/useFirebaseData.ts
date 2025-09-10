@@ -12,7 +12,12 @@ export function useFirebaseData() {
 
   // Load initial data
   useEffect(() => {
-    loadData();
+    // Add a small delay to prevent immediate loading issues
+    const timer = setTimeout(() => {
+      loadData();
+    }, 100);
+    
+    return () => clearTimeout(timer);
   }, []);
 
   const loadData = async () => {
@@ -20,21 +25,39 @@ export function useFirebaseData() {
       setLoading(true);
       setError(null);
       
-      // Set up demo data if needed
-      await setupDemoData();
+      // Add timeout to prevent infinite loading
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Loading timeout')), 10000)
+      );
       
-      // Only load shows initially, assets and episodes will be loaded when a show is selected
-      const showsData = await showService.getAll();
-      setShows(showsData);
-      setGlobalAssets([]);
-      setEpisodes([]);
+      const loadPromise = async () => {
+        // Try to load shows first without demo data setup
+        const showsData = await showService.getAll();
+        setShows(showsData);
+        setGlobalAssets([]);
+        setEpisodes([]);
+        
+        // If no shows exist, then set up demo data
+        if (showsData.length === 0) {
+          console.log('No shows found, setting up demo data...');
+          await setupDemoData();
+          // Reload shows after demo data setup
+          const updatedShowsData = await showService.getAll();
+          setShows(updatedShowsData);
+        }
+      };
+      
+      await Promise.race([loadPromise(), timeoutPromise]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
       console.error('Error loading data:', err);
-      // Set empty arrays as fallback
+      // Set empty arrays as fallback and continue
       setShows([]);
       setGlobalAssets([]);
       setEpisodes([]);
+      // Don't set error for timeout, just continue with empty data
+      if (!(err instanceof Error && err.message === 'Loading timeout')) {
+        setError(err instanceof Error ? err.message : 'Failed to load data');
+      }
     } finally {
       setLoading(false);
     }
