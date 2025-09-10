@@ -163,18 +163,9 @@ export function ConceptoApp() {
           concepts: [...character.concepts, newConcept]
         };
         
-        // Update the character in the episode
-        if (selectedEpisode) {
-          const updatedEpisode = {
-            ...selectedEpisode,
-            characters: selectedEpisode.characters.map(c => 
-              c.characterId === character.id ? updatedCharacter : c
-            )
-          };
-          
-          await updateEpisode(selectedEpisode.id, { characters: updatedEpisode.characters });
-          setSelectedEpisode(updatedEpisode);
-        }
+        // Update the character in the global assets
+        // The episode characters array only contains references, not full character objects
+        await updateGlobalAsset(character.id, { concepts: updatedCharacter.concepts });
       }
     } catch (error) {
       console.error('Failed to add concept:', error);
@@ -194,18 +185,9 @@ export function ConceptoApp() {
             concepts: character.concepts.filter(c => c.id !== conceptId)
           };
           
-          // Update the character in the episode
-          if (selectedEpisode) {
-            const updatedEpisode = {
-              ...selectedEpisode,
-              characters: selectedEpisode.characters.map(c => 
-                c.characterId === character.id ? updatedCharacter : c
-              )
-            };
-            
-            await updateEpisode(selectedEpisode.id, { characters: updatedEpisode.characters });
-            setSelectedEpisode(updatedEpisode);
-          }
+          // Update the global assets to reflect the deleted concept
+          // The episode characters array only contains references, not full character objects
+          await updateGlobalAsset(character.id, { concepts: updatedCharacter.concepts });
         }
       }
     } catch (error) {
