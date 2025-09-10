@@ -12,10 +12,12 @@ import {
   Edit3,
   Save,
   Trash2,
-  MessageCircle
+  MessageCircle,
+  Upload
 } from 'lucide-react';
 import StoryboardDrawer from './StoryboardDrawer';
 import CommentThread from './CommentThread';
+import { useS3Upload } from '@/hooks/useS3Upload';
 
 interface EpisodeDetailProps {
   episode: Episode;
@@ -50,6 +52,10 @@ export default function EpisodeDetail({
     type: 'storyboard' | 'inspiration';
   } | null>(null);
   const [uploadingDrawing, setUploadingDrawing] = useState(false);
+
+  // Image upload states
+  const [uploadingImages, setUploadingImages] = useState<{[key: string]: boolean}>({});
+  const { uploadFile } = useS3Upload();
 
   // Sync local episode with prop
   useEffect(() => {
@@ -194,6 +200,62 @@ export default function EpisodeDetail({
       setUploadingDrawing(false);
       setShowDrawer(false);
       setDrawingContext(null);
+    }
+  };
+
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>, shotId: string, sceneId: string, type: 'storyboard' | 'inspiration') => {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+
+    const uploadKey = `${shotId}-${type}`;
+    setUploadingImages(prev => ({ ...prev, [uploadKey]: true }));
+
+    try {
+      for (const file of files) {
+        // Generate unique key for the file
+        const fileKey = `episodes/${episode.id}/scenes/${sceneId}/shots/${shotId}/${type}/${Date.now()}-${file.name}`;
+        
+        // Upload to S3
+        const result = await uploadFile(file, fileKey);
+        
+        if (result) {
+          // Update the shot with the new image URL
+          const updatedScenes = localEpisode.scenes?.map(s => {
+            if (s.id === sceneId) {
+              return {
+                ...s,
+                shots: s.shots?.map(shot => {
+                  if (shot.id === shotId) {
+                    if (type === 'storyboard') {
+                      return {
+                        ...shot,
+                        storyboards: [...(shot.storyboards || []), result.url],
+                      };
+                    } else {
+                      return {
+                        ...shot,
+                        inspirationImages: [...(shot.inspirationImages || []), result.url],
+                      };
+                    }
+                  }
+                  return shot;
+                }),
+              };
+            }
+            return s;
+          });
+
+          const updatedEpisode: Episode = {
+            ...localEpisode,
+            scenes: updatedScenes,
+          };
+          updateEpisodeAndSave(updatedEpisode);
+        }
+      }
+    } catch (error) {
+      console.error('Error uploading image:', error);
+    } finally {
+      setUploadingImages(prev => ({ ...prev, [uploadKey]: false }));
     }
   };
 
@@ -500,10 +562,22 @@ export default function EpisodeDetail({
                                         <Palette className="w-3 h-3" />
                                         <span>Draw</span>
                                       </button>
-                                      <button className="flex items-center space-x-1 px-2 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-700">
-                                        <ImageIcon className="w-3 h-3" />
-                                        <span>Upload</span>
-                                      </button>
+                                      <label className={`flex items-center space-x-1 px-2 py-1 text-white text-xs rounded cursor-pointer ${
+                                        uploadingImages[`${shot.id}-storyboard`] 
+                                          ? 'bg-gray-400 cursor-not-allowed' 
+                                          : 'bg-gray-600 hover:bg-gray-700'
+                                      }`}>
+                                        <Upload className="w-3 h-3" />
+                                        <span>{uploadingImages[`${shot.id}-storyboard`] ? 'Uploading...' : 'Upload'}</span>
+                                        <input
+                                          type="file"
+                                          accept="image/*"
+                                          multiple
+                                          disabled={uploadingImages[`${shot.id}-storyboard`]}
+                                          onChange={(e) => handleImageUpload(e, shot.id, scene.id, 'storyboard')}
+                                          className="hidden"
+                                        />
+                                      </label>
                                     </div>
                                   </div>
                                   {shot.storyboards && shot.storyboards.length > 0 ? (
@@ -532,10 +606,22 @@ export default function EpisodeDetail({
                                 <div>
                                   <div className="flex items-center justify-between mb-2">
                                     <h6 className="text-sm font-medium text-gray-700">Inspiration Images</h6>
-                                    <button className="flex items-center space-x-1 px-2 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-700">
-                                      <ImageIcon className="w-3 h-3" />
-                                      <span>Upload</span>
-                                    </button>
+                                    <label className={`flex items-center space-x-1 px-2 py-1 text-white text-xs rounded cursor-pointer ${
+                                      uploadingImages[`${shot.id}-inspiration`] 
+                                        ? 'bg-gray-400 cursor-not-allowed' 
+                                        : 'bg-gray-600 hover:bg-gray-700'
+                                    }`}>
+                                      <Upload className="w-3 h-3" />
+                                      <span>{uploadingImages[`${shot.id}-inspiration`] ? 'Uploading...' : 'Upload'}</span>
+                                      <input
+                                        type="file"
+                                        accept="image/*"
+                                        multiple
+                                        disabled={uploadingImages[`${shot.id}-inspiration`]}
+                                        onChange={(e) => handleImageUpload(e, shot.id, scene.id, 'inspiration')}
+                                        className="hidden"
+                                      />
+                                    </label>
                                   </div>
                                   {shot.inspirationImages && shot.inspirationImages.length > 0 ? (
                                     <div className="flex space-x-2">
