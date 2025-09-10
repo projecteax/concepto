@@ -192,6 +192,7 @@ FADE OUT.`,
             description: 'The main headquarters where the mission briefing takes place'
           }
         ],
+        scenes: [],
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
       });

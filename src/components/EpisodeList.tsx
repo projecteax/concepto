@@ -49,6 +49,7 @@ export function EpisodeList({
         episodeNumber: newEpisodeNumber,
         characters: [],
         locations: [],
+        scenes: [],
       };
       
       // Only add description if it's not empty

@@ -84,6 +84,7 @@ export function ShowDashboard({
         episodeNumber: newEpisodeNumber,
         characters: [],
         locations: [],
+        scenes: [],
       });
       setNewEpisodeTitle('');
       setNewEpisodeNumber(1);

@@ -83,6 +83,7 @@ export interface Episode {
   script?: string;
   characters: EpisodeCharacter[];
   locations: EpisodeLocation[];
+  scenes: EpisodeScene[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -98,6 +99,53 @@ export interface EpisodeLocation {
   locationId: string;
   locationName: string;
   description?: string;
+}
+
+export interface EpisodeScene {
+  id: string;
+  sceneNumber: number;
+  title: string;
+  description?: string;
+  script?: string;
+  locationId?: string;
+  locationName?: string;
+  characters: SceneCharacter[];
+  gadgets: SceneGadget[];
+  storyboards: Storyboard[];
+  inspirationImages: string[];
+  cameraShots: CameraShot[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface SceneCharacter {
+  characterId: string;
+  characterName: string;
+  role?: string;
+  isPresent: boolean;
+}
+
+export interface SceneGadget {
+  gadgetId: string;
+  gadgetName: string;
+  description?: string;
+}
+
+export interface Storyboard {
+  id: string;
+  imageUrl: string;
+  description?: string;
+  shotNumber: number;
+}
+
+export interface CameraShot {
+  id: string;
+  shotType: 'WIDE' | 'MEDIUM' | 'CLOSE_UP' | 'EXTREME_CLOSE_UP' | 'OVER_THE_SHOULDER' | 'POV' | 'ESTABLISHING' | 'CUSTOM';
+  customShotType?: string;
+  description?: string;
+  cameraMovement?: 'STATIC' | 'PAN' | 'TILT' | 'DOLLY' | 'TRACK' | 'ZOOM' | 'CUSTOM';
+  customMovement?: string;
+  duration?: number; // in seconds
 }
 
 // Generation

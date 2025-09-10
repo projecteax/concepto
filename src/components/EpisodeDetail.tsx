@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Show, Episode, EpisodeCharacter, EpisodeLocation, GlobalAsset } from '@/types';
+import { Show, Episode, EpisodeCharacter, EpisodeLocation, GlobalAsset, EpisodeScene, SceneCharacter, SceneGadget } from '@/types';
 import { 
   ArrowLeft, 
   Save, 
@@ -11,7 +11,12 @@ import {
   MapPin,
   FileText,
   UserPlus,
-  MapPinPlus
+  MapPinPlus,
+  Plus,
+  Image as ImageIcon,
+  Video,
+  Settings,
+  Eye
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -38,27 +43,30 @@ export function EpisodeDetail({
   onAddLocation,
   onRemoveLocation
 }: EpisodeDetailProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'script' | 'characters' | 'locations'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'scenes' | 'characters' | 'locations'>('overview');
   const [isEditing, setIsEditing] = useState(false);
+  const [selectedScene, setSelectedScene] = useState<EpisodeScene | null>(null);
   
   // Form states
   const [title, setTitle] = useState(episode.title);
   const [description, setDescription] = useState(episode.description || '');
   const [script, setScript] = useState(episode.script || '');
   
+  // Scene management
+  const [showAddScene, setShowAddScene] = useState(false);
+  const [newSceneTitle, setNewSceneTitle] = useState('');
+  const [newSceneDescription, setNewSceneDescription] = useState('');
+  const [newSceneScript, setNewSceneScript] = useState('');
+  
   // Character assignment
   const [showAddCharacter, setShowAddCharacter] = useState(false);
-  const [selectedCharacter, setSelectedCharacter] = useState('');
-  const [characterType, setCharacterType] = useState<'recurring' | 'episodic'>('recurring');
-  const [characterRole, setCharacterRole] = useState('');
   
   // Location assignment
   const [showAddLocation, setShowAddLocation] = useState(false);
-  const [selectedLocation, setSelectedLocation] = useState('');
-  const [locationDescription, setLocationDescription] = useState('');
 
-  const availableCharacters = globalAssets.filter(asset => asset.category === 'character');
-  const availableLocations = globalAssets.filter(asset => asset.category === 'location');
+  const characters = globalAssets.filter(asset => asset.category === 'character');
+  const locations = globalAssets.filter(asset => asset.category === 'location');
+  const gadgets = globalAssets.filter(asset => asset.category === 'gadget');
 
   const handleSave = () => {
     const updatedEpisode: Episode = {
@@ -71,64 +79,161 @@ export function EpisodeDetail({
     setIsEditing(false);
   };
 
-  const handleAddCharacter = () => {
-    if (selectedCharacter) {
-      const character = availableCharacters.find(c => c.id === selectedCharacter);
-      if (character) {
-        onAddCharacter({
-          characterId: character.id,
-          characterName: character.name,
-          type: characterType,
-          role: characterRole || undefined,
-        });
-        setSelectedCharacter('');
-        setCharacterRole('');
-        setShowAddCharacter(false);
-      }
+  const handleAddScene = () => {
+    if (newSceneTitle.trim()) {
+      const newScene: EpisodeScene = {
+        id: `scene-${Date.now()}`,
+        sceneNumber: episode.scenes.length + 1,
+        title: newSceneTitle.trim(),
+        description: newSceneDescription.trim() || undefined,
+        script: newSceneScript.trim() || undefined,
+        characters: [],
+        gadgets: [],
+        storyboards: [],
+        inspirationImages: [],
+        cameraShots: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      
+      const updatedEpisode: Episode = {
+        ...episode,
+        scenes: [...episode.scenes, newScene],
+      };
+      onSave(updatedEpisode);
+      setNewSceneTitle('');
+      setNewSceneDescription('');
+      setNewSceneScript('');
+      setShowAddScene(false);
     }
   };
 
-  const handleAddLocation = () => {
-    if (selectedLocation) {
-      const location = availableLocations.find(l => l.id === selectedLocation);
-      if (location) {
-        onAddLocation({
+  const handleDeleteScene = (sceneId: string) => {
+    const updatedEpisode: Episode = {
+      ...episode,
+      scenes: episode.scenes.filter(scene => scene.id !== sceneId),
+    };
+    onSave(updatedEpisode);
+    if (selectedScene?.id === sceneId) {
+      setSelectedScene(null);
+    }
+  };
+
+
+  const handleAddCharacterToScene = (sceneId: string, characterId: string, role: string) => {
+    const character = characters.find(c => c.id === characterId);
+    if (!character) return;
+
+    const sceneCharacter: SceneCharacter = {
+      characterId: character.id,
+      characterName: character.name,
+      role: role.trim() || undefined,
+      isPresent: true,
+    };
+
+    const updatedScenes = episode.scenes.map(scene => {
+      if (scene.id === sceneId) {
+        return {
+          ...scene,
+          characters: [...scene.characters, sceneCharacter],
+          updatedAt: new Date(),
+        };
+      }
+      return scene;
+    });
+
+    const updatedEpisode: Episode = {
+      ...episode,
+      scenes: updatedScenes,
+    };
+    onSave(updatedEpisode);
+  };
+
+  const handleAddGadgetToScene = (sceneId: string, gadgetId: string) => {
+    const gadget = gadgets.find(g => g.id === gadgetId);
+    if (!gadget) return;
+
+    const sceneGadget: SceneGadget = {
+      gadgetId: gadget.id,
+      gadgetName: gadget.name,
+      description: gadget.description,
+    };
+
+    const updatedScenes = episode.scenes.map(scene => {
+      if (scene.id === sceneId) {
+        return {
+          ...scene,
+          gadgets: [...scene.gadgets, sceneGadget],
+          updatedAt: new Date(),
+        };
+      }
+      return scene;
+    });
+
+    const updatedEpisode: Episode = {
+      ...episode,
+      scenes: updatedScenes,
+    };
+    onSave(updatedEpisode);
+  };
+
+  const handleAssignLocationToScene = (sceneId: string, locationId: string) => {
+    const location = locations.find(l => l.id === locationId);
+    if (!location) return;
+
+    const updatedScenes = episode.scenes.map(scene => {
+      if (scene.id === sceneId) {
+        return {
+          ...scene,
           locationId: location.id,
           locationName: location.name,
-          description: locationDescription || undefined,
-        });
-        setSelectedLocation('');
-        setLocationDescription('');
-        setShowAddLocation(false);
+          updatedAt: new Date(),
+        };
       }
-    }
+      return scene;
+    });
+
+    const updatedEpisode: Episode = {
+      ...episode,
+      scenes: updatedScenes,
+    };
+    onSave(updatedEpisode);
   };
 
   const tabs = [
-    { id: 'overview', label: 'Overview', icon: '📋' },
-    { id: 'script', label: 'Script', icon: '📝' },
-    { id: 'characters', label: 'Characters', icon: '👥' },
-    { id: 'locations', label: 'Locations', icon: '📍' },
-  ] as const;
+    { id: 'overview', label: 'Overview', icon: FileText },
+    { id: 'scenes', label: 'Scenes', icon: Video },
+    { id: 'characters', label: 'Characters', icon: Users },
+    { id: 'locations', label: 'Locations', icon: MapPin },
+  ];
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200">
-        <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
             <div className="flex items-center space-x-4">
               <button
                 onClick={onBack}
-                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">
-                  Episode {episode.episodeNumber}: {title}
+                <h1 className="text-xl font-semibold text-gray-900">
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      className="bg-transparent border-none outline-none text-xl font-semibold"
+                    />
+                  ) : (
+                    episode.title
+                  )}
                 </h1>
-                <p className="text-sm text-gray-600">{show.name}</p>
+                <p className="text-sm text-gray-500">{show.name} • Episode {episode.episodeNumber}</p>
               </div>
             </div>
             <div className="flex items-center space-x-3">
@@ -142,19 +247,19 @@ export function EpisodeDetail({
                   </button>
                   <button
                     onClick={handleSave}
-                    className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
                   >
-                    <Save className="w-4 h-4" />
-                    <span>Save</span>
+                    <Save className="w-4 h-4 mr-2" />
+                    Save
                   </button>
                 </>
               ) : (
                 <button
                   onClick={() => setIsEditing(true)}
-                  className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
                 >
-                  <Edit3 className="w-4 h-4" />
-                  <span>Edit</span>
+                  <Edit3 className="w-4 h-4 mr-2" />
+                  Edit
                 </button>
               )}
             </div>
@@ -162,53 +267,37 @@ export function EpisodeDetail({
         </div>
       </div>
 
-      <div className="container mx-auto px-6 py-8">
-        <div className="flex gap-8">
-          {/* Sidebar */}
-          <div className="w-64 flex-shrink-0">
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Sections</h2>
-              <div className="space-y-2">
-                {tabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={cn(
-                      "w-full flex items-center space-x-3 px-3 py-2 text-sm rounded-lg transition-colors",
-                      activeTab === tab.id
-                        ? "bg-green-100 text-green-700"
-                        : "text-gray-700 hover:bg-gray-100"
-                    )}
-                  >
-                    <span className="text-lg">{tab.icon}</span>
-                    <span>{tab.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Tabs */}
+        <div className="border-b border-gray-200 mb-8">
+          <nav className="-mb-px flex space-x-8">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as 'overview' | 'scenes' | 'characters' | 'locations')}
+                  className={cn(
+                    "flex items-center space-x-2 py-2 px-1 border-b-2 font-medium text-sm transition-colors",
+                    activeTab === tab.id
+                      ? "border-indigo-500 text-indigo-600"
+                      : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  )}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </div>
 
-          {/* Main Content */}
-          <div className="flex-1">
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
-              {/* Overview Tab */}
-              {activeTab === 'overview' && (
-                <div className="space-y-6">
-                  <h3 className="text-xl font-semibold text-gray-900">Episode Overview</h3>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Episode Title
-                    </label>
-                    <input
-                      type="text"
-                      value={title}
-                      onChange={(e) => setTitle(e.target.value)}
-                      disabled={!isEditing}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent disabled:bg-gray-50"
-                    />
-                  </div>
-
+        {/* Tab Content */}
+        {activeTab === 'overview' && (
+          <div className="space-y-6">
+            {isEditing ? (
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Description
@@ -216,346 +305,367 @@ export function EpisodeDetail({
                     <textarea
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
-                      placeholder="Describe the episode's plot and key events..."
-                      disabled={!isEditing}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none disabled:bg-gray-50"
+                      placeholder="Enter episode description..."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
                       rows={4}
                     />
                   </div>
-
-                  {/* Episode Stats */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <Users className="w-5 h-5 text-green-600" />
-                        <span className="font-medium text-gray-900">Characters</span>
-                      </div>
-                      <div className="text-2xl font-bold text-gray-900">{episode.characters.length}</div>
-                      <div className="text-sm text-gray-600">
-                        {episode.characters.filter(c => c.type === 'recurring').length} recurring, {' '}
-                        {episode.characters.filter(c => c.type === 'episodic').length} episodic
-                      </div>
-                    </div>
-
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <MapPin className="w-5 h-5 text-blue-600" />
-                        <span className="font-medium text-gray-900">Locations</span>
-                      </div>
-                      <div className="text-2xl font-bold text-gray-900">{episode.locations.length}</div>
-                      <div className="text-sm text-gray-600">Unique locations</div>
-                    </div>
-
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <FileText className="w-5 h-5 text-purple-600" />
-                        <span className="font-medium text-gray-900">Script</span>
-                      </div>
-                      <div className="text-2xl font-bold text-gray-900">
-                        {episode.script ? Math.ceil(episode.script.length / 1000) : 0}
-                      </div>
-                      <div className="text-sm text-gray-600">Pages (approx.)</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Script Tab */}
-              {activeTab === 'script' && (
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-xl font-semibold text-gray-900">Script</h3>
-                    <div className="flex items-center space-x-2 text-sm text-gray-500">
-                      <FileText className="w-4 h-4" />
-                      <span>{script.length} characters</span>
-                    </div>
-                  </div>
-                  
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Script Content
+                      Script
                     </label>
                     <textarea
                       value={script}
                       onChange={(e) => setScript(e.target.value)}
-                      placeholder="Write your episode script here...&#10;&#10;You can use standard script formatting:&#10;&#10;FADE IN:&#10;&#10;INT. LIVING ROOM - DAY&#10;&#10;CHARACTER NAME&#10;Dialogue goes here.&#10;&#10;(Action description)&#10;&#10;CHARACTER NAME&#10;More dialogue.&#10;&#10;FADE OUT."
-                      disabled={!isEditing}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none font-mono text-sm disabled:bg-gray-50"
-                      rows={20}
+                      placeholder="Enter episode script..."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                      rows={10}
                     />
                   </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {episode.description && (
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <h3 className="text-lg font-medium text-gray-900 mb-3">Description</h3>
+                    <p className="text-gray-700 whitespace-pre-wrap">{episode.description}</p>
+                  </div>
+                )}
+                {episode.script && (
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <h3 className="text-lg font-medium text-gray-900 mb-3">Script</h3>
+                    <pre className="text-gray-700 whitespace-pre-wrap font-mono text-sm">{episode.script}</pre>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
-                  {!isEditing && (
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <div className="flex items-center space-x-2 text-blue-800">
-                        <Edit3 className="w-4 h-4" />
-                        <span className="font-medium">Script Tips</span>
-                      </div>
-                      <ul className="mt-2 text-sm text-blue-700 space-y-1">
-                        <li>• Use standard script formatting for better readability</li>
-                        <li>• Include scene headings (INT./EXT. LOCATION - TIME)</li>
-                        <li>• Write character names in CAPS for dialogue</li>
-                        <li>• Use action descriptions in parentheses</li>
-                      </ul>
+        {activeTab === 'scenes' && (
+          <div className="space-y-6">
+            {/* Add Scene Button */}
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-medium text-gray-900">Scenes</h2>
+              <button
+                onClick={() => setShowAddScene(true)}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Add Scene
+              </button>
+            </div>
+
+            {/* Scenes List */}
+            <div className="grid gap-4">
+              {episode.scenes.map((scene) => (
+                <div key={scene.id} className="bg-white rounded-lg shadow p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-lg font-medium text-gray-900">
+                        Scene {scene.sceneNumber}: {scene.title}
+                      </h3>
+                      {scene.description && (
+                        <p className="text-gray-600 mt-1">{scene.description}</p>
+                      )}
                     </div>
-                  )}
-                </div>
-              )}
-
-              {/* Characters Tab */}
-              {activeTab === 'characters' && (
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-xl font-semibold text-gray-900">Characters</h3>
-                    <button
-                      onClick={() => setShowAddCharacter(true)}
-                      className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                    >
-                      <UserPlus className="w-4 h-4" />
-                      <span>Add Character</span>
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => setSelectedScene(scene)}
+                        className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteScene(scene.id)}
+                        className="p-2 text-red-400 hover:text-red-600 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="space-y-4">
-                    {episode.characters.map((character) => (
-                      <div key={character.characterId} className="border border-gray-200 rounded-lg p-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <h4 className="font-medium text-gray-900">{character.characterName}</h4>
-                            <div className="flex items-center space-x-4 text-sm text-gray-600 mt-1">
-                              <span className={cn(
-                                "px-2 py-1 rounded-full text-xs",
-                                character.type === 'recurring' 
-                                  ? "bg-blue-100 text-blue-700" 
-                                  : "bg-orange-100 text-orange-700"
-                              )}>
-                                {character.type}
-                              </span>
-                              {character.role && (
-                                <span>Role: {character.role}</span>
-                              )}
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => onRemoveCharacter(character.characterId)}
-                            className="p-1 text-gray-400 hover:text-red-600"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                  {/* Scene Details */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Location */}
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700">Location</label>
+                      {scene.locationName ? (
+                        <div className="flex items-center space-x-2">
+                          <MapPin className="w-4 h-4 text-gray-400" />
+                          <span className="text-sm text-gray-900">{scene.locationName}</span>
                         </div>
-                      </div>
-                    ))}
+                      ) : (
+                        <select
+                          onChange={(e) => handleAssignLocationToScene(scene.id, e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
+                          defaultValue=""
+                        >
+                          <option value="">Select location...</option>
+                          {locations.map((location) => (
+                            <option key={location.id} value={location.id}>
+                              {location.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
 
-                    {episode.characters.length === 0 && (
-                      <div className="text-center py-8 text-gray-500">
-                        <Users className="w-12 h-12 mx-auto mb-3 text-gray-400" />
-                        <p>No characters assigned to this episode yet.</p>
-                        <p className="text-sm">Add characters from your global assets.</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Locations Tab */}
-              {activeTab === 'locations' && (
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-xl font-semibold text-gray-900">Locations</h3>
-                    <button
-                      onClick={() => setShowAddLocation(true)}
-                      className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                    >
-                      <MapPinPlus className="w-4 h-4" />
-                      <span>Add Location</span>
-                    </button>
-                  </div>
-
-                  <div className="space-y-4">
-                    {episode.locations.map((location) => (
-                      <div key={location.locationId} className="border border-gray-200 rounded-lg p-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <h4 className="font-medium text-gray-900">{location.locationName}</h4>
-                            {location.description && (
-                              <p className="text-sm text-gray-600 mt-1">{location.description}</p>
+                    {/* Characters */}
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700">Characters</label>
+                      <div className="space-y-1">
+                        {scene.characters.map((char) => (
+                          <div key={char.characterId} className="flex items-center space-x-2">
+                            <Users className="w-4 h-4 text-gray-400" />
+                            <span className="text-sm text-gray-900">{char.characterName}</span>
+                            {char.role && (
+                              <span className="text-xs text-gray-500">({char.role})</span>
                             )}
                           </div>
-                          <button
-                            onClick={() => onRemoveLocation(location.locationId)}
-                            className="p-1 text-gray-400 hover:text-red-600"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+                        ))}
+                        <select
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              handleAddCharacterToScene(scene.id, e.target.value, '');
+                            }
+                          }}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
+                          defaultValue=""
+                        >
+                          <option value="">Add character...</option>
+                          {characters
+                            .filter(char => !scene.characters.some(sc => sc.characterId === char.id))
+                            .map((character) => (
+                              <option key={character.id} value={character.id}>
+                                {character.name}
+                              </option>
+                            ))}
+                        </select>
                       </div>
-                    ))}
+                    </div>
 
-                    {episode.locations.length === 0 && (
-                      <div className="text-center py-8 text-gray-500">
-                        <MapPin className="w-12 h-12 mx-auto mb-3 text-gray-400" />
-                        <p>No locations assigned to this episode yet.</p>
-                        <p className="text-sm">Add locations from your global assets.</p>
+                    {/* Gadgets */}
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700">Gadgets</label>
+                      <div className="space-y-1">
+                        {scene.gadgets.map((gadget) => (
+                          <div key={gadget.gadgetId} className="flex items-center space-x-2">
+                            <Settings className="w-4 h-4 text-gray-400" />
+                            <span className="text-sm text-gray-900">{gadget.gadgetName}</span>
+                          </div>
+                        ))}
+                        <select
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              handleAddGadgetToScene(scene.id, e.target.value);
+                            }
+                          }}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
+                          defaultValue=""
+                        >
+                          <option value="">Add gadget...</option>
+                          {gadgets
+                            .filter(gadget => !scene.gadgets.some(sg => sg.gadgetId === gadget.id))
+                            .map((gadget) => (
+                              <option key={gadget.id} value={gadget.id}>
+                                {gadget.name}
+                              </option>
+                            ))}
+                        </select>
                       </div>
-                    )}
+                    </div>
+                  </div>
+
+                  {/* Storyboards and Inspiration Images */}
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Storyboards</label>
+                      <div className="flex space-x-2">
+                        {scene.storyboards.map((storyboard) => (
+                          <div key={storyboard.id} className="relative">
+                            <img
+                              src={storyboard.imageUrl}
+                              alt={`Storyboard ${storyboard.shotNumber}`}
+                              className="w-16 h-12 object-cover rounded border"
+                            />
+                            <span className="absolute -top-1 -right-1 bg-indigo-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                              {storyboard.shotNumber}
+                            </span>
+                          </div>
+                        ))}
+                        <button className="w-16 h-12 border-2 border-dashed border-gray-300 rounded flex items-center justify-center text-gray-400 hover:border-gray-400 transition-colors">
+                          <Plus className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Inspiration Images</label>
+                      <div className="flex space-x-2">
+                        {scene.inspirationImages.map((imageUrl, index) => (
+                          <img
+                            key={index}
+                            src={imageUrl}
+                            alt={`Inspiration ${index + 1}`}
+                            className="w-16 h-12 object-cover rounded border"
+                          />
+                        ))}
+                        <button className="w-16 h-12 border-2 border-dashed border-gray-300 rounded flex items-center justify-center text-gray-400 hover:border-gray-400 transition-colors">
+                          <ImageIcon className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              )}
+              ))}
+            </div>
+
+            {/* Add Scene Modal */}
+            {showAddScene && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+                  <div className="p-6">
+                    <h3 className="text-lg font-medium text-gray-900 mb-4">Add New Scene</h3>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Scene Title
+                        </label>
+                        <input
+                          type="text"
+                          value={newSceneTitle}
+                          onChange={(e) => setNewSceneTitle(e.target.value)}
+                          placeholder="Enter scene title..."
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Description (Optional)
+                        </label>
+                        <textarea
+                          value={newSceneDescription}
+                          onChange={(e) => setNewSceneDescription(e.target.value)}
+                          placeholder="Enter scene description..."
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                          rows={3}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Script (Optional)
+                        </label>
+                        <textarea
+                          value={newSceneScript}
+                          onChange={(e) => setNewSceneScript(e.target.value)}
+                          placeholder="Enter scene script..."
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                          rows={4}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex space-x-3 mt-6">
+                      <button
+                        onClick={handleAddScene}
+                        disabled={!newSceneTitle.trim()}
+                        className={cn(
+                          "flex-1 px-4 py-2 rounded-lg font-medium transition-colors",
+                          newSceneTitle.trim()
+                            ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                            : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                        )}
+                      >
+                        Add Scene
+                      </button>
+                      <button
+                        onClick={() => setShowAddScene(false)}
+                        className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Characters and Locations tabs remain the same for now */}
+        {activeTab === 'characters' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-medium text-gray-900">Episode Characters</h2>
+              <button
+                onClick={() => setShowAddCharacter(true)}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+              >
+                <UserPlus className="w-4 h-4 mr-2" />
+                Add Character
+              </button>
+            </div>
+
+            <div className="grid gap-4">
+              {episode.characters.map((character) => (
+                <div key={character.characterId} className="bg-white rounded-lg shadow p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-medium text-gray-900">{character.characterName}</h3>
+                      <p className="text-sm text-gray-500">
+                        {character.type} • {character.role || 'No specific role'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => onRemoveCharacter(character.characterId)}
+                      className="p-2 text-red-400 hover:text-red-600 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
-        </div>
+        )}
+
+        {activeTab === 'locations' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-medium text-gray-900">Episode Locations</h2>
+              <button
+                onClick={() => setShowAddLocation(true)}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+              >
+                <MapPinPlus className="w-4 h-4 mr-2" />
+                Add Location
+              </button>
+            </div>
+
+            <div className="grid gap-4">
+              {episode.locations.map((location) => (
+                <div key={location.locationId} className="bg-white rounded-lg shadow p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-medium text-gray-900">{location.locationName}</h3>
+                      {location.description && (
+                        <p className="text-sm text-gray-500 mt-1">{location.description}</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => onRemoveLocation(location.locationId)}
+                      className="p-2 text-red-400 hover:text-red-600 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
-
-      {/* Add Character Modal */}
-      {showAddCharacter && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg max-w-md w-full mx-4">
-            <div className="p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Add Character</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Character
-                  </label>
-                  <select
-                    value={selectedCharacter}
-                    onChange={(e) => setSelectedCharacter(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  >
-                    <option value="">Select a character...</option>
-                    {availableCharacters.map((character) => (
-                      <option key={character.id} value={character.id}>
-                        {character.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Type
-                  </label>
-                  <div className="flex space-x-4">
-                    <label className="flex items-center">
-                      <input
-                        type="radio"
-                        value="recurring"
-                        checked={characterType === 'recurring'}
-                        onChange={(e) => setCharacterType(e.target.value as 'recurring' | 'episodic')}
-                        className="mr-2"
-                      />
-                      Recurring
-                    </label>
-                    <label className="flex items-center">
-                      <input
-                        type="radio"
-                        value="episodic"
-                        checked={characterType === 'episodic'}
-                        onChange={(e) => setCharacterType(e.target.value as 'recurring' | 'episodic')}
-                        className="mr-2"
-                      />
-                      Episodic
-                    </label>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Role (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={characterRole}
-                    onChange={(e) => setCharacterRole(e.target.value)}
-                    placeholder="e.g., Main character, Villain, Helper..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  />
-                </div>
-                <div className="flex space-x-3">
-                  <button
-                    onClick={handleAddCharacter}
-                    disabled={!selectedCharacter}
-                    className={cn(
-                      "flex-1 px-4 py-2 rounded-lg font-medium transition-colors",
-                      selectedCharacter
-                        ? "bg-green-600 text-white hover:bg-green-700"
-                        : "bg-gray-100 text-gray-400 cursor-not-allowed"
-                    )}
-                  >
-                    Add Character
-                  </button>
-                  <button
-                    onClick={() => setShowAddCharacter(false)}
-                    className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Location Modal */}
-      {showAddLocation && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg max-w-md w-full mx-4">
-            <div className="p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Add Location</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Location
-                  </label>
-                  <select
-                    value={selectedLocation}
-                    onChange={(e) => setSelectedLocation(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  >
-                    <option value="">Select a location...</option>
-                    {availableLocations.map((location) => (
-                      <option key={location.id} value={location.id}>
-                        {location.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Episode-specific Description (Optional)
-                  </label>
-                  <textarea
-                    value={locationDescription}
-                    onChange={(e) => setLocationDescription(e.target.value)}
-                    placeholder="Describe how this location appears in this episode..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none"
-                    rows={3}
-                  />
-                </div>
-                <div className="flex space-x-3">
-                  <button
-                    onClick={handleAddLocation}
-                    disabled={!selectedLocation}
-                    className={cn(
-                      "flex-1 px-4 py-2 rounded-lg font-medium transition-colors",
-                      selectedLocation
-                        ? "bg-green-600 text-white hover:bg-green-700"
-                        : "bg-gray-100 text-gray-400 cursor-not-allowed"
-                    )}
-                  >
-                    Add Location
-                  </button>
-                  <button
-                    onClick={() => setShowAddLocation(false)}
-                    className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
