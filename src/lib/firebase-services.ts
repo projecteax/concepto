@@ -43,8 +43,13 @@ export const showService = {
   },
 
   async update(id: string, updates: Partial<Show>): Promise<void> {
+    // Filter out undefined values to prevent Firebase errors
+    const cleanUpdates = Object.fromEntries(
+      Object.entries(updates).filter(([, value]) => value !== undefined)
+    );
+    
     await updateDoc(doc(db, 'shows', id), {
-      ...updates,
+      ...cleanUpdates,
       updatedAt: Timestamp.now(),
     });
   },
@@ -91,8 +96,13 @@ export const globalAssetService = {
   },
 
   async update(id: string, updates: Partial<GlobalAsset>): Promise<void> {
+    // Filter out undefined values to prevent Firebase errors
+    const cleanUpdates = Object.fromEntries(
+      Object.entries(updates).filter(([, value]) => value !== undefined)
+    );
+    
     await updateDoc(doc(db, 'globalAssets', id), {
-      ...updates,
+      ...cleanUpdates,
       updatedAt: Timestamp.now(),
     });
   },
@@ -142,8 +152,13 @@ export const episodeService = {
   },
 
   async update(id: string, updates: Partial<Episode>): Promise<void> {
+    // Filter out undefined values to prevent Firebase errors
+    const cleanUpdates = Object.fromEntries(
+      Object.entries(updates).filter(([, value]) => value !== undefined)
+    );
+    
     await updateDoc(doc(db, 'episodes', id), {
-      ...updates,
+      ...cleanUpdates,
       updatedAt: Timestamp.now(),
     });
   },
@@ -189,8 +204,13 @@ export const assetConceptService = {
   },
 
   async update(id: string, updates: Partial<AssetConcept>): Promise<void> {
+    // Filter out undefined values to prevent Firebase errors
+    const cleanUpdates = Object.fromEntries(
+      Object.entries(updates).filter(([, value]) => value !== undefined)
+    );
+    
     await updateDoc(doc(db, 'assetConcepts', id), {
-      ...updates,
+      ...cleanUpdates,
       updatedAt: Timestamp.now(),
     });
   },
