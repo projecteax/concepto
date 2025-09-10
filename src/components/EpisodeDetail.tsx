@@ -19,9 +19,11 @@ import {
   Settings,
   Eye,
   X,
-  Camera
+  Camera,
+  Palette
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import StoryboardDrawer from './StoryboardDrawer';
 
 interface EpisodeDetailProps {
   show: Show;
@@ -64,6 +66,14 @@ export default function EpisodeDetail({
   // Character and Location states
   const [showAddCharacter, setShowAddCharacter] = useState(false);
   const [showAddLocation, setShowAddLocation] = useState(false);
+  
+  // Drawing states
+  const [showDrawer, setShowDrawer] = useState(false);
+  const [drawingContext, setDrawingContext] = useState<{
+    shotId: string;
+    sceneId: string;
+    type: 'storyboard' | 'inspiration';
+  } | null>(null);
 
   const handleSave = () => {
     const updatedEpisode: Episode = {
@@ -284,6 +294,62 @@ export default function EpisodeDetail({
       scenes: updatedScenes,
     };
     onSave(updatedEpisode);
+  };
+
+  const handleOpenDrawer = (shotId: string, sceneId: string, type: 'storyboard' | 'inspiration') => {
+    setDrawingContext({ shotId, sceneId, type });
+    setShowDrawer(true);
+  };
+
+  const handleSaveDrawing = (imageData: string) => {
+    if (!drawingContext) return;
+
+    const currentScenes = episode.scenes || [];
+    const updatedScenes = currentScenes.map(scene => {
+      if (scene.id === drawingContext.sceneId) {
+        return {
+          ...scene,
+          shots: scene.shots.map(shot => {
+            if (shot.id === drawingContext.shotId) {
+              if (drawingContext.type === 'storyboard') {
+                const newStoryboard = {
+                  id: `storyboard-${Date.now()}`,
+                  imageUrl: imageData,
+                  description: 'Drawn storyboard',
+                };
+                return {
+                  ...shot,
+                  storyboards: [...shot.storyboards, newStoryboard],
+                  updatedAt: new Date(),
+                };
+              } else {
+                return {
+                  ...shot,
+                  inspirationImages: [...shot.inspirationImages, imageData],
+                  updatedAt: new Date(),
+                };
+              }
+            }
+            return shot;
+          }),
+          updatedAt: new Date(),
+        };
+      }
+      return scene;
+    });
+
+    const updatedEpisode: Episode = {
+      ...episode,
+      scenes: updatedScenes,
+    };
+    onSave(updatedEpisode);
+    setShowDrawer(false);
+    setDrawingContext(null);
+  };
+
+  const handleCloseDrawer = () => {
+    setShowDrawer(false);
+    setDrawingContext(null);
   };
 
   const tabs = [
@@ -855,22 +921,130 @@ export default function EpisodeDetail({
                                     <label className="block text-sm font-medium text-gray-700 mb-1">
                                       Storyboards
                                     </label>
-                                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">
-                                      <ImageIcon className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                                      <p className="text-sm text-gray-500">Upload storyboard images</p>
-                                      <p className="text-xs text-gray-400">Coming soon</p>
-            </div>
-          </div>
+                                    <div className="space-y-2">
+                                      {/* Existing Storyboards */}
+                                      {shot.storyboards.length > 0 && (
+                                        <div className="grid grid-cols-2 gap-2">
+                                          {shot.storyboards.map((storyboard) => (
+                                            <div key={storyboard.id} className="relative">
+                                              <img 
+                                                src={storyboard.imageUrl} 
+                                                alt={storyboard.description || 'Storyboard'}
+                                                className="w-full h-24 object-cover rounded border"
+                                              />
+                                              <button
+                                                onClick={() => {
+                                                  // Remove storyboard logic here
+                                                  const currentScenes = episode.scenes || [];
+                                                  const updatedScenes = currentScenes.map(s => {
+                                                    if (s.id === scene.id) {
+                                                      return {
+                                                        ...s,
+                                                        shots: s.shots.map(sh => 
+                                                          sh.id === shot.id 
+                                                            ? { 
+                                                                ...sh, 
+                                                                storyboards: sh.storyboards.filter(sb => sb.id !== storyboard.id),
+                                                                updatedAt: new Date()
+                                                              }
+                                                            : sh
+                                                        ),
+                                                        updatedAt: new Date(),
+                                                      };
+                                                    }
+                                                    return s;
+                                                  });
+                                                  
+                                                  const updatedEpisode: Episode = {
+                                                    ...episode,
+                                                    scenes: updatedScenes,
+                                                  };
+                                                  onSave(updatedEpisode);
+                                                }}
+                                                className="absolute -top-2 -right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+                                              >
+                                                <X className="w-3 h-3" />
+                                              </button>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                      
+                                      {/* Add Storyboard Button */}
+                                      <button
+                                        onClick={() => handleOpenDrawer(shot.id, scene.id, 'storyboard')}
+                                        className="w-full border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-indigo-400 hover:bg-indigo-50 transition-colors"
+                                      >
+                                        <Palette className="w-6 h-6 text-gray-400 mx-auto mb-2" />
+                                        <p className="text-sm text-gray-600">Draw Storyboard</p>
+                                        <p className="text-xs text-gray-400">Use Apple Pencil or mouse</p>
+                                      </button>
+                                    </div>
+                                  </div>
                                   
                                   <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">
                                       Inspiration Images
                                     </label>
-                                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">
-                                      <ImageIcon className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                                      <p className="text-sm text-gray-500">Upload inspiration images</p>
-                                      <p className="text-xs text-gray-400">Coming soon</p>
-        </div>
+                                    <div className="space-y-2">
+                                      {/* Existing Inspiration Images */}
+                                      {shot.inspirationImages.length > 0 && (
+                                        <div className="grid grid-cols-2 gap-2">
+                                          {shot.inspirationImages.map((imageUrl, index) => (
+                                            <div key={index} className="relative">
+                                              <img 
+                                                src={imageUrl} 
+                                                alt={`Inspiration ${index + 1}`}
+                                                className="w-full h-24 object-cover rounded border"
+                                              />
+                                              <button
+                                                onClick={() => {
+                                                  // Remove inspiration image logic here
+                                                  const currentScenes = episode.scenes || [];
+                                                  const updatedScenes = currentScenes.map(s => {
+                                                    if (s.id === scene.id) {
+                                                      return {
+                                                        ...s,
+                                                        shots: s.shots.map(sh => 
+                                                          sh.id === shot.id 
+                                                            ? { 
+                                                                ...sh, 
+                                                                inspirationImages: sh.inspirationImages.filter((_, i) => i !== index),
+                                                                updatedAt: new Date()
+                                                              }
+                                                            : sh
+                                                        ),
+                                                        updatedAt: new Date(),
+                                                      };
+                                                    }
+                                                    return s;
+                                                  });
+                                                  
+                                                  const updatedEpisode: Episode = {
+                                                    ...episode,
+                                                    scenes: updatedScenes,
+                                                  };
+                                                  onSave(updatedEpisode);
+                                                }}
+                                                className="absolute -top-2 -right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+                                              >
+                                                <X className="w-3 h-3" />
+                                              </button>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                      
+                                      {/* Add Inspiration Image Button */}
+                                      <button
+                                        onClick={() => handleOpenDrawer(shot.id, scene.id, 'inspiration')}
+                                        className="w-full border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-indigo-400 hover:bg-indigo-50 transition-colors"
+                                      >
+                                        <Palette className="w-6 h-6 text-gray-400 mx-auto mb-2" />
+                                        <p className="text-sm text-gray-600">Draw Inspiration</p>
+                                        <p className="text-xs text-gray-400">Use Apple Pencil or mouse</p>
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
                               </div>
@@ -1147,8 +1321,17 @@ export default function EpisodeDetail({
               </div>
             </div>
           </div>
-        </div>
-      )}
+          </div>
+        )}
+
+        {/* Storyboard Drawer */}
+        {showDrawer && drawingContext && (
+          <StoryboardDrawer
+            onSave={handleSaveDrawing}
+            onClose={handleCloseDrawer}
+            title={`Draw ${drawingContext.type === 'storyboard' ? 'Storyboard' : 'Inspiration Image'}`}
+          />
+        )}
         </div>
       </div>
     </div>
