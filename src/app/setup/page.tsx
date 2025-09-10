@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { runFirebaseSetup } from '@/lib/setup-firebase';
 
 export default function SetupPage() {
@@ -66,12 +67,12 @@ export default function SetupPage() {
               <p className="text-sm text-gray-600 mb-4">
                 Your Firebase collections are now ready with proper structure and demo data.
               </p>
-              <a
+              <Link
                 href="/"
                 className="inline-block px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
               >
                 Go to App
-              </a>
+              </Link>
             </div>
           )}
 
@@ -96,7 +97,7 @@ export default function SetupPage() {
               <li>• <strong>globalAssets</strong> - Characters, locations, gadgets, etc.</li>
               <li>• <strong>episodes</strong> - Episode data with scripts and character assignments</li>
               <li>• <strong>assetConcepts</strong> - Concept art and 3D models</li>
-              <li>• Demo data for "Bravo & Tango - Secret Squad" and "Pine Watch"</li>
+              <li>• Demo data for &quot;Bravo & Tango - Secret Squad&quot; and &quot;Pine Watch&quot;</li>
             </ul>
           </div>
         </div>

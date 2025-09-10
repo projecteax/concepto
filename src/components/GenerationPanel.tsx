@@ -7,9 +7,7 @@ import {
   Save, 
   X, 
   RefreshCw,
-  Upload,
-  Eye,
-  EyeOff
+  Upload
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -38,7 +36,6 @@ export function GenerationPanel({
   const [style, setStyle] = useState('');
   const [conceptName, setConceptName] = useState('');
   const [conceptDescription, setConceptDescription] = useState('');
-  const [show3DViewer, setShow3DViewer] = useState(false);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) return;

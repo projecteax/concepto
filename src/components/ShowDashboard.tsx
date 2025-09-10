@@ -258,7 +258,7 @@ export function ShowDashboard({
                     </label>
                     <select
                       value={newAssetCategory}
-                      onChange={(e) => setNewAssetCategory(e.target.value as any)}
+                      onChange={(e) => setNewAssetCategory(e.target.value as 'character' | 'location' | 'gadget' | 'texture' | 'background')}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     >
                       {Object.entries(assetLabels).map(([value, label]) => (

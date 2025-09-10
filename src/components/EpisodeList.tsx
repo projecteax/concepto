@@ -111,7 +111,7 @@ export function EpisodeList({
             </div>
             <h3 className="text-lg font-medium text-gray-900 mb-2">No episodes yet</h3>
             <p className="text-gray-600 mb-4">
-              Create your first episode to start building your show's story.
+              Create your first episode to start building your show&apos;s story.
             </p>
             <button
               onClick={() => {

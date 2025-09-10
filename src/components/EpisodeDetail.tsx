@@ -5,13 +5,11 @@ import { Show, Episode, EpisodeCharacter, EpisodeLocation, GlobalAsset } from '@
 import { 
   ArrowLeft, 
   Save, 
-  Plus, 
   Edit3,
   Trash2,
   Users,
   MapPin,
   FileText,
-  Play,
   UserPlus,
   MapPinPlus
 } from 'lucide-react';

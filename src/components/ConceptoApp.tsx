@@ -151,7 +151,7 @@ export function ConceptoApp() {
     }
   };
 
-  const handleAddConcept = async (conceptData: any) => {
+  const handleAddConcept = async (conceptData: Omit<AssetConcept, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
       const newConcept = await createAssetConcept(conceptData);
       

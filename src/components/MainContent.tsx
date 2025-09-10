@@ -24,7 +24,6 @@ interface MainContentProps {
 
 export function MainContent({ 
   concepts, 
-  selectedCategory, 
   onAssetConceptUpdate, 
   onAssetConceptDelete 
 }: MainContentProps) {

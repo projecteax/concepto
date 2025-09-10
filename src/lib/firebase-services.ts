@@ -8,11 +8,10 @@ import {
   getDoc,
   query,
   where,
-  orderBy,
   Timestamp 
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { Show, GlobalAsset, Episode, Character, AssetConcept } from '@/types';
+import { Show, GlobalAsset, Episode, AssetConcept } from '@/types';
 
 // Shows
 export const showService = {

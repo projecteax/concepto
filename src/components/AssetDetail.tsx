@@ -1,17 +1,15 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
-import { GlobalAsset, AssetConcept, AssetCategory } from '@/types';
+import { GlobalAsset, AssetConcept } from '@/types';
 import { 
   ArrowLeft, 
-  Plus, 
   Upload, 
   Link, 
   Wand2, 
   Image as ImageIcon,
   Trash2,
   Eye,
-  Download,
   ExternalLink,
   X
 } from 'lucide-react';

@@ -5,18 +5,13 @@ import { Character, AssetConcept, CharacterGeneral, CharacterClothing, Character
 import { 
   ArrowLeft, 
   Save, 
-  Plus, 
   Upload,
-  Eye,
   Trash2,
   Edit3,
   Wand2,
   RefreshCw,
-  X,
   CheckCircle,
   AlertCircle,
-  SortAsc,
-  SortDesc,
   Filter,
   Grid3X3,
   List
@@ -65,12 +60,11 @@ export function CharacterDetail({
   const [selectedConceptType, setSelectedConceptType] = useState<'all' | 'pose' | 'clothing' | 'general' | 'expression' | 'action'>('all');
   
   // Main character image state
-  const [mainImageFile, setMainImageFile] = useState<File | null>(null);
   const [mainImageUrl, setMainImageUrl] = useState<string | null>(character.mainImage || null);
   const [isUploadingMainImage, setIsUploadingMainImage] = useState(false);
   
   // S3 upload hook
-  const { uploadState, uploadFile, resetUpload } = useS3Upload();
+  const { uploadFile } = useS3Upload();
 
   const handleSave = () => {
     const updatedCharacter: Character = {
@@ -183,7 +177,6 @@ export function CharacterDetail({
   const handleMainImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      setMainImageFile(file);
       setMainImageUrl(URL.createObjectURL(file));
       setIsUploadingMainImage(true);
       
@@ -700,10 +693,11 @@ export function CharacterDetail({
                                       <div className="flex items-center space-x-2">
                                         <label className="text-xs text-gray-600">Type:</label>
                                         <select 
+                                          data-concept-type={index}
                                           className="text-xs border border-gray-300 rounded px-1 py-1"
                                           onChange={(e) => {
                                             const currentData = imageFormData.get(index) || { description: '', relevanceScale: 3 };
-                                            setImageFormData(new Map(imageFormData.set(index, { ...currentData, conceptType: e.target.value as any })));
+                                            setImageFormData(new Map(imageFormData.set(index, { ...currentData, conceptType: e.target.value as 'pose' | 'clothing' | 'general' | 'expression' | 'action' })));
                                           }}
                                         >
                                           <option value="general">General</option>
@@ -736,7 +730,8 @@ export function CharacterDetail({
                                         <button
                                           onClick={() => {
                                             const formData = imageFormData.get(index);
-                                            const conceptType = (document.querySelector(`select[onChange]`) as HTMLSelectElement)?.value as any || 'general';
+                                            const conceptTypeSelect = document.querySelector(`select[data-concept-type="${index}"]`) as HTMLSelectElement;
+                                            const conceptType = (conceptTypeSelect?.value as 'pose' | 'clothing' | 'general' | 'expression' | 'action') || 'general';
                                             handleSaveUploadedConcept(url, formData?.description || '', formData?.relevanceScale || 3, conceptType);
                                             removeUploadedImage(index);
                                           }}
@@ -908,7 +903,7 @@ export function CharacterDetail({
                             <Filter className="w-4 h-4 text-gray-500" />
                             <select
                               value={sortBy}
-                              onChange={(e) => setSortBy(e.target.value as any)}
+                              onChange={(e) => setSortBy(e.target.value as 'newest' | 'oldest' | 'relevance' | 'name')}
                               className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-1 focus:ring-indigo-500 focus:border-transparent"
                             >
                               <option value="newest">Newest First</option>

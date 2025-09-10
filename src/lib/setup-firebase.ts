@@ -23,5 +23,5 @@ export async function runFirebaseSetup() {
 
 // Make it available globally for console access
 if (typeof window !== 'undefined') {
-  (window as any).setupFirebase = runFirebaseSetup;
+  (window as typeof window & { setupFirebase: typeof runFirebaseSetup }).setupFirebase = runFirebaseSetup;
 }
