@@ -43,14 +43,20 @@ export function EpisodeList({
 
   const handleAddEpisode = () => {
     if (newEpisodeTitle.trim()) {
-      onAddEpisode({
+      const episodeData: Omit<Episode, 'id' | 'createdAt' | 'updatedAt'> = {
         showId: show.id,
         title: newEpisodeTitle.trim(),
         episodeNumber: newEpisodeNumber,
-        description: newEpisodeDescription.trim() || undefined,
         characters: [],
         locations: [],
-      });
+      };
+      
+      // Only add description if it's not empty
+      if (newEpisodeDescription.trim()) {
+        episodeData.description = newEpisodeDescription.trim();
+      }
+      
+      onAddEpisode(episodeData);
       setNewEpisodeTitle('');
       setNewEpisodeNumber(1);
       setNewEpisodeDescription('');

@@ -52,8 +52,13 @@ export const showService = {
 // Global Assets
 export const globalAssetService = {
   async create(asset: Omit<GlobalAsset, 'id' | 'createdAt' | 'updatedAt'>): Promise<GlobalAsset> {
+    // Filter out undefined values to prevent Firebase errors
+    const cleanAsset = Object.fromEntries(
+      Object.entries(asset).filter(([, value]) => value !== undefined)
+    );
+    
     const docRef = await addDoc(collection(db, 'globalAssets'), {
-      ...asset,
+      ...cleanAsset,
       createdAt: Timestamp.now(),
       updatedAt: Timestamp.now(),
     });
@@ -95,8 +100,13 @@ export const globalAssetService = {
 // Episodes
 export const episodeService = {
   async create(episode: Omit<Episode, 'id' | 'createdAt' | 'updatedAt'>): Promise<Episode> {
+    // Filter out undefined values to prevent Firebase errors
+    const cleanEpisode = Object.fromEntries(
+      Object.entries(episode).filter(([, value]) => value !== undefined)
+    );
+    
     const docRef = await addDoc(collection(db, 'episodes'), {
-      ...episode,
+      ...cleanEpisode,
       createdAt: Timestamp.now(),
       updatedAt: Timestamp.now(),
     });
@@ -137,8 +147,13 @@ export const episodeService = {
 // Asset Concepts
 export const assetConceptService = {
   async create(concept: Omit<AssetConcept, 'id' | 'createdAt' | 'updatedAt'>): Promise<AssetConcept> {
+    // Filter out undefined values to prevent Firebase errors
+    const cleanConcept = Object.fromEntries(
+      Object.entries(concept).filter(([, value]) => value !== undefined)
+    );
+    
     const docRef = await addDoc(collection(db, 'assetConcepts'), {
-      ...concept,
+      ...cleanConcept,
       createdAt: Timestamp.now(),
       updatedAt: Timestamp.now(),
     });
