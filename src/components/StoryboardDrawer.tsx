@@ -145,146 +145,154 @@ export default function StoryboardDrawer({ onSave, onClose, title = "Draw Storyb
         </div>
 
         {/* Toolbar */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gray-50">
-          <div className="flex items-center space-x-4">
-            {/* Drawing/Zoom Mode Toggle */}
-            <div className="flex items-center space-x-2 bg-gray-200 rounded-lg p-1">
-              <button
-                onClick={() => setIsDrawingMode(true)}
-                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors flex items-center space-x-1 ${
-                  isDrawingMode
-                    ? 'bg-white text-indigo-600 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-800'
-                }`}
-                title="Drawing Mode"
-              >
-                <Edit3 className="w-4 h-4" />
-                <span>Draw</span>
-              </button>
-              <button
-                onClick={() => setIsDrawingMode(false)}
-                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors flex items-center space-x-1 ${
-                  !isDrawingMode
-                    ? 'bg-white text-indigo-600 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-800'
-                }`}
-                title="Zoom/Pan Mode"
-              >
-                <ZoomIn className="w-4 h-4" />
-                <span>Zoom</span>
-              </button>
-            </div>
-
-            {/* Drawing Tools */}
-            <div className="flex items-center space-x-2">
-              {drawingTools.map((tool) => (
-                <button
-                  key={tool.id}
-                  onClick={() => handleToolChange(tool.id)}
-                  disabled={!isDrawingMode}
-                  className={`p-2 rounded-lg transition-colors ${
-                    selectedTool === tool.id
-                      ? 'bg-indigo-100 text-indigo-600'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  } ${!isDrawingMode ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  title={tool.name}
-                >
-                  {tool.icon}
-                </button>
-              ))}
-            </div>
-
-            {/* Color Picker */}
-            <div className={`flex items-center space-x-2 ${!isDrawingMode ? 'opacity-50' : ''}`}>
-              <span className="text-sm text-gray-600">Color:</span>
-              <div className="flex items-center space-x-1">
-                {colors.map((color) => (
+        <div className="p-4 border-b border-gray-200 bg-gray-50">
+          <div className="flex flex-col space-y-3">
+            {/* First Row: Mode Toggle and Drawing Tools */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                {/* Drawing/Zoom Mode Toggle */}
+                <div className="flex items-center space-x-2 bg-gray-200 rounded-lg p-1">
                   <button
-                    key={color}
-                    onClick={() => isDrawingMode && setSelectedColor(color)}
-                    disabled={!isDrawingMode}
-                    className={`w-6 h-6 rounded-full border-2 transition-all ${
-                      selectedColor === color
-                        ? 'border-gray-800 scale-110'
-                        : 'border-gray-300 hover:scale-105'
-                    } ${!isDrawingMode ? 'cursor-not-allowed' : ''}`}
-                    style={{ backgroundColor: color }}
-                    title={color}
-                  />
-                ))}
+                    onClick={() => setIsDrawingMode(true)}
+                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors flex items-center space-x-1 ${
+                      isDrawingMode
+                        ? 'bg-white text-indigo-600 shadow-sm'
+                        : 'text-gray-600 hover:text-gray-800'
+                    }`}
+                    title="Drawing Mode"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                    <span>Draw</span>
+                  </button>
+                  <button
+                    onClick={() => setIsDrawingMode(false)}
+                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors flex items-center space-x-1 ${
+                      !isDrawingMode
+                        ? 'bg-white text-indigo-600 shadow-sm'
+                        : 'text-gray-600 hover:text-gray-800'
+                    }`}
+                    title="Zoom/Pan Mode"
+                  >
+                    <ZoomIn className="w-4 h-4" />
+                    <span>Zoom</span>
+                  </button>
+                </div>
+
+                {/* Drawing Tools */}
+                <div className="flex items-center space-x-2">
+                  {drawingTools.map((tool) => (
+                    <button
+                      key={tool.id}
+                      onClick={() => handleToolChange(tool.id)}
+                      disabled={!isDrawingMode}
+                      className={`p-2 rounded-lg transition-colors ${
+                        selectedTool === tool.id
+                          ? 'bg-indigo-100 text-indigo-600'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      } ${!isDrawingMode ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      title={tool.name}
+                    >
+                      {tool.icon}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={handleUndo}
+                  className="p-2 text-gray-600 hover:text-gray-800 transition-colors"
+                  title="Undo"
+                >
+                  <Undo className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handleRedo}
+                  className="p-2 text-gray-600 hover:text-gray-800 transition-colors"
+                  title="Redo"
+                >
+                  <Redo className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handleClear}
+                  className="p-2 text-red-600 hover:text-red-800 transition-colors"
+                  title="Clear"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handleExport}
+                  className="p-2 text-gray-600 hover:text-gray-800 transition-colors"
+                  title="Export"
+                >
+                  <Download className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handleSave}
+                  disabled={isUploading}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>{isUploading ? 'Saving...' : 'Save'}</span>
+                </button>
               </div>
             </div>
 
-            {/* Stroke Width */}
-            <div className={`flex items-center space-x-2 ${!isDrawingMode ? 'opacity-50' : ''}`}>
-              <span className="text-sm text-gray-600">Size:</span>
-              <input
-                type="range"
-                min="1"
-                max="20"
-                value={strokeWidth}
-                onChange={(e) => isDrawingMode && setStrokeWidth(Number(e.target.value))}
-                disabled={!isDrawingMode}
-                className="w-20"
-              />
-              <span className="text-sm text-gray-600 w-6">{strokeWidth}</span>
-            </div>
+            {/* Second Row: Color, Size, and Opacity Controls */}
+            <div className="flex items-center space-x-6">
+              {/* Color Picker */}
+              <div className={`flex items-center space-x-2 ${!isDrawingMode ? 'opacity-50' : ''}`}>
+                <span className="text-sm text-gray-600">Color:</span>
+                <div className="flex items-center space-x-1">
+                  {colors.map((color) => (
+                    <button
+                      key={color}
+                      onClick={() => isDrawingMode && setSelectedColor(color)}
+                      disabled={!isDrawingMode}
+                      className={`w-6 h-6 rounded-full border-2 transition-all ${
+                        selectedColor === color
+                          ? 'border-gray-800 scale-110'
+                          : 'border-gray-300 hover:scale-105'
+                      } ${!isDrawingMode ? 'cursor-not-allowed' : ''}`}
+                      style={{ backgroundColor: color }}
+                      title={color}
+                    />
+                  ))}
+                </div>
+              </div>
 
-            {/* Stroke Opacity */}
-            <div className={`flex items-center space-x-2 ${!isDrawingMode ? 'opacity-50' : ''}`}>
-              <span className="text-sm text-gray-600">Opacity:</span>
-              <input
-                type="range"
-                min="0.1"
-                max="1"
-                step="0.1"
-                value={strokeOpacity}
-                onChange={(e) => isDrawingMode && setStrokeOpacity(Number(e.target.value))}
-                disabled={!isDrawingMode}
-                className="w-20"
-              />
-              <span className="text-sm text-gray-600 w-8">{Math.round(strokeOpacity * 100)}%</span>
-            </div>
-          </div>
+              {/* Stroke Width */}
+              <div className={`flex items-center space-x-2 ${!isDrawingMode ? 'opacity-50' : ''}`}>
+                <span className="text-sm text-gray-600">Size:</span>
+                <input
+                  type="range"
+                  min="1"
+                  max="20"
+                  value={strokeWidth}
+                  onChange={(e) => isDrawingMode && setStrokeWidth(Number(e.target.value))}
+                  disabled={!isDrawingMode}
+                  className="w-20"
+                />
+                <span className="text-sm text-gray-600 w-6">{strokeWidth}</span>
+              </div>
 
-          {/* Action Buttons */}
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={handleUndo}
-              className="p-2 text-gray-600 hover:text-gray-800 transition-colors"
-              title="Undo"
-            >
-              <Undo className="w-4 h-4" />
-            </button>
-            <button
-              onClick={handleRedo}
-              className="p-2 text-gray-600 hover:text-gray-800 transition-colors"
-              title="Redo"
-            >
-              <Redo className="w-4 h-4" />
-            </button>
-            <button
-              onClick={handleClear}
-              className="p-2 text-red-600 hover:text-red-800 transition-colors"
-              title="Clear"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-            <button
-              onClick={handleExport}
-              className="p-2 text-gray-600 hover:text-gray-800 transition-colors"
-              title="Export"
-            >
-              <Download className="w-4 h-4" />
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={isUploading}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Save className="w-4 h-4" />
-              <span>{isUploading ? 'Saving...' : 'Save'}</span>
-            </button>
+              {/* Stroke Opacity */}
+              <div className={`flex items-center space-x-2 ${!isDrawingMode ? 'opacity-50' : ''}`}>
+                <span className="text-sm text-gray-600">Opacity:</span>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="1"
+                  step="0.1"
+                  value={strokeOpacity}
+                  onChange={(e) => isDrawingMode && setStrokeOpacity(Number(e.target.value))}
+                  disabled={!isDrawingMode}
+                  className="w-20"
+                />
+                <span className="text-sm text-gray-600 w-8">{Math.round(strokeOpacity * 100)}%</span>
+              </div>
+            </div>
           </div>
         </div>
 
