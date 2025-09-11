@@ -114,7 +114,15 @@ export async function uploadToS3(
         noBucket: !BUCKET_NAME,
         endpointPlaceholder: isPlaceholder(process.env.NEXT_PUBLIC_R2_ENDPOINT),
         accessKeyPlaceholder: isPlaceholder(process.env.NEXT_PUBLIC_R2_ACCESS_KEY_ID),
-        secretKeyPlaceholder: isPlaceholder(process.env.NEXT_PUBLIC_R2_SECRET_ACCESS_KEY)
+        secretKeyPlaceholder: isPlaceholder(process.env.NEXT_PUBLIC_R2_SECRET_ACCESS_KEY),
+        environment: process.env.NODE_ENV,
+        allEnvVars: {
+          R2_BUCKET: process.env.NEXT_PUBLIC_R2_BUCKET,
+          R2_ENDPOINT: process.env.NEXT_PUBLIC_R2_ENDPOINT,
+          R2_ACCESS_KEY_ID: process.env.NEXT_PUBLIC_R2_ACCESS_KEY_ID ? 'SET' : 'NOT SET',
+          R2_SECRET_ACCESS_KEY: process.env.NEXT_PUBLIC_R2_SECRET_ACCESS_KEY ? 'SET' : 'NOT SET',
+          R2_PUBLIC_URL: process.env.NEXT_PUBLIC_R2_PUBLIC_URL
+        }
       });
       
       // Fallback: convert to data URL

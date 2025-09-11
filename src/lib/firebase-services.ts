@@ -161,6 +161,15 @@ export const globalAssetService = {
       }));
     }
     
+    // Convert Date objects to Timestamps for concepts
+    if (cleanUpdates.concepts && Array.isArray(cleanUpdates.concepts)) {
+      (cleanUpdates as Record<string, unknown>).concepts = (cleanUpdates.concepts as AssetConcept[]).map((concept) => ({
+        ...concept,
+        createdAt: concept.createdAt instanceof Date ? Timestamp.fromDate(concept.createdAt) : concept.createdAt,
+        updatedAt: concept.updatedAt instanceof Date ? Timestamp.fromDate(concept.updatedAt) : concept.updatedAt
+      }));
+    }
+    
     await updateDoc(doc(db, 'globalAssets', id), {
       ...cleanUpdates,
       updatedAt: Timestamp.now(),
