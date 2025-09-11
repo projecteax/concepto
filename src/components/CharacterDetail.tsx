@@ -109,11 +109,8 @@ export function CharacterDetail({
     }
   }, [selectedImage]);
   
-  // S3 upload hooks
-  const { uploadFile: uploadModelFile, uploadState: modelUploadState } = useS3Upload();
-  const { uploadFile: uploadGalleryFile, uploadState: galleryUploadState } = useS3Upload();
-  const { uploadFile: uploadConceptFile } = useS3Upload();
-  const { uploadFile: uploadMainImageFile } = useS3Upload();
+  // S3 upload hook
+  const { uploadFile, uploadState } = useS3Upload();
 
   const handleSave = () => {
     console.log('💾 Saving character with uploadedModels:', uploadedModels);
@@ -157,8 +154,8 @@ export function CharacterDetail({
 
   const handleGalleryImageUpload = async (file: File) => {
     try {
-      const result = await uploadGalleryFile(file, `characters/${character.id}/gallery/`);
-      if (result) {
+      const result = await uploadFile(file, `characters/${character.id}/gallery/`);
+      if (result && result.url) {
         setCharacterGallery(prev => [...prev, result.url]);
       }
     } catch (error) {
@@ -173,9 +170,9 @@ export function CharacterDetail({
   const handleModelUpload = async (file: File) => {
     try {
       console.log('🚀 Starting 3D model upload...', { filename: file.name, size: file.size });
-      const result = await uploadModelFile(file, `characters/${character.id}/models/`);
+      const result = await uploadFile(file, `characters/${character.id}/models/`);
       
-      if (result) {
+      if (result && result.url) {
         console.log('✅ 3D model upload successful!', result);
         const newModel = {
           url: result.url,
@@ -261,9 +258,9 @@ export function CharacterDetail({
         setUploadingFiles(prev => new Map(prev.set(fileId, { progress: 0 })));
 
         try {
-          const result = await uploadConceptFile(file, `characters/${character.id}/concepts`);
+          const result = await uploadFile(file, `characters/${character.id}/concepts`);
           
-          if (result) {
+          if (result && result.url) {
             // Update the preview URL with the S3 URL
             setUploadedImageUrls(prev => {
               const newUrls = [...prev];
@@ -314,8 +311,10 @@ export function CharacterDetail({
       setIsUploadingMainImage(true);
       
       try {
-        const result = await uploadMainImageFile(file, `characters/${character.id}/main`);
-        if (result) {
+        console.log('🖼️ Uploading main character image...', file.name);
+        const result = await uploadFile(file, `characters/${character.id}/main`);
+        if (result && result.url) {
+          console.log('✅ Main image uploaded successfully:', result.url);
           setMainImageUrl(result.url);
           // Update character with new main image
           const updatedCharacter = {
@@ -323,9 +322,12 @@ export function CharacterDetail({
             mainImage: result.url
           };
           onSave(updatedCharacter);
+        } else {
+          console.error('❌ Main image upload failed: No URL returned');
+          setMainImageUrl(character.mainImage || null);
         }
       } catch (error) {
-        console.error('Main image upload failed:', error);
+        console.error('❌ Main image upload failed:', error);
         setMainImageUrl(character.mainImage || null);
       } finally {
         setIsUploadingMainImage(false);
@@ -1378,31 +1380,31 @@ export function CharacterDetail({
                               }}
                               className="hidden"
                               id="model-upload"
-                              disabled={modelUploadState.isUploading}
+                              disabled={uploadState.isUploading}
                             />
                             <label
                               htmlFor="model-upload"
                               className={`cursor-pointer flex flex-col items-center space-y-2 ${
-                                modelUploadState.isUploading ? 'opacity-50 cursor-not-allowed' : ''
+                                uploadState.isUploading ? 'opacity-50 cursor-not-allowed' : ''
                               }`}
                             >
                               <Upload className="w-8 h-8 text-gray-400" />
                               <span className="text-sm text-gray-600">
-                                {modelUploadState.isUploading ? 'Uploading...' : 'Click to upload 3D model'}
+                                {uploadState.isUploading ? 'Uploading...' : 'Click to upload 3D model'}
                               </span>
                               <span className="text-xs text-gray-500">Supports .fbx, .usdz, .blend, .glb, .gltf files</span>
                             </label>
                             
                             {/* Progress Bar */}
-                            {modelUploadState.isUploading && (
+                            {uploadState.isUploading && (
                               <div className="w-full mt-4">
                                 <div className="bg-gray-200 rounded-full h-2">
                                   <div 
                                     className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                                    style={{ width: `${modelUploadState.progress}%` }}
+                                    style={{ width: `${uploadState.progress}%` }}
                                   ></div>
                                 </div>
-                                <span className="text-xs text-gray-500 mt-1">{modelUploadState.progress}%</span>
+                                <span className="text-xs text-gray-500 mt-1">{uploadState.progress}%</span>
                               </div>
                             )}
                           </div>
@@ -1475,7 +1477,7 @@ export function CharacterDetail({
                           className="flex items-center space-x-1 px-3 py-1 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 cursor-pointer"
                         >
                           <Upload className="w-4 h-4" />
-                          <span>{galleryUploadState.isUploading ? 'Uploading...' : 'Add Image'}</span>
+                          <span>{uploadState.isUploading ? 'Uploading...' : 'Add Image'}</span>
                         </label>
                       </div>
                     </div>
