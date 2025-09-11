@@ -17,11 +17,11 @@ const s3Client = new S3Client({
     : '',
   credentials: {
     accessKeyId: (!isPlaceholder(process.env.NEXT_PUBLIC_R2_ACCESS_KEY_ID)) 
-      ? process.env.NEXT_PUBLIC_R2_ACCESS_KEY_ID 
-      : '',
+      ? process.env.NEXT_PUBLIC_R2_ACCESS_KEY_ID! 
+      : 'dummy',
     secretAccessKey: (!isPlaceholder(process.env.NEXT_PUBLIC_R2_SECRET_ACCESS_KEY)) 
-      ? process.env.NEXT_PUBLIC_R2_SECRET_ACCESS_KEY 
-      : '',
+      ? process.env.NEXT_PUBLIC_R2_SECRET_ACCESS_KEY! 
+      : 'dummy',
   },
   forcePathStyle: true, // Required for R2
   // Add additional configuration for R2

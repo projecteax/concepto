@@ -7,7 +7,7 @@ import { GlobalAssetsManager } from './GlobalAssetsManager';
 import { CharacterDetail } from './CharacterDetail';
 import { EpisodeList } from './EpisodeList';
 import EpisodeDetail from './EpisodeDetail';
-import { Show, GlobalAsset, Episode, Character, EpisodeCharacter, EpisodeLocation, AssetConcept } from '@/types';
+import { Show, GlobalAsset, Episode, Character, AssetConcept } from '@/types';
 import { useFirebaseData } from '@/hooks/useFirebaseData';
 
 type AppView = 'shows' | 'dashboard' | 'global-assets' | 'character-detail' | 'episodes' | 'episode-detail';
@@ -228,65 +228,6 @@ export function ConceptoApp() {
     }
   };
 
-  const handleAddEpisodeCharacter = async (character: EpisodeCharacter) => {
-    if (selectedEpisode) {
-      const updatedEpisode = {
-        ...selectedEpisode,
-        characters: [...selectedEpisode.characters, character],
-      };
-      try {
-        await updateEpisode(selectedEpisode.id, { characters: updatedEpisode.characters });
-        setSelectedEpisode(updatedEpisode);
-      } catch (error) {
-        console.error('Failed to add character to episode:', error);
-      }
-    }
-  };
-
-  const handleRemoveEpisodeCharacter = async (characterId: string) => {
-    if (selectedEpisode) {
-      const updatedEpisode = {
-        ...selectedEpisode,
-        characters: selectedEpisode.characters.filter(c => c.characterId !== characterId),
-      };
-      try {
-        await updateEpisode(selectedEpisode.id, { characters: updatedEpisode.characters });
-        setSelectedEpisode(updatedEpisode);
-      } catch (error) {
-        console.error('Failed to remove character from episode:', error);
-      }
-    }
-  };
-
-  const handleAddEpisodeLocation = async (location: EpisodeLocation) => {
-    if (selectedEpisode) {
-      const updatedEpisode = {
-        ...selectedEpisode,
-        locations: [...selectedEpisode.locations, location],
-      };
-      try {
-        await updateEpisode(selectedEpisode.id, { locations: updatedEpisode.locations });
-        setSelectedEpisode(updatedEpisode);
-      } catch (error) {
-        console.error('Failed to add location to episode:', error);
-      }
-    }
-  };
-
-  const handleRemoveEpisodeLocation = async (locationId: string) => {
-    if (selectedEpisode) {
-      const updatedEpisode = {
-        ...selectedEpisode,
-        locations: selectedEpisode.locations.filter(l => l.locationId !== locationId),
-      };
-      try {
-        await updateEpisode(selectedEpisode.id, { locations: updatedEpisode.locations });
-        setSelectedEpisode(updatedEpisode);
-      } catch (error) {
-        console.error('Failed to remove location from episode:', error);
-      }
-    }
-  };
 
   // Show loading state
   if (loading && shows.length === 0) {
@@ -397,10 +338,6 @@ export function ConceptoApp() {
           globalAssets={globalAssets}
           onBack={handleBackToEpisodes}
           onSave={handleSaveEpisode}
-          onAddCharacter={handleAddEpisodeCharacter}
-          onRemoveCharacter={handleRemoveEpisodeCharacter}
-          onAddLocation={handleAddEpisodeLocation}
-          onRemoveLocation={handleRemoveEpisodeLocation}
         />
       ) : null;
 

@@ -84,10 +84,12 @@ export default function EpisodeDetail({
       title: `Scene ${newSceneNumber}`,
       description: '',
       script: '',
-      location: null,
+      locationId: undefined,
       characters: [],
       gadgets: [],
       shots: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
     };
 
     const updatedEpisode: Episode = {
@@ -114,10 +116,17 @@ export default function EpisodeDetail({
     const newShot: SceneShot = {
       id: `shot-${Date.now()}`,
       shotNumber: newShotNumber,
+      title: `Shot ${newShotNumber}`,
       description: '',
-      duration: 0,
       storyboards: [],
       inspirationImages: [],
+      cameraShot: {
+        id: `camera-${Date.now()}`,
+        shotType: 'WIDE',
+        description: '',
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
     };
 
     const updatedScenes = (localEpisode.scenes || []).map(s => {
@@ -177,7 +186,11 @@ export default function EpisodeDetail({
                 if (drawingContext.type === 'storyboard') {
                   return {
                     ...shot,
-                    storyboards: [...(shot.storyboards || []), uploadedUrl],
+                    storyboards: [...(shot.storyboards || []), {
+                      id: `storyboard-${Date.now()}`,
+                      imageUrl: uploadedUrl,
+                      description: ''
+                    }],
                   };
                 } else {
                   return {
@@ -233,7 +246,11 @@ export default function EpisodeDetail({
                     if (type === 'storyboard') {
                       return {
                         ...shot,
-                        storyboards: [...(shot.storyboards || []), result.url],
+                        storyboards: [...(shot.storyboards || []), {
+                          id: `storyboard-${Date.now()}`,
+                          imageUrl: result.url,
+                          description: ''
+                        }],
                       };
                     } else {
                       return {
@@ -279,7 +296,7 @@ export default function EpisodeDetail({
               if (type === 'storyboard') {
                 return {
                   ...shot,
-                  storyboards: (shot.storyboards || []).filter(url => url !== imageUrl),
+                  storyboards: (shot.storyboards || []).filter(storyboard => storyboard.imageUrl !== imageUrl),
                 };
               } else {
                 return {
@@ -496,17 +513,17 @@ export default function EpisodeDetail({
                       asset.category === 'character' && asset.id === char.characterId
                     ) as Character | undefined;
                     return (
-                      <div key={char.id} className="border rounded-lg p-4">
+                      <div key={char.characterId} className="border rounded-lg p-4">
                         <div className="flex items-center space-x-3">
                           {characterAsset?.mainImage && (
                             <img
                               src={characterAsset.mainImage}
-                              alt={characterAsset.general.name}
+                              alt={characterAsset.name}
                               className="w-12 h-12 rounded-full object-cover"
                             />
                           )}
                           <div>
-                            <h3 className="font-medium">{characterAsset?.general.name || 'Unknown Character'}</h3>
+                            <h3 className="font-medium">{characterAsset?.name || 'Unknown Character'}</h3>
                             <p className="text-sm text-gray-500">{char.role}</p>
                           </div>
                         </div>
@@ -526,8 +543,8 @@ export default function EpisodeDetail({
                   {localEpisode.locations.map((loc) => {
                     const locationAsset = globalAssets.find(asset => asset.id === loc.locationId);
                     return (
-                      <div key={loc.id} className="border rounded-lg p-4">
-                        <h3 className="font-medium">{locationAsset?.general.name || 'Unknown Location'}</h3>
+                      <div key={loc.locationId} className="border rounded-lg p-4">
+                        <h3 className="font-medium">{locationAsset?.name || 'Unknown Location'}</h3>
                         <p className="text-sm text-gray-500">{loc.description}</p>
                       </div>
                     );
@@ -783,15 +800,15 @@ export default function EpisodeDetail({
                                   {shot.storyboards && shot.storyboards.length > 0 ? (
                                     <div className="flex space-x-2">
                                       {shot.storyboards.map((storyboard, index) => (
-                                        <div key={index} className="relative group">
+                                        <div key={storyboard.id} className="relative group">
                                           <img
-                                            src={storyboard}
+                                            src={storyboard.imageUrl}
                                             alt={`Storyboard ${index + 1}`}
                                             className="w-20 h-20 object-cover rounded border cursor-pointer hover:opacity-80 transition-opacity"
-                                            onClick={() => handleImageClick(storyboard, `Storyboard ${index + 1}`)}
+                                            onClick={() => handleImageClick(storyboard.imageUrl, `Storyboard ${index + 1}`)}
                                           />
                                           <button
-                                            onClick={() => handleRemoveImage(scene.id, shot.id, storyboard, 'storyboard')}
+                                            onClick={() => handleRemoveImage(scene.id, shot.id, storyboard.imageUrl, 'storyboard')}
                                             className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
                                             title="Remove image"
                                           >
@@ -849,7 +866,7 @@ export default function EpisodeDetail({
                                             <X className="w-3 h-3" />
                                           </button>
                                           <CommentThread 
-                                            targetType="inspiration" 
+                                            targetType="storyboard" 
                                             targetId={`${shot.id}-inspiration-${index}`}
                                             className="absolute -top-1 -left-1"
                                           />

@@ -179,7 +179,8 @@ export default function TestMainPage() {
 
         // Upload to R2
         const { uploadToS3 } = await import('@/lib/s3-service');
-        uploadedUrl = await uploadToS3(file, 'storyboards/');
+        const uploadResult = await uploadToS3(file, 'storyboards/');
+        uploadedUrl = uploadResult.url;
       } else {
         console.log('R2 not configured, using local storage');
       }
