@@ -12,6 +12,11 @@ import {
   CheckCircle,
   AlertCircle,
   Filter,
+  Users,
+  Shirt,
+  Image as ImageIcon,
+  Box,
+  Settings,
   Grid3X3,
   List,
   Plus,
@@ -20,7 +25,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useS3Upload } from '@/hooks/useS3Upload';
-import { ModelViewer } from './ModelViewer';
+import { GLTFViewer } from './BabylonOnlyViewer';
 
 interface CharacterDetailProps {
   character: Character;
@@ -60,6 +65,8 @@ export function CharacterDetail({
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'relevance' | 'name'>('newest');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedConceptType, setSelectedConceptType] = useState<'all' | 'pose' | 'clothing' | 'general' | 'expression' | 'action'>('all');
+  const [selectedImage, setSelectedImage] = useState<{ url: string; alt: string } | null>(null);
+  const [editingConcept, setEditingConcept] = useState<string | null>(null);
   
   // Main character image state
   const [mainImageUrl, setMainImageUrl] = useState<string | null>(character.mainImage || null);
@@ -87,6 +94,20 @@ export function CharacterDetail({
       setUploadedModels(character.uploadedModels);
     }
   }, [character.uploadedModels]);
+
+  // Handle ESC key to close image modal
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && selectedImage) {
+        setSelectedImage(null);
+      }
+    };
+
+    if (selectedImage) {
+      document.addEventListener('keydown', handleKeyDown);
+      return () => document.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [selectedImage]);
   
   // S3 upload hooks
   const { uploadFile: uploadModelFile, uploadState: modelUploadState } = useS3Upload();
@@ -312,6 +333,31 @@ export function CharacterDetail({
     }
   };
 
+  const handleUpdateConcept = async (conceptId: string, updates: { name?: string; description?: string; relevanceScale?: number }) => {
+    try {
+      console.log('🔄 Updating concept:', conceptId, 'with updates:', updates);
+      console.log('📊 Current character concepts:', character.concepts);
+      
+      const updatedConcepts = (character.concepts || []).map(concept => 
+        concept.id === conceptId 
+          ? { ...concept, ...updates, updatedAt: new Date() }
+          : concept
+      );
+      
+      console.log('📊 Updated concepts:', updatedConcepts);
+      
+      const updatedCharacter = { ...character, concepts: updatedConcepts };
+      console.log('💾 Saving updated character:', updatedCharacter);
+      
+      onSave(updatedCharacter);
+      setEditingConcept(null);
+      
+      console.log('✅ Concept update completed');
+    } catch (error) {
+      console.error('❌ Failed to update concept:', error);
+    }
+  };
+
   const removeUploadedImage = (index: number) => {
     setUploadedImages(prev => prev.filter((_, i) => i !== index));
     setUploadedImageUrls(prev => {
@@ -364,11 +410,11 @@ export function CharacterDetail({
   };
 
   const tabs = [
-    { id: 'general', label: 'General', icon: '👤' },
-    { id: 'clothing', label: 'Clothing', icon: '👕' },
-    { id: 'pose-concepts', label: 'Concepts', icon: '🎨' },
-    { id: '3d-models', label: '3D Models', icon: '🎭' },
-    { id: 'production', label: 'Production', icon: '🎬' },
+    { id: 'general', label: 'General', icon: Users },
+    { id: 'clothing', label: 'Clothing', icon: Shirt },
+    { id: 'pose-concepts', label: 'Concepts', icon: ImageIcon },
+    { id: '3d-models', label: '3D Models', icon: Box },
+    { id: 'production', label: 'Production', icon: Settings },
   ] as const;
 
   return (
@@ -402,35 +448,31 @@ export function CharacterDetail({
         </div>
       </div>
 
-      <div className="container mx-auto px-6 py-8">
-        <div className="flex gap-8">
-          {/* Sidebar */}
-          <div className="w-64 flex-shrink-0">
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Sections</h2>
-              <div className="space-y-2">
-                {tabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={cn(
-                      "w-full flex items-center space-x-3 px-3 py-2 text-sm rounded-lg transition-colors",
-                      activeTab === tab.id
-                        ? "bg-indigo-100 text-indigo-700"
-                        : "text-gray-700 hover:bg-gray-100"
-                    )}
-                  >
-                    <span className="text-lg">{tab.icon}</span>
-                    <span>{tab.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
+      {/* Tabs */}
+      <div className="bg-white border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <nav className="flex space-x-8">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === tab.id
+                    ? 'border-indigo-500 text-indigo-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <tab.icon className="w-4 h-4" />
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </nav>
+        </div>
+      </div>
 
-          {/* Main Content */}
-          <div className="flex-1">
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
+      {/* Content */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
               {/* General Tab */}
               {activeTab === 'general' && (
                 <div className="space-y-6">
@@ -1015,40 +1057,36 @@ export function CharacterDetail({
                             >
                         {concept.imageUrl && (
                                 <div className={cn(
-                                  "relative",
+                                  "relative group overflow-hidden",
                                   viewMode === 'list' ? "w-32 h-32 flex-shrink-0" : "w-full h-48"
                                 )}>
                           <img
                             src={concept.imageUrl}
                             alt={concept.name}
-                                    className={cn(
-                                      "object-cover",
-                                      viewMode === 'list' ? "w-full h-full" : "w-full h-full"
-                                    )}
-                                  />
-                                  {concept.relevanceScale && (
-                                    <div className="absolute top-2 right-2 bg-white bg-opacity-90 rounded-full px-2 py-1">
-                                      <div className="flex items-center space-x-1">
-                                        <div className="flex space-x-0.5">
-                                          {[1, 2, 3, 4, 5].map((star) => (
-                                            <div
-                                              key={star}
-                                              className={cn(
-                                                "w-2 h-2 rounded-full",
-                                                star <= concept.relevanceScale!
-                                                  ? "bg-yellow-400"
-                                                  : "bg-gray-200"
-                                              )}
-                                            />
-                                          ))}
-                                        </div>
-                                        <span className="text-xs font-medium text-gray-700">
-                                          {concept.relevanceScale}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
+                            className={cn(
+                              "object-contain cursor-pointer",
+                              viewMode === 'list' ? "w-full h-full" : "w-full h-full"
+                            )}
+                            onClick={() => setSelectedImage({ url: concept.imageUrl!, alt: concept.name })}
+                            onError={(e) => {
+                              console.error('Image failed to load:', concept.imageUrl);
+                              const img = e.target as HTMLImageElement;
+                              img.style.backgroundColor = '#ff0000';
+                              img.style.color = '#ffffff';
+                              img.style.display = 'flex';
+                              img.style.alignItems = 'center';
+                              img.style.justifyContent = 'center';
+                              img.alt = 'Failed to load image';
+                            }}
+                            onLoad={(e) => {
+                              console.log('Image loaded successfully:', concept.imageUrl);
+                            }}
+                            style={{ 
+                              minHeight: viewMode === 'list' ? '128px' : '192px',
+                              backgroundColor: '#f8f9fa'
+                            }}
+                          />
+                        </div>
                               )}
                               
                               <div className={cn(
@@ -1058,7 +1096,34 @@ export function CharacterDetail({
                                 <div className="flex items-start justify-between">
                                   <div className="flex-1">
                                     <div className="flex items-center space-x-2 mb-2">
-                          <h5 className="font-medium text-gray-900">{concept.name}</h5>
+                                      {editingConcept === concept.id ? (
+                                        <input
+                                          type="text"
+                                          defaultValue={concept.name}
+                                          className="font-medium text-gray-900 bg-transparent border-b border-gray-300 focus:border-indigo-500 focus:outline-none flex-1"
+                                          onBlur={(e) => {
+                                            if (e.target.value !== concept.name) {
+                                              handleUpdateConcept(concept.id, { name: e.target.value });
+                                            }
+                                          }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              handleUpdateConcept(concept.id, { name: e.currentTarget.value });
+                                            }
+                                            if (e.key === 'Escape') {
+                                              setEditingConcept(null);
+                                            }
+                                          }}
+                                          autoFocus
+                                        />
+                                      ) : (
+                                        <h5 
+                                          className="font-medium text-gray-900 cursor-pointer hover:text-indigo-600"
+                                          onClick={() => setEditingConcept(concept.id)}
+                                        >
+                                          {concept.name}
+                                        </h5>
+                                      )}
                                       {concept.conceptType && (
                                         <span className={cn(
                                           "px-2 py-1 text-xs font-medium rounded-full",
@@ -1072,9 +1137,30 @@ export function CharacterDetail({
                                         </span>
                                       )}
                                     </div>
-                          {concept.description && (
-                                      <p className="text-sm text-gray-600 mt-1 line-clamp-2">
-                                        {concept.description}
+                                    
+                                    {editingConcept === concept.id ? (
+                                      <textarea
+                                        defaultValue={concept.description || ''}
+                                        className="text-sm text-gray-600 mt-1 w-full bg-transparent border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                        placeholder="Add a description..."
+                                        rows={2}
+                                        onBlur={(e) => {
+                                          if (e.target.value !== (concept.description || '')) {
+                                            handleUpdateConcept(concept.id, { description: e.target.value });
+                                          }
+                                        }}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Escape') {
+                                            setEditingConcept(null);
+                                          }
+                                        }}
+                                      />
+                                    ) : (
+                                      <p 
+                                        className="text-sm text-gray-600 mt-1 line-clamp-2 cursor-pointer hover:text-indigo-600 min-h-[1.5rem]"
+                                        onClick={() => setEditingConcept(concept.id)}
+                                      >
+                                        {concept.description || 'Click to add description...'}
                                       </p>
                                     )}
                                     
@@ -1083,11 +1169,27 @@ export function CharacterDetail({
                                       <span>
                                         {new Date(concept.createdAt).toLocaleDateString()}
                                       </span>
-                                      {concept.relevanceScale && (
-                                        <span>
-                                          Relevance: {concept.relevanceScale}/5
-                                        </span>
-                                      )}
+                                      <div className="flex items-center space-x-2">
+                                        <span>Relevance:</span>
+                                        {editingConcept === concept.id ? (
+                                          <select
+                                            value={concept.relevanceScale || 5}
+                                            onChange={(e) => handleUpdateConcept(concept.id, { relevanceScale: parseInt(e.target.value) })}
+                                            className="bg-transparent border border-gray-300 rounded px-1 py-0.5 text-xs"
+                                          >
+                                            {[1,2,3,4,5].map(num => (
+                                              <option key={num} value={num}>{num}</option>
+                                            ))}
+                                          </select>
+                                        ) : (
+                                          <span 
+                                            className="cursor-pointer hover:text-indigo-600"
+                                            onClick={() => setEditingConcept(concept.id)}
+                                          >
+                                            {concept.relevanceScale || 5}/5
+                                          </span>
+                                        )}
+                                      </div>
                                     </div>
                                   </div>
                                   
@@ -1419,11 +1521,11 @@ export function CharacterDetail({
                                 <span>{model.uploadDate.toLocaleDateString()}</span>
                               </div>
                             </div>
-                            <ModelViewer 
-                              modelUrl={model.url} 
-                              filename={model.filename}
-                              className="border border-gray-200 rounded-lg"
-                            />
+                <GLTFViewer
+                  modelUrl={model.url}
+                  filename={model.filename}
+                  className="border border-gray-200 rounded-lg"
+                />
                           </div>
                         ))}
                       </div>
@@ -1431,10 +1533,27 @@ export function CharacterDetail({
                   )}
                 </div>
               )}
-            </div>
-          </div>
         </div>
       </div>
+
+      {/* Image Modal */}
+      {selectedImage && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="relative max-w-4xl max-h-full">
+            <button
+              onClick={() => setSelectedImage(null)}
+              className="absolute top-4 right-4 text-white hover:text-gray-300 z-10"
+            >
+              <X className="w-8 h-8" />
+            </button>
+            <img
+              src={selectedImage.url}
+              alt={selectedImage.alt}
+              className="max-w-full max-h-full object-contain"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -4,9 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
+    "dev:stable": "next dev",
+    "dev:clean": "./scripts/cleanup.sh && next dev",
     "build": "next build --turbopack",
+    "build:clean": "./scripts/cleanup.sh && next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "clean": "./scripts/cleanup.sh",
+    "reset": "./scripts/cleanup.sh && npm install && npm run dev:stable"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.884.0",
@@ -28,6 +33,7 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-sketch-canvas": "^6.2.0",
+    "react-three-fiber": "^6.0.13",
     "tailwind-merge": "^3.3.1",
     "three": "^0.180.0"
   },

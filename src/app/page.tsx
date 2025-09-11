@@ -11,6 +11,8 @@ export default function Home() {
   useEffect(() => {
     if (!isLoading && !user) {
       router.push('/login');
+    } else if (!isLoading && user) {
+      router.push('/app');
     }
   }, [user, isLoading, router]);
 
@@ -25,11 +27,13 @@ export default function Home() {
     );
   }
 
-  if (!user) {
-    return null; // Will redirect to login
-  }
-
-  // If user is logged in, redirect to the main app
-  router.push('/app');
-  return null;
+  // Show loading while redirecting
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+        <p className="text-gray-600">Redirecting...</p>
+      </div>
+    </div>
+  );
 }

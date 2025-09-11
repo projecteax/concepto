@@ -5,13 +5,17 @@ import { ShowSelection } from './ShowSelection';
 import { ShowDashboard } from './ShowDashboard';
 import { GlobalAssetsManager } from './GlobalAssetsManager';
 import { CharacterDetail } from './CharacterDetail';
+import { LocationDetail } from './LocationDetail';
+import { GadgetDetail } from './GadgetDetail';
+import { TextureDetail } from './TextureDetail';
+import { BackgroundDetail } from './BackgroundDetail';
 import { EpisodeList } from './EpisodeList';
 import EpisodeDetail from './EpisodeDetail';
 import { EpisodeIdeas } from './EpisodeIdeas';
 import { Show, GlobalAsset, Episode, Character, AssetConcept, EpisodeIdea } from '@/types';
 import { useFirebaseData } from '@/hooks/useFirebaseData';
 
-type AppView = 'shows' | 'dashboard' | 'global-assets' | 'character-detail' | 'episodes' | 'episode-detail' | 'episode-ideas';
+type AppView = 'shows' | 'dashboard' | 'global-assets' | 'character-detail' | 'location-detail' | 'gadget-detail' | 'texture-detail' | 'background-detail' | 'episodes' | 'episode-detail' | 'episode-ideas';
 
 export function ConceptoApp() {
   const [currentView, setCurrentView] = useState<AppView>('shows');
@@ -102,6 +106,19 @@ export function ConceptoApp() {
       console.error('Error deleting global asset:', error);
     }
   };
+
+  const handleSaveGlobalAsset = async (asset: GlobalAsset) => {
+    try {
+      await updateGlobalAsset(asset.id, asset);
+      
+      // Update the selectedAsset state to reflect the changes
+      if (selectedAsset && selectedAsset.id === asset.id) {
+        setSelectedAsset(asset);
+      }
+    } catch (error) {
+      console.error('Error saving global asset:', error);
+    }
+  };
   const handleAddEpisode = async (episodeData: Omit<Episode, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
       await createEpisode(episodeData);
@@ -124,8 +141,24 @@ export function ConceptoApp() {
 
   const handleSelectAsset = (asset: GlobalAsset) => {
     setSelectedAsset(asset);
-    if (asset.category === 'character') {
-      setCurrentView('character-detail');
+    switch (asset.category) {
+      case 'character':
+        setCurrentView('character-detail');
+        break;
+      case 'location':
+        setCurrentView('location-detail');
+        break;
+      case 'gadget':
+        setCurrentView('gadget-detail');
+        break;
+      case 'texture':
+        setCurrentView('texture-detail');
+        break;
+      case 'background':
+        setCurrentView('background-detail');
+        break;
+      default:
+        console.warn('Unknown asset category:', asset.category);
     }
   };
 
@@ -172,9 +205,11 @@ export function ConceptoApp() {
         modelFiles: character.modelFiles,
         characterGallery: character.characterGallery,
         uploadedModels: character.uploadedModels,
+        concepts: character.concepts,
       };
       
       console.log('🔥 Updates being sent to Firebase:', updates);
+      console.log('🔥 Character concepts being saved:', character.concepts);
       await updateGlobalAsset(character.id, updates);
       console.log('✅ Character saved to Firebase successfully');
       
@@ -191,17 +226,18 @@ export function ConceptoApp() {
     try {
       const newConcept = await createAssetConcept(conceptData);
       
-      // Update the character in the selected episode
-      if (selectedAsset && selectedAsset.category === 'character') {
-        const character = selectedAsset as Character;
-        const updatedCharacter = {
-          ...character,
-          concepts: [...character.concepts, newConcept]
+      // Update the asset to include the new concept
+      if (selectedAsset) {
+        const updatedAsset = {
+          ...selectedAsset,
+          concepts: [...selectedAsset.concepts, newConcept]
         };
         
-        // Update the character in the global assets
-        // The episode characters array only contains references, not full character objects
-        await updateGlobalAsset(character.id, { concepts: updatedCharacter.concepts });
+        // Update the asset in the global assets
+        await updateGlobalAsset(selectedAsset.id, { concepts: updatedAsset.concepts });
+        
+        // Update the selectedAsset state
+        setSelectedAsset(updatedAsset);
       }
     } catch (error) {
       console.error('Failed to add concept:', error);
@@ -213,18 +249,17 @@ export function ConceptoApp() {
       if (selectedAsset) {
         await deleteAssetConcept(conceptId, selectedAsset.id);
         
-        // Update the character in the selected episode
-        if (selectedAsset.category === 'character') {
-          const character = selectedAsset as Character;
-          const updatedCharacter = {
-            ...character,
-            concepts: character.concepts.filter(c => c.id !== conceptId)
-          };
-          
-          // Update the global assets to reflect the deleted concept
-          // The episode characters array only contains references, not full character objects
-          await updateGlobalAsset(character.id, { concepts: updatedCharacter.concepts });
-        }
+        // Update the asset to reflect the deleted concept
+        const updatedAsset = {
+          ...selectedAsset,
+          concepts: selectedAsset.concepts.filter(c => c.id !== conceptId)
+        };
+        
+        // Update the global assets to reflect the deleted concept
+        await updateGlobalAsset(selectedAsset.id, { concepts: updatedAsset.concepts });
+        
+        // Update the selectedAsset state
+        setSelectedAsset(updatedAsset);
       }
     } catch (error) {
       console.error('Failed to delete concept:', error);
@@ -375,6 +410,46 @@ export function ConceptoApp() {
           onBack={handleBackToGlobalAssets}
           onSave={handleSaveCharacter}
           onAddConcept={handleAddConcept}
+          onDeleteConcept={handleDeleteConcept}
+        />
+      ) : null;
+
+    case 'location-detail':
+      return selectedAsset && selectedAsset.category === 'location' ? (
+        <LocationDetail
+          location={selectedAsset}
+          onBack={handleBackToGlobalAssets}
+          onSave={handleSaveGlobalAsset}
+          onDeleteConcept={handleDeleteConcept}
+        />
+      ) : null;
+
+    case 'gadget-detail':
+      return selectedAsset && selectedAsset.category === 'gadget' ? (
+        <GadgetDetail
+          gadget={selectedAsset}
+          onBack={handleBackToGlobalAssets}
+          onSave={handleSaveGlobalAsset}
+          onDeleteConcept={handleDeleteConcept}
+        />
+      ) : null;
+
+    case 'texture-detail':
+      return selectedAsset && selectedAsset.category === 'texture' ? (
+        <TextureDetail
+          texture={selectedAsset}
+          onBack={handleBackToGlobalAssets}
+          onSave={handleSaveGlobalAsset}
+          onDeleteConcept={handleDeleteConcept}
+        />
+      ) : null;
+
+    case 'background-detail':
+      return selectedAsset && selectedAsset.category === 'background' ? (
+        <BackgroundDetail
+          background={selectedAsset}
+          onBack={handleBackToGlobalAssets}
+          onSave={handleSaveGlobalAsset}
           onDeleteConcept={handleDeleteConcept}
         />
       ) : null;
