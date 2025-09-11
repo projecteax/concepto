@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Show, Episode, EpisodeScene, SceneShot, Character, GlobalAsset } from '@/types';
 import { 
   Plus, 

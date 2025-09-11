@@ -126,7 +126,7 @@ export default function TestMainPage() {
 
   const handleSaveScript = (sceneId: string) => {
     const scriptContent = editingScripts[sceneId];
-    if (scriptContent !== undefined && selectedEpisode) {
+    if (scriptContent !== undefined && selectedEpisode && selectedEpisode.scenes) {
       const updatedScenes = selectedEpisode.scenes.map(s => 
         s.id === sceneId ? { ...s, script: scriptContent, updatedAt: new Date() } : s
       );
