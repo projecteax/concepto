@@ -8,20 +8,16 @@ import {
   Palette, 
   X, 
   ArrowLeft, 
-  ImageIcon,
   Edit3,
   Save,
   Trash2,
-  MessageCircle,
   Upload,
   Bold,
   Italic,
   AlignLeft,
   AlignCenter,
   AlignRight,
-  AlignJustify,
-  Type,
-  ZoomIn
+  AlignJustify
 } from 'lucide-react';
 import StoryboardDrawer from './StoryboardDrawer';
 import CommentThread from './CommentThread';
@@ -33,8 +29,6 @@ interface EpisodeDetailProps {
   globalAssets: GlobalAsset[];
   onBack: () => void;
   onSave: (episode: Episode) => void;
-  onAddCharacter: (character: Character) => void;
-  onAddLocation: (location: GlobalAsset) => void;
 }
 
 export default function EpisodeDetail({
@@ -43,8 +37,6 @@ export default function EpisodeDetail({
   globalAssets,
   onBack,
   onSave,
-  onAddCharacter,
-  onAddLocation,
 }: EpisodeDetailProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'script' | 'characters' | 'locations' | 'gadgets'>('overview');
   const [localEpisode, setLocalEpisode] = useState<Episode>(episode);
@@ -71,8 +63,8 @@ export default function EpisodeDetail({
     alt: string;
   } | null>(null);
 
-  // Rich text editor refs
-  const scriptEditorRefs = useRef<{[sceneId: string]: HTMLDivElement | null}>({});
+  // Rich text editor refs (currently unused but kept for future use)
+  // const scriptEditorRefs = useRef<{[sceneId: string]: HTMLDivElement | null}>({});
 
   // Sync local episode with prop
   useEffect(() => {
@@ -173,11 +165,6 @@ export default function EpisodeDetail({
 
     setUploadingDrawing(true);
     try {
-      // Convert data URL to File
-      const response = await fetch(imageData);
-      const blob = await response.blob();
-      const file = new File([blob], `drawing-${Date.now()}.png`, { type: 'image/png' });
-
       // For now, store as data URL (in production, upload to R2)
       const uploadedUrl = imageData;
 
@@ -477,7 +464,7 @@ export default function EpisodeDetail({
             {tabs.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
+                onClick={() => setActiveTab(tab.id as 'overview' | 'script' | 'characters' | 'locations' | 'gadgets')}
                 className={`py-4 px-1 border-b-2 font-medium text-sm ${
                   activeTab === tab.id
                     ? 'border-indigo-500 text-indigo-600'

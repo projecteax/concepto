@@ -352,7 +352,7 @@ export default function TestMainPage() {
               </div>
 
               <div className="space-y-6">
-                {(selectedEpisode.scenes || []).map((scene, index) => (
+                {(selectedEpisode.scenes || []).map((scene) => (
                   <div key={scene.id} className="border border-gray-200 rounded-lg p-6">
                     <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center justify-between">

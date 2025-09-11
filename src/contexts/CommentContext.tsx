@@ -27,19 +27,19 @@ export function CommentProvider({ children }: { children: ReactNode }) {
       try {
         const parsed = JSON.parse(savedComments);
         // Convert date strings back to Date objects
-        const threads = parsed.map((thread: any) => ({
+        const threads = parsed.map((thread: Record<string, unknown>) => ({
           ...thread,
-          createdAt: new Date(thread.createdAt),
-          updatedAt: new Date(thread.updatedAt),
-          comments: thread.comments.map((comment: any) => ({
+          createdAt: new Date(thread.createdAt as string),
+          updatedAt: new Date(thread.updatedAt as string),
+          comments: (thread.comments as Record<string, unknown>[]).map((comment: Record<string, unknown>) => ({
             ...comment,
-            createdAt: new Date(comment.createdAt),
-            updatedAt: new Date(comment.updatedAt),
-            resolvedAt: comment.resolvedAt ? new Date(comment.resolvedAt) : undefined,
-            replies: comment.replies.map((reply: any) => ({
+            createdAt: new Date(comment.createdAt as string),
+            updatedAt: new Date(comment.updatedAt as string),
+            resolvedAt: comment.resolvedAt ? new Date(comment.resolvedAt as string) : undefined,
+            replies: (comment.replies as Record<string, unknown>[]).map((reply: Record<string, unknown>) => ({
               ...reply,
-              createdAt: new Date(reply.createdAt),
-              updatedAt: new Date(reply.updatedAt),
+              createdAt: new Date(reply.createdAt as string),
+              updatedAt: new Date(reply.updatedAt as string),
             }))
           }))
         }));
@@ -71,7 +71,7 @@ export function CommentProvider({ children }: { children: ReactNode }) {
     };
 
     setCommentThreads(prev => {
-      let updated = [...prev];
+      const updated = [...prev];
       
       // Find existing thread for this target
       let thread = updated.find(t => t.targetType === targetType && t.targetId === targetId);

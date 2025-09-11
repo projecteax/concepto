@@ -9,7 +9,6 @@ import {
   Reply, 
   Check, 
   X, 
-  MoreVertical,
   User,
   Clock
 } from 'lucide-react';

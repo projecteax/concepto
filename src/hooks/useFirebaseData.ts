@@ -71,7 +71,7 @@ export function useFirebaseData() {
     }, 100);
     
     return () => clearTimeout(timer);
-  }, []); // Empty dependency array to prevent initialization issues
+  }, [loadData]); // Include loadData dependency
 
   // Show operations
   const createShow = async (show: Omit<Show, 'id' | 'createdAt' | 'updatedAt'>) => {
