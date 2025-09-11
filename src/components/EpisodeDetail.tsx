@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Show, Episode, EpisodeScene, SceneShot, Character, GlobalAsset } from '@/types';
 import { 
   Plus, 
@@ -13,7 +13,15 @@ import {
   Save,
   Trash2,
   MessageCircle,
-  Upload
+  Upload,
+  Bold,
+  Italic,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignJustify,
+  Type,
+  ZoomIn
 } from 'lucide-react';
 import StoryboardDrawer from './StoryboardDrawer';
 import CommentThread from './CommentThread';
@@ -56,6 +64,15 @@ export default function EpisodeDetail({
   // Image upload states
   const [uploadingImages, setUploadingImages] = useState<{[key: string]: boolean}>({});
   const { uploadFile } = useS3Upload();
+
+  // Image popup states
+  const [selectedImage, setSelectedImage] = useState<{
+    url: string;
+    alt: string;
+  } | null>(null);
+
+  // Rich text editor refs
+  const scriptEditorRefs = useRef<{[sceneId: string]: HTMLDivElement | null}>({});
 
   // Sync local episode with prop
   useEffect(() => {
@@ -264,11 +281,127 @@ export default function EpisodeDetail({
     setDrawingContext(null);
   };
 
+  // Image removal function
+  const handleRemoveImage = (sceneId: string, shotId: string, imageUrl: string, type: 'storyboard' | 'inspiration') => {
+    const updatedScenes = (localEpisode.scenes || []).map(s => {
+      if (s.id === sceneId) {
+        return {
+          ...s,
+          shots: (s.shots || []).map(shot => {
+            if (shot.id === shotId) {
+              if (type === 'storyboard') {
+                return {
+                  ...shot,
+                  storyboards: (shot.storyboards || []).filter(url => url !== imageUrl),
+                };
+              } else {
+                return {
+                  ...shot,
+                  inspirationImages: (shot.inspirationImages || []).filter(url => url !== imageUrl),
+                };
+              }
+            }
+            return shot;
+          }),
+        };
+      }
+      return s;
+    });
+
+    const updatedEpisode: Episode = {
+      ...localEpisode,
+      scenes: updatedScenes,
+    };
+    updateEpisodeAndSave(updatedEpisode);
+  };
+
+  // Image popup functions
+  const handleImageClick = (url: string, alt: string) => {
+    setSelectedImage({ url, alt });
+  };
+
+  const handleCloseImagePopup = () => {
+    setSelectedImage(null);
+  };
+
+  // Handle ESC key for image popup
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && selectedImage) {
+        handleCloseImagePopup();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [selectedImage]);
+
   const handleScriptChange = (sceneId: string, script: string) => {
     setEditingScripts(prev => ({
       ...prev,
       [sceneId]: script,
     }));
+  };
+
+  // Rich text editor functions for textarea
+  const handleFormatText = (sceneId: string, format: string) => {
+    const currentText = editingScripts[sceneId] || '';
+    let newText = currentText;
+    
+    if (format === 'bold') {
+      // Simple bold formatting with **text**
+      newText = currentText.replace(/\*\*(.*?)\*\*/g, '$1');
+      if (newText === currentText) {
+        // No bold text found, add bold markers around selection (or at cursor)
+        newText = currentText + '**bold text**';
+      }
+    } else if (format === 'italic') {
+      // Simple italic formatting with *text*
+      newText = currentText.replace(/\*(.*?)\*/g, '$1');
+      if (newText === currentText) {
+        // No italic text found, add italic markers around selection (or at cursor)
+        newText = currentText + '*italic text*';
+      }
+    }
+    
+    handleScriptChange(sceneId, newText);
+  };
+
+  const handleAlignText = (sceneId: string, alignment: string) => {
+    // For now, just add alignment markers as comments
+    const currentText = editingScripts[sceneId] || '';
+    const alignmentMarkers = {
+      'Left': '<!-- ALIGN: LEFT -->',
+      'Center': '<!-- ALIGN: CENTER -->',
+      'Right': '<!-- ALIGN: RIGHT -->',
+      'Full': '<!-- ALIGN: JUSTIFY -->'
+    };
+    
+    const newText = currentText + '\n' + alignmentMarkers[alignment as keyof typeof alignmentMarkers];
+    handleScriptChange(sceneId, newText);
+  };
+
+  const handleFontSize = (sceneId: string, size: string) => {
+    // For now, just add font size markers as comments
+    const currentText = editingScripts[sceneId] || '';
+    const sizeMarkers = {
+      '1': '<!-- FONT SIZE: 8px -->',
+      '2': '<!-- FONT SIZE: 10px -->',
+      '3': '<!-- FONT SIZE: 12px -->',
+      '4': '<!-- FONT SIZE: 14px -->',
+      '5': '<!-- FONT SIZE: 18px -->',
+      '6': '<!-- FONT SIZE: 24px -->',
+      '7': '<!-- FONT SIZE: 36px -->'
+    };
+    
+    const newText = currentText + '\n' + sizeMarkers[size as keyof typeof sizeMarkers];
+    handleScriptChange(sceneId, newText);
+  };
+
+  // Initialize editor content when editing starts
+  const handleStartEditing = (sceneId: string) => {
+    const script = localEpisode.scenes?.find(s => s.id === sceneId)?.script || '';
+    setEditingScripts(prev => ({ ...prev, [sceneId]: script }));
   };
 
   const handleSaveScript = (sceneId: string) => {
@@ -487,7 +620,7 @@ export default function EpisodeDetail({
                             </div>
                           ) : (
                             <button
-                              onClick={() => setEditingScripts(prev => ({ ...prev, [scene.id]: scene.script || '' }))}
+                              onClick={() => handleStartEditing(scene.id)}
                               className="flex items-center space-x-1 px-3 py-1 text-indigo-600 text-sm rounded hover:bg-indigo-50"
                             >
                               <Edit3 className="w-3 h-3" />
@@ -495,14 +628,94 @@ export default function EpisodeDetail({
                             </button>
                           )}
                         </div>
-                        <textarea
-                          value={editingScripts[scene.id] !== undefined ? editingScripts[scene.id] : (scene.script || '')}
-                          onChange={(e) => handleScriptChange(scene.id, e.target.value)}
-                          placeholder="Enter scene script..."
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                          rows={4}
-                          readOnly={editingScripts[scene.id] === undefined}
-                        />
+                        
+                        {editingScripts[scene.id] !== undefined ? (
+                          <div className="border border-gray-300 rounded-lg">
+                            {/* Rich Text Editor Toolbar */}
+                            <div className="flex items-center space-x-1 p-2 bg-gray-50 border-b border-gray-300 rounded-t-lg">
+                              <button
+                                onClick={() => handleFormatText(scene.id, 'bold')}
+                                className="p-1 hover:bg-gray-200 rounded"
+                                title="Bold"
+                              >
+                                <Bold className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleFormatText(scene.id, 'italic')}
+                                className="p-1 hover:bg-gray-200 rounded"
+                                title="Italic"
+                              >
+                                <Italic className="w-4 h-4" />
+                              </button>
+                              <div className="w-px h-4 bg-gray-300 mx-1" />
+                              <button
+                                onClick={() => handleAlignText(scene.id, 'Left')}
+                                className="p-1 hover:bg-gray-200 rounded"
+                                title="Align Left"
+                              >
+                                <AlignLeft className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleAlignText(scene.id, 'Center')}
+                                className="p-1 hover:bg-gray-200 rounded"
+                                title="Align Center"
+                              >
+                                <AlignCenter className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleAlignText(scene.id, 'Right')}
+                                className="p-1 hover:bg-gray-200 rounded"
+                                title="Align Right"
+                              >
+                                <AlignRight className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleAlignText(scene.id, 'Full')}
+                                className="p-1 hover:bg-gray-200 rounded"
+                                title="Justify"
+                              >
+                                <AlignJustify className="w-4 h-4" />
+                              </button>
+                              <div className="w-px h-4 bg-gray-300 mx-1" />
+                              <select
+                                onChange={(e) => handleFontSize(scene.id, e.target.value)}
+                                className="text-xs border border-gray-300 rounded px-1 py-1"
+                                title="Font Size"
+                              >
+                                <option value="1">8px</option>
+                                <option value="2">10px</option>
+                                <option value="3" selected>12px</option>
+                                <option value="4">14px</option>
+                                <option value="5">18px</option>
+                                <option value="6">24px</option>
+                                <option value="7">36px</option>
+                              </select>
+                            </div>
+                            
+                            {/* Simple Textarea with Rich Text Styling */}
+                            <textarea
+                              value={editingScripts[scene.id] || ''}
+                              onChange={(e) => handleScriptChange(scene.id, e.target.value)}
+                              className="w-full px-3 py-2 text-sm resize-none focus:outline-none min-h-[100px] font-mono text-gray-900 border-0"
+                              style={{ 
+                                fontFamily: 'Courier New, monospace',
+                                color: '#111827',
+                                lineHeight: '1.5'
+                              }}
+                              placeholder="Enter scene script..."
+                            />
+                          </div>
+                        ) : (
+                          <div 
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm min-h-[100px] font-mono bg-gray-50 text-gray-900"
+                            style={{ 
+                              fontFamily: 'Courier New, monospace',
+                              color: '#111827',
+                              lineHeight: '1.5'
+                            }}
+                            dangerouslySetInnerHTML={{ __html: scene.script || '<span class="text-gray-400">No script available</span>' }}
+                          />
+                        )}
                       </div>
 
                       {/* Shots */}
@@ -583,16 +796,24 @@ export default function EpisodeDetail({
                                   {shot.storyboards && shot.storyboards.length > 0 ? (
                                     <div className="flex space-x-2">
                                       {shot.storyboards.map((storyboard, index) => (
-                                        <div key={index} className="relative">
+                                        <div key={index} className="relative group">
                                           <img
                                             src={storyboard}
                                             alt={`Storyboard ${index + 1}`}
-                                            className="w-20 h-20 object-cover rounded border"
+                                            className="w-20 h-20 object-cover rounded border cursor-pointer hover:opacity-80 transition-opacity"
+                                            onClick={() => handleImageClick(storyboard, `Storyboard ${index + 1}`)}
                                           />
+                                          <button
+                                            onClick={() => handleRemoveImage(scene.id, shot.id, storyboard, 'storyboard')}
+                                            className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                                            title="Remove image"
+                                          >
+                                            <X className="w-3 h-3" />
+                                          </button>
                                           <CommentThread 
                                             targetType="storyboard" 
                                             targetId={`${shot.id}-storyboard-${index}`}
-                                            className="absolute -top-1 -right-1"
+                                            className="absolute -top-1 -left-1"
                                           />
                                         </div>
                                       ))}
@@ -626,16 +847,24 @@ export default function EpisodeDetail({
                                   {shot.inspirationImages && shot.inspirationImages.length > 0 ? (
                                     <div className="flex space-x-2">
                                       {shot.inspirationImages.map((image, index) => (
-                                        <div key={index} className="relative">
+                                        <div key={index} className="relative group">
                                           <img
                                             src={image}
                                             alt={`Inspiration ${index + 1}`}
-                                            className="w-20 h-20 object-cover rounded border"
+                                            className="w-20 h-20 object-cover rounded border cursor-pointer hover:opacity-80 transition-opacity"
+                                            onClick={() => handleImageClick(image, `Inspiration ${index + 1}`)}
                                           />
+                                          <button
+                                            onClick={() => handleRemoveImage(scene.id, shot.id, image, 'inspiration')}
+                                            className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                                            title="Remove image"
+                                          >
+                                            <X className="w-3 h-3" />
+                                          </button>
                                           <CommentThread 
                                             targetType="inspiration" 
                                             targetId={`${shot.id}-inspiration-${index}`}
-                                            className="absolute -top-1 -right-1"
+                                            className="absolute -top-1 -left-1"
                                           />
                                         </div>
                                       ))}
@@ -706,6 +935,29 @@ export default function EpisodeDetail({
           title={`Draw ${drawingContext.type === 'storyboard' ? 'Storyboard' : 'Inspiration Image'}`}
           isUploading={uploadingDrawing}
         />
+      )}
+
+      {/* Image Popup Modal */}
+      {selectedImage && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="relative max-w-4xl max-h-full">
+            <button
+              onClick={handleCloseImagePopup}
+              className="absolute -top-4 -right-4 w-8 h-8 bg-white text-black rounded-full flex items-center justify-center hover:bg-gray-200 transition-colors z-10"
+              title="Close (ESC)"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <img
+              src={selectedImage.url}
+              alt={selectedImage.alt}
+              className="max-w-full max-h-full object-contain rounded-lg"
+            />
+            <div className="absolute bottom-4 left-4 bg-black bg-opacity-50 text-white px-3 py-1 rounded text-sm">
+              {selectedImage.alt}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

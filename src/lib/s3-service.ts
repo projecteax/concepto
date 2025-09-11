@@ -1,13 +1,27 @@
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
+// Helper function to check if a value is a placeholder
+const isPlaceholder = (value: string | undefined): boolean => {
+  if (!value) return true;
+  return value.includes('your_') || value.includes('your-') || value === 'auto';
+};
+
 // Initialize S3 client for Cloudflare R2
 const s3Client = new S3Client({
-  region: process.env.NEXT_PUBLIC_R2_REGION || 'auto',
-  endpoint: process.env.NEXT_PUBLIC_R2_ENDPOINT || '',
+  region: (!isPlaceholder(process.env.NEXT_PUBLIC_R2_REGION)) 
+    ? process.env.NEXT_PUBLIC_R2_REGION 
+    : 'auto',
+  endpoint: (!isPlaceholder(process.env.NEXT_PUBLIC_R2_ENDPOINT)) 
+    ? process.env.NEXT_PUBLIC_R2_ENDPOINT 
+    : '',
   credentials: {
-    accessKeyId: process.env.NEXT_PUBLIC_R2_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.NEXT_PUBLIC_R2_SECRET_ACCESS_KEY || '',
+    accessKeyId: (!isPlaceholder(process.env.NEXT_PUBLIC_R2_ACCESS_KEY_ID)) 
+      ? process.env.NEXT_PUBLIC_R2_ACCESS_KEY_ID 
+      : '',
+    secretAccessKey: (!isPlaceholder(process.env.NEXT_PUBLIC_R2_SECRET_ACCESS_KEY)) 
+      ? process.env.NEXT_PUBLIC_R2_SECRET_ACCESS_KEY 
+      : '',
   },
   forcePathStyle: true, // Required for R2
   // Add additional configuration for R2
@@ -15,8 +29,12 @@ const s3Client = new S3Client({
   disableHostPrefix: true,
 });
 
-const BUCKET_NAME = process.env.NEXT_PUBLIC_R2_BUCKET || '';
-const PUBLIC_URL = process.env.NEXT_PUBLIC_R2_PUBLIC_URL || '';
+const BUCKET_NAME = (!isPlaceholder(process.env.NEXT_PUBLIC_R2_BUCKET)) 
+  ? process.env.NEXT_PUBLIC_R2_BUCKET 
+  : '';
+const PUBLIC_URL = (!isPlaceholder(process.env.NEXT_PUBLIC_R2_PUBLIC_URL)) 
+  ? process.env.NEXT_PUBLIC_R2_PUBLIC_URL 
+  : '';
 
 export interface UploadProgress {
   loaded: number;
@@ -43,21 +61,23 @@ export async function uploadToS3(
       throw new Error('No file provided');
     }
 
-    // Check environment variables
-    if (!BUCKET_NAME) {
-      throw new Error('R2 bucket name not configured. Please check your .env.local file.');
-    }
-
-    if (!process.env.NEXT_PUBLIC_R2_ENDPOINT) {
-      throw new Error('R2 endpoint not configured. Please check your .env.local file.');
-    }
-
-    if (!process.env.NEXT_PUBLIC_R2_ACCESS_KEY_ID) {
-      throw new Error('R2 access key not configured. Please check your .env.local file.');
-    }
-
-    if (!process.env.NEXT_PUBLIC_R2_SECRET_ACCESS_KEY) {
-      throw new Error('R2 secret key not configured. Please check your .env.local file.');
+    // Check if S3/R2 is configured
+    if (!BUCKET_NAME || !process.env.NEXT_PUBLIC_R2_ENDPOINT || 
+        !process.env.NEXT_PUBLIC_R2_ACCESS_KEY_ID || !process.env.NEXT_PUBLIC_R2_SECRET_ACCESS_KEY) {
+      console.warn('S3/R2 not configured, storing as data URL temporarily');
+      
+      // Fallback: convert to data URL
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          resolve({
+            url: reader.result as string,
+            key: key,
+            size: file.size,
+          });
+        };
+        reader.readAsDataURL(file);
+      });
     }
 
     // Convert File to ArrayBuffer to avoid stream issues

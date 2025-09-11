@@ -38,3 +38,23 @@ input::placeholder, textarea::placeholder {
 input:focus, textarea:focus, select:focus {
   color: #374151 !important;
 }
+
+/* Fix contentEditable text color and selection */
+[contenteditable] {
+  color: #111827 !important; /* dark text */
+  outline: none;
+}
+
+[contenteditable]:focus {
+  color: #111827 !important;
+}
+
+[contenteditable]::selection {
+  background-color: #3b82f6 !important; /* blue selection */
+  color: white !important;
+}
+
+/* Ensure proper cursor visibility */
+[contenteditable] {
+  caret-color: #111827 !important;
+}
