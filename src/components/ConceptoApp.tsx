@@ -7,10 +7,11 @@ import { GlobalAssetsManager } from './GlobalAssetsManager';
 import { CharacterDetail } from './CharacterDetail';
 import { EpisodeList } from './EpisodeList';
 import EpisodeDetail from './EpisodeDetail';
-import { Show, GlobalAsset, Episode, Character, AssetConcept } from '@/types';
+import { EpisodeIdeas } from './EpisodeIdeas';
+import { Show, GlobalAsset, Episode, Character, AssetConcept, EpisodeIdea } from '@/types';
 import { useFirebaseData } from '@/hooks/useFirebaseData';
 
-type AppView = 'shows' | 'dashboard' | 'global-assets' | 'character-detail' | 'episodes' | 'episode-detail';
+type AppView = 'shows' | 'dashboard' | 'global-assets' | 'character-detail' | 'episodes' | 'episode-detail' | 'episode-ideas';
 
 export function ConceptoApp() {
   const [currentView, setCurrentView] = useState<AppView>('shows');
@@ -24,6 +25,7 @@ export function ConceptoApp() {
     shows,
     globalAssets,
     episodes,
+    episodeIdeas,
     loading,
     error,
     createShow,
@@ -35,6 +37,9 @@ export function ConceptoApp() {
     createEpisode,
     updateEpisode,
     deleteEpisode,
+    createEpisodeIdea,
+    updateEpisodeIdea,
+    deleteEpisodeIdea,
     createAssetConcept,
     deleteAssetConcept,
     loadShowData,
@@ -113,6 +118,10 @@ export function ConceptoApp() {
     setCurrentView('episodes');
   };
 
+  const handleSelectEpisodeIdeas = () => {
+    setCurrentView('episode-ideas');
+  };
+
   const handleSelectAsset = (asset: GlobalAsset) => {
     setSelectedAsset(asset);
     if (asset.category === 'character') {
@@ -145,9 +154,36 @@ export function ConceptoApp() {
 
   const handleSaveCharacter = async (character: Character) => {
     try {
-      await updateGlobalAsset(character.id, character);
+      console.log('🔥 Saving character to Firebase:', {
+        characterId: character.id,
+        characterName: character.name,
+        uploadedModels: character.uploadedModels,
+        uploadedModelsLength: character.uploadedModels?.length || 0
+      });
+      
+      // Extract only the fields that need to be updated
+      const updates = {
+        name: character.name,
+        description: character.description,
+        general: character.general,
+        clothing: character.clothing,
+        pose: character.pose,
+        mainImage: character.mainImage,
+        modelFiles: character.modelFiles,
+        characterGallery: character.characterGallery,
+        uploadedModels: character.uploadedModels,
+      };
+      
+      console.log('🔥 Updates being sent to Firebase:', updates);
+      await updateGlobalAsset(character.id, updates);
+      console.log('✅ Character saved to Firebase successfully');
+      
+      // Also update the selectedAsset if it's the same character
+      if (selectedAsset && selectedAsset.id === character.id) {
+        setSelectedAsset({ ...selectedAsset, ...updates });
+      }
     } catch (error) {
-      console.error('Failed to save character:', error);
+      console.error('❌ Failed to save character:', error);
     }
   };
 
@@ -220,6 +256,31 @@ export function ConceptoApp() {
     }
   };
 
+  // Episode Ideas handlers
+  const handleSaveEpisodeIdea = async (ideaData: Omit<EpisodeIdea, 'id' | 'createdAt' | 'updatedAt'>) => {
+    try {
+      await createEpisodeIdea(ideaData);
+    } catch (error) {
+      console.error('Failed to save episode idea:', error);
+    }
+  };
+
+  const handleUpdateEpisodeIdea = async (id: string, updates: Partial<EpisodeIdea>) => {
+    try {
+      await updateEpisodeIdea(id, updates);
+    } catch (error) {
+      console.error('Failed to update episode idea:', error);
+    }
+  };
+
+  const handleDeleteEpisodeIdea = async (id: string) => {
+    try {
+      await deleteEpisodeIdea(id);
+    } catch (error) {
+      console.error('Failed to delete episode idea:', error);
+    }
+  };
+
   const handleSaveEpisode = async (episode: Episode) => {
     try {
       await updateEpisode(episode.id, episode);
@@ -286,6 +347,7 @@ export function ConceptoApp() {
           onBack={handleBackToShows}
           onSelectGlobalAssets={handleSelectGlobalAssets}
           onSelectEpisodes={handleSelectEpisodes}
+          onSelectEpisodeIdeas={handleSelectEpisodeIdeas}
           onAddGlobalAsset={handleAddGlobalAsset}
           onAddEpisode={handleAddEpisode}
         />
@@ -338,6 +400,18 @@ export function ConceptoApp() {
           globalAssets={globalAssets}
           onBack={handleBackToEpisodes}
           onSave={handleSaveEpisode}
+        />
+      ) : null;
+
+    case 'episode-ideas':
+      return selectedShow ? (
+        <EpisodeIdeas
+          showId={selectedShow.id}
+          ideas={episodeIdeas}
+          onBack={handleBackToDashboard}
+          onSaveIdea={handleSaveEpisodeIdea}
+          onUpdateIdea={handleUpdateEpisodeIdea}
+          onDeleteIdea={handleDeleteEpisodeIdea}
         />
       ) : null;
 

@@ -32,6 +32,14 @@ export function useS3Upload(): UseS3UploadReturn {
     });
 
     try {
+      // Debug: Check environment variables on client side
+      console.log('🌐 Client-side R2 Environment Check:', {
+        R2_BUCKET: process.env.NEXT_PUBLIC_R2_BUCKET,
+        R2_ENDPOINT: process.env.NEXT_PUBLIC_R2_ENDPOINT,
+        R2_ACCESS_KEY_ID: process.env.NEXT_PUBLIC_R2_ACCESS_KEY_ID ? 'SET' : 'NOT SET',
+        R2_SECRET_ACCESS_KEY: process.env.NEXT_PUBLIC_R2_SECRET_ACCESS_KEY ? 'SET' : 'NOT SET',
+      });
+
       // Validate file
       const validation = validateFile(file);
       if (!validation.valid) {

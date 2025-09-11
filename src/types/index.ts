@@ -81,6 +81,9 @@ export interface Character extends GlobalAsset {
   general: CharacterGeneral;
   clothing: CharacterClothing;
   pose: CharacterPose;
+  modelFiles?: CharacterModelFiles;
+  characterGallery?: string[]; // Array of character render image URLs
+  uploadedModels?: Array<{url: string, filename: string, size: number, uploadDate: Date}>; // Array of uploaded 3D models
 }
 
 export interface CharacterGeneral {
@@ -102,6 +105,15 @@ export interface CharacterPose {
   defaultPose: 'T-pose' | 'free-pose';
   poseDescription?: string;
   referenceImages?: string[];
+}
+
+export interface CharacterModelFiles {
+  fullBodyBlender?: string; // Blender file name
+  fullBodyFBX?: string; // FBX file name
+  skinnedCharacter?: string; // CC file name
+  mainExpressions?: string; // Main expressions FBX file name
+  additionalExpressions?: string[]; // Array of additional expression file names
+  productionModel?: string; // Fully rigged and skinned production model file name
 }
 
 // Episodes
@@ -204,4 +216,16 @@ export interface Tag {
   name: string;
   category: 'facial_expression' | 'custom';
   color?: string;
+}
+
+// Episode Ideas
+export interface EpisodeIdea {
+  id: string;
+  showId: string;
+  title: string;
+  description: string;
+  status: 'draft' | 'in-development' | 'ready' | 'archived';
+  tags: string[];
+  createdAt: Date;
+  updatedAt: Date;
 }

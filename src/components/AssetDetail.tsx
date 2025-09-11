@@ -14,6 +14,7 @@ import {
   X
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useS3Upload } from '@/hooks/useS3Upload';
 
 interface AssetDetailProps {
   asset: GlobalAsset;
@@ -63,12 +64,15 @@ export function AssetDetail({
   // Upload modal state
   const [uploadName, setUploadName] = useState('');
   const [uploadDescription, setUploadDescription] = useState('');
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   // Link modal state
   const [linkName, setLinkName] = useState('');
   const [linkDescription, setLinkDescription] = useState('');
   const [imageUrl, setImageUrl] = useState('');
+  
+  // S3 upload hook
+  const { uploadFile } = useS3Upload();
 
   const handleGenerateImage = async () => {
     if (!prompt.trim() || !conceptName.trim()) return;
@@ -102,33 +106,37 @@ export function AssetDetail({
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && file.type.startsWith('image/')) {
-      setUploadFile(file);
+      setSelectedFile(file);
     }
   };
 
-  const handleUploadImage = () => {
-    if (!uploadFile || !uploadName.trim()) return;
+  const handleUploadImage = async () => {
+    if (!selectedFile || !uploadName.trim()) return;
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const imageUrl = e.target?.result as string;
+    try {
+      // Upload to R2 instead of using data URL
+      const fileKey = `assets/${asset.id}/concepts/${Date.now()}-${selectedFile.name}`;
+      const result = await uploadFile(selectedFile, fileKey);
       
-      onAddConcept({
-        assetId: asset.id,
-        name: uploadName.trim(),
-        description: uploadDescription.trim() || undefined,
-        category: asset.category,
-        tags: [],
-        imageUrl,
-        isGenerated: false,
-      });
+      if (result) {
+        onAddConcept({
+          assetId: asset.id,
+          name: uploadName.trim(),
+          description: uploadDescription.trim() || undefined,
+          category: asset.category,
+          tags: [],
+          imageUrl: result.url,
+          isGenerated: false,
+        });
 
-      setUploadName('');
-      setUploadDescription('');
-      setUploadFile(null);
-      setShowUploadModal(false);
-    };
-    reader.readAsDataURL(uploadFile);
+        setUploadName('');
+        setUploadDescription('');
+        setSelectedFile(null);
+        setShowUploadModal(false);
+      }
+    } catch (error) {
+      console.error('Failed to upload image:', error);
+    }
   };
 
   const handleAddLink = () => {
@@ -425,9 +433,9 @@ export function AssetDetail({
                     onChange={handleFileUpload}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   />
-                  {uploadFile && (
+                  {selectedFile && (
                     <p className="text-sm text-gray-500 mt-1">
-                      Selected: {uploadFile.name}
+                      Selected: {selectedFile.name}
                     </p>
                   )}
                 </div>
@@ -442,7 +450,7 @@ export function AssetDetail({
                 </button>
                 <button
                   onClick={handleUploadImage}
-                  disabled={!uploadFile || !uploadName.trim()}
+                  disabled={!selectedFile || !uploadName.trim()}
                   className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   Upload

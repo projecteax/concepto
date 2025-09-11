@@ -1,23 +1,26 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Character, AssetConcept, CharacterGeneral, CharacterClothing, CharacterPose } from '@/types';
 import { 
   ArrowLeft, 
   Save, 
   Upload,
   Trash2,
-  Edit3,
   Wand2,
   RefreshCw,
   CheckCircle,
   AlertCircle,
   Filter,
   Grid3X3,
-  List
+  List,
+  Plus,
+  X,
+  Download
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useS3Upload } from '@/hooks/useS3Upload';
+import { ModelViewer } from './ModelViewer';
 
 interface CharacterDetailProps {
   character: Character;
@@ -34,8 +37,7 @@ export function CharacterDetail({
   onAddConcept,
   onDeleteConcept
 }: CharacterDetailProps) {
-  const [activeTab, setActiveTab] = useState<'general' | 'clothing' | 'pose-concepts'>('general');
-  const [isEditing, setIsEditing] = useState(false);
+  const [activeTab, setActiveTab] = useState<'general' | 'clothing' | 'pose-concepts' | '3d-models' | 'production'>('general');
   const [isGenerating, setIsGenerating] = useState(false);
   
   // Form states
@@ -63,18 +65,128 @@ export function CharacterDetail({
   const [mainImageUrl, setMainImageUrl] = useState<string | null>(character.mainImage || null);
   const [isUploadingMainImage, setIsUploadingMainImage] = useState(false);
   
-  // S3 upload hook
-  const { uploadFile } = useS3Upload();
+  // 3D Model fields state
+  const [modelFiles, setModelFiles] = useState({
+    fullBodyBlender: character.modelFiles?.fullBodyBlender || '',
+    fullBodyFBX: character.modelFiles?.fullBodyFBX || '',
+    skinnedCharacter: character.modelFiles?.skinnedCharacter || '',
+    mainExpressions: character.modelFiles?.mainExpressions || '',
+    additionalExpressions: character.modelFiles?.additionalExpressions || [],
+    productionModel: character.modelFiles?.productionModel || '',
+  });
+  
+  // Character gallery state
+  const [characterGallery, setCharacterGallery] = useState<string[]>(character.characterGallery || []);
+  
+  // 3D model upload state
+  const [uploadedModels, setUploadedModels] = useState<Array<{url: string, filename: string, size: number, uploadDate: Date}>>(character.uploadedModels || []);
+  
+  // Update uploadedModels state when character data changes
+  useEffect(() => {
+    if (character.uploadedModels) {
+      setUploadedModels(character.uploadedModels);
+    }
+  }, [character.uploadedModels]);
+  
+  // S3 upload hooks
+  const { uploadFile: uploadModelFile, uploadState: modelUploadState } = useS3Upload();
+  const { uploadFile: uploadGalleryFile, uploadState: galleryUploadState } = useS3Upload();
+  const { uploadFile: uploadConceptFile } = useS3Upload();
+  const { uploadFile: uploadMainImageFile } = useS3Upload();
 
   const handleSave = () => {
+    console.log('💾 Saving character with uploadedModels:', uploadedModels);
     const updatedCharacter: Character = {
       ...character,
       general,
       clothing,
       pose,
+      mainImage: mainImageUrl || undefined,
+      modelFiles,
+      characterGallery,
+      uploadedModels,
     };
+    console.log('💾 Updated character data:', updatedCharacter);
+    console.log('💾 Uploaded models being saved:', updatedCharacter.uploadedModels);
     onSave(updatedCharacter);
-    setIsEditing(false);
+  };
+
+  const handleAddExpression = () => {
+    setModelFiles(prev => ({
+      ...prev,
+      additionalExpressions: [...prev.additionalExpressions, ''],
+    }));
+  };
+
+  const handleRemoveExpression = (index: number) => {
+    setModelFiles(prev => ({
+      ...prev,
+      additionalExpressions: prev.additionalExpressions.filter((_, i) => i !== index),
+    }));
+  };
+
+  const handleExpressionChange = (index: number, value: string) => {
+    setModelFiles(prev => ({
+      ...prev,
+      additionalExpressions: prev.additionalExpressions.map((expr, i) => 
+        i === index ? value : expr
+      ),
+    }));
+  };
+
+  const handleGalleryImageUpload = async (file: File) => {
+    try {
+      const result = await uploadGalleryFile(file, `characters/${character.id}/gallery/`);
+      if (result) {
+        setCharacterGallery(prev => [...prev, result.url]);
+      }
+    } catch (error) {
+      console.error('Failed to upload gallery image:', error);
+    }
+  };
+
+  const handleRemoveGalleryImage = (index: number) => {
+    setCharacterGallery(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleModelUpload = async (file: File) => {
+    try {
+      console.log('🚀 Starting 3D model upload...', { filename: file.name, size: file.size });
+      const result = await uploadModelFile(file, `characters/${character.id}/models/`);
+      
+      if (result) {
+        console.log('✅ 3D model upload successful!', result);
+        const newModel = {
+          url: result.url,
+          filename: file.name,
+          size: file.size,
+          uploadDate: new Date(),
+        };
+        console.log('📝 Adding model to state:', newModel);
+        setUploadedModels(prev => {
+          const updated = [...prev, newModel];
+          console.log('📝 Updated uploadedModels state:', updated);
+          return updated;
+        });
+      } else {
+        console.error('❌ Upload result is null');
+      }
+    } catch (error) {
+      console.error('❌ Failed to upload 3D model:', error);
+    }
+  };
+
+  const handleRemoveModel = (index: number) => {
+    setUploadedModels(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleDownloadModel = (url: string, filename: string) => {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleGenerateConcept = async () => {
@@ -128,7 +240,7 @@ export function CharacterDetail({
         setUploadingFiles(prev => new Map(prev.set(fileId, { progress: 0 })));
 
         try {
-          const result = await uploadFile(file, `characters/${character.id}/concepts`);
+          const result = await uploadConceptFile(file, `characters/${character.id}/concepts`);
           
           if (result) {
             // Update the preview URL with the S3 URL
@@ -181,7 +293,7 @@ export function CharacterDetail({
       setIsUploadingMainImage(true);
       
       try {
-        const result = await uploadFile(file, `characters/${character.id}/main`);
+        const result = await uploadMainImageFile(file, `characters/${character.id}/main`);
         if (result) {
           setMainImageUrl(result.url);
           // Update character with new main image
@@ -255,6 +367,8 @@ export function CharacterDetail({
     { id: 'general', label: 'General', icon: '👤' },
     { id: 'clothing', label: 'Clothing', icon: '👕' },
     { id: 'pose-concepts', label: 'Concepts', icon: '🎨' },
+    { id: '3d-models', label: '3D Models', icon: '🎭' },
+    { id: 'production', label: 'Production', icon: '🎬' },
   ] as const;
 
   return (
@@ -276,31 +390,13 @@ export function CharacterDetail({
               </div>
             </div>
             <div className="flex items-center space-x-3">
-              {isEditing ? (
-                <>
-                  <button
-                    onClick={() => setIsEditing(false)}
-                    className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleSave}
-                    className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-                  >
-                    <Save className="w-4 h-4" />
-                    <span>Save</span>
-                  </button>
-                </>
-              ) : (
-                <button
-                  onClick={() => setIsEditing(true)}
-                  className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-                >
-                  <Edit3 className="w-4 h-4" />
-                  <span>Edit</span>
-                </button>
-              )}
+              <button
+                onClick={handleSave}
+                className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+              >
+                <Save className="w-4 h-4" />
+                <span>Save Changes</span>
+              </button>
             </div>
           </div>
         </div>
@@ -411,8 +507,7 @@ export function CharacterDetail({
                         value={general.age || ''}
                         onChange={(e) => setGeneral(prev => ({ ...prev, age: e.target.value }))}
                         placeholder="e.g., 8 years old"
-                        disabled={!isEditing}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                       />
                     </div>
                     
@@ -425,8 +520,7 @@ export function CharacterDetail({
                         value={general.personality || ''}
                         onChange={(e) => setGeneral(prev => ({ ...prev, personality: e.target.value }))}
                         placeholder="e.g., Brave, curious, friendly"
-                        disabled={!isEditing}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-50"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                       />
                     </div>
                   </div>
@@ -439,8 +533,7 @@ export function CharacterDetail({
                       value={general.backstory || ''}
                       onChange={(e) => setGeneral(prev => ({ ...prev, backstory: e.target.value }))}
                       placeholder="Tell the character's backstory..."
-                      disabled={!isEditing}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none disabled:bg-gray-50"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
                       rows={4}
                     />
                   </div>
@@ -453,8 +546,7 @@ export function CharacterDetail({
                       value={general.specialAbilities || ''}
                       onChange={(e) => setGeneral(prev => ({ ...prev, specialAbilities: e.target.value }))}
                       placeholder="Describe any special abilities or powers..."
-                      disabled={!isEditing}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none disabled:bg-gray-50"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
                       rows={3}
                     />
                   </div>
@@ -467,8 +559,7 @@ export function CharacterDetail({
                       value={general.relationships || ''}
                       onChange={(e) => setGeneral(prev => ({ ...prev, relationships: e.target.value }))}
                       placeholder="Describe relationships with other characters..."
-                      disabled={!isEditing}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none disabled:bg-gray-50"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
                       rows={3}
                     />
                   </div>
@@ -488,8 +579,7 @@ export function CharacterDetail({
                       value={clothing.defaultOutfit || ''}
                       onChange={(e) => setClothing(prev => ({ ...prev, defaultOutfit: e.target.value }))}
                       placeholder="Describe the character's default outfit..."
-                      disabled={!isEditing}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none disabled:bg-gray-50"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
                       rows={3}
                     />
                   </div>
@@ -505,8 +595,7 @@ export function CharacterDetail({
                         seasonalOutfits: e.target.value.split('\n').filter(line => line.trim()) 
                       }))}
                       placeholder="List seasonal outfits (one per line)..."
-                      disabled={!isEditing}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none disabled:bg-gray-50"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
                       rows={4}
                     />
                   </div>
@@ -522,8 +611,7 @@ export function CharacterDetail({
                         specialCostumes: e.target.value.split('\n').filter(line => line.trim()) 
                       }))}
                       placeholder="List special costumes (one per line)..."
-                      disabled={!isEditing}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none disabled:bg-gray-50"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
                       rows={4}
                     />
                   </div>
@@ -539,8 +627,7 @@ export function CharacterDetail({
                         accessories: e.target.value.split('\n').filter(line => line.trim()) 
                       }))}
                       placeholder="List accessories (one per line)..."
-                      disabled={!isEditing}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none disabled:bg-gray-50"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
                       rows={3}
                     />
                   </div>
@@ -565,7 +652,6 @@ export function CharacterDetail({
                           value="T-pose"
                           checked={pose.defaultPose === 'T-pose'}
                           onChange={(e) => setPose(prev => ({ ...prev, defaultPose: e.target.value as 'T-pose' | 'free-pose' }))}
-                          disabled={!isEditing}
                           className="mr-2"
                         />
                         T-pose
@@ -576,7 +662,6 @@ export function CharacterDetail({
                           value="free-pose"
                           checked={pose.defaultPose === 'free-pose'}
                           onChange={(e) => setPose(prev => ({ ...prev, defaultPose: e.target.value as 'T-pose' | 'free-pose' }))}
-                          disabled={!isEditing}
                           className="mr-2"
                         />
                         Free pose
@@ -592,8 +677,7 @@ export function CharacterDetail({
                       value={pose.poseDescription || ''}
                       onChange={(e) => setPose(prev => ({ ...prev, poseDescription: e.target.value }))}
                       placeholder="Describe the character's typical pose and stance..."
-                      disabled={!isEditing}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none disabled:bg-gray-50"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
                       rows={4}
                     />
                   </div>
@@ -1031,6 +1115,320 @@ export function CharacterDetail({
                       </div>
                     )}
                   </div>
+                </div>
+              )}
+
+              {/* 3D Models Tab */}
+              {activeTab === '3d-models' && (
+                <div className="space-y-8">
+                  <h3 className="text-xl font-semibold text-gray-900">3D Model Files</h3>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Full Body Models */}
+                    <div className="space-y-4">
+                      <h4 className="text-lg font-medium text-gray-800">Full Body Models</h4>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Blender File (.blend)
+                        </label>
+                        <input
+                          type="text"
+                          value={modelFiles.fullBodyBlender}
+                          onChange={(e) => setModelFiles(prev => ({ ...prev, fullBodyBlender: e.target.value }))}
+                          placeholder="e.g., character_main_v2.blend"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          FBX File (.fbx)
+                        </label>
+                        <input
+                          type="text"
+                          value={modelFiles.fullBodyFBX}
+                          onChange={(e) => setModelFiles(prev => ({ ...prev, fullBodyFBX: e.target.value }))}
+                          placeholder="e.g., character_main_v2.fbx"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Character Creation */}
+                    <div className="space-y-4">
+                      <h4 className="text-lg font-medium text-gray-800">Character Creation</h4>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Skinned Character (CC file)
+                        </label>
+                        <input
+                          type="text"
+                          value={modelFiles.skinnedCharacter}
+                          onChange={(e) => setModelFiles(prev => ({ ...prev, skinnedCharacter: e.target.value }))}
+                          placeholder="e.g., character_skinned_v1.cc"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Main Expressions (FBX)
+                        </label>
+                        <input
+                          type="text"
+                          value={modelFiles.mainExpressions}
+                          onChange={(e) => setModelFiles(prev => ({ ...prev, mainExpressions: e.target.value }))}
+                          placeholder="e.g., character_expressions_main.fbx"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Additional Expressions */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-lg font-medium text-gray-800">Additional Expressions</h4>
+                      <button
+                        onClick={handleAddExpression}
+                        className="flex items-center space-x-1 px-3 py-1 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Add Expression</span>
+                      </button>
+                    </div>
+                    
+                    {modelFiles.additionalExpressions.length > 0 ? (
+                      <div className="space-y-3">
+                        {modelFiles.additionalExpressions.map((expression, index) => (
+                          <div key={index} className="flex items-center space-x-3">
+                            <input
+                              type="text"
+                              value={expression}
+                              onChange={(e) => handleExpressionChange(index, e.target.value)}
+                              placeholder={`Additional expression ${index + 1}...`}
+                              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                            />
+                            <button
+                              onClick={() => handleRemoveExpression(index)}
+                              className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-gray-500 text-sm">No additional expressions added yet.</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Production Tab */}
+              {activeTab === 'production' && (
+                <div className="space-y-8">
+                  <h3 className="text-xl font-semibold text-gray-900">Production Files</h3>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Production Model */}
+                    <div className="space-y-4">
+                      <h4 className="text-lg font-medium text-gray-800">Production Model</h4>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Fully Rigged & Skinned Model
+                        </label>
+                        <input
+                          type="text"
+                          value={modelFiles.productionModel}
+                          onChange={(e) => setModelFiles(prev => ({ ...prev, productionModel: e.target.value }))}
+                          placeholder="e.g., character_production_final.fbx"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                          Ready for animation with all rigging and skinning complete
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* File Upload & Viewer */}
+                    <div className="space-y-4">
+                      <h4 className="text-lg font-medium text-gray-800">3D Model Upload</h4>
+                      
+                      {/* Only show upload field if no models are uploaded */}
+                      {uploadedModels.length === 0 && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Upload FBX/USDZ File
+                          </label>
+                          <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                            <input
+                              type="file"
+                              accept=".fbx,.usdz,.blend,.glb,.gltf"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  handleModelUpload(file);
+                                }
+                              }}
+                              className="hidden"
+                              id="model-upload"
+                              disabled={modelUploadState.isUploading}
+                            />
+                            <label
+                              htmlFor="model-upload"
+                              className={`cursor-pointer flex flex-col items-center space-y-2 ${
+                                modelUploadState.isUploading ? 'opacity-50 cursor-not-allowed' : ''
+                              }`}
+                            >
+                              <Upload className="w-8 h-8 text-gray-400" />
+                              <span className="text-sm text-gray-600">
+                                {modelUploadState.isUploading ? 'Uploading...' : 'Click to upload 3D model'}
+                              </span>
+                              <span className="text-xs text-gray-500">Supports .fbx, .usdz, .blend, .glb, .gltf files</span>
+                            </label>
+                            
+                            {/* Progress Bar */}
+                            {modelUploadState.isUploading && (
+                              <div className="w-full mt-4">
+                                <div className="bg-gray-200 rounded-full h-2">
+                                  <div 
+                                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                    style={{ width: `${modelUploadState.progress}%` }}
+                                  ></div>
+                                </div>
+                                <span className="text-xs text-gray-500 mt-1">{modelUploadState.progress}%</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Uploaded Models List */}
+                      {uploadedModels.length > 0 && (
+                        <div className="space-y-2">
+                          <h5 className="text-sm font-medium text-gray-700">Uploaded Models</h5>
+                          <div className="space-y-2">
+                            {uploadedModels.map((model, index) => (
+                              <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border">
+                                <div className="flex items-center space-x-3">
+                                  <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                                    <span className="text-xs font-medium text-blue-600">3D</span>
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-medium text-gray-900">{model.filename}</p>
+                                    <div className="flex items-center space-x-2 text-xs text-gray-500">
+                                      <span>{(model.size / 1024 / 1024).toFixed(2)} MB</span>
+                                      <span>•</span>
+                                      <span>{model.uploadDate.toLocaleDateString()}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                  <button
+                                    onClick={() => handleDownloadModel(model.url, model.filename)}
+                                    className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded"
+                                    title="Download model"
+                                  >
+                                    <Download className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleRemoveModel(index)}
+                                    className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded"
+                                    title="Remove model"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Character Gallery */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-lg font-medium text-gray-800">Character Gallery</h4>
+                      <div>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(async (e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              await handleGalleryImageUpload(file);
+                            }
+                          })}
+                          className="hidden"
+                          id="gallery-upload"
+                        />
+                        <label
+                          htmlFor="gallery-upload"
+                          className="flex items-center space-x-1 px-3 py-1 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 cursor-pointer"
+                        >
+                          <Upload className="w-4 h-4" />
+                          <span>{galleryUploadState.isUploading ? 'Uploading...' : 'Add Image'}</span>
+                        </label>
+                      </div>
+                    </div>
+                    
+                    {characterGallery.length > 0 ? (
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        {characterGallery.map((imageUrl, index) => (
+                          <div key={index} className="relative group">
+                            <img
+                              src={imageUrl}
+                              alt={`Character render ${index + 1}`}
+                              className="w-full h-32 object-cover rounded-lg border"
+                            />
+                            <button
+                              onClick={() => handleRemoveGalleryImage(index)}
+                              className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-lg">
+                        <p className="text-gray-500">No character renders uploaded yet.</p>
+                        <p className="text-sm text-gray-400 mt-1">Upload images to create a character gallery.</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 3D Model Viewer */}
+                  {uploadedModels.length > 0 && (
+                    <div className="space-y-4">
+                      <h4 className="text-lg font-medium text-gray-800">3D Model Viewer</h4>
+                      <div className="space-y-4">
+                        {uploadedModels.map((model, index) => (
+                          <div key={index} className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <h5 className="text-sm font-medium text-gray-700">{model.filename}</h5>
+                              <div className="flex items-center space-x-2 text-xs text-gray-500">
+                                <span>{(model.size / 1024 / 1024).toFixed(2)} MB</span>
+                                <span>•</span>
+                                <span>{model.uploadDate.toLocaleDateString()}</span>
+                              </div>
+                            </div>
+                            <ModelViewer 
+                              modelUrl={model.url} 
+                              filename={model.filename}
+                              className="border border-gray-200 rounded-lg"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

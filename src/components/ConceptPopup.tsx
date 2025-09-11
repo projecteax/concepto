@@ -13,6 +13,7 @@ import {
   X as XIcon
 } from 'lucide-react';
 import { generateConceptImage } from '@/lib/gemini';
+import { useS3Upload } from '@/hooks/useS3Upload';
 
 interface ConceptPopupProps {
   asset: GlobalAsset;
@@ -35,16 +36,15 @@ export function ConceptPopup({ asset, onClose, onSave }: ConceptPopupProps) {
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // S3 upload hook
+  const { uploadFile } = useS3Upload();
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       setUploadedFile(file);
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setImageUrl(e.target?.result as string);
-      };
-      reader.readAsDataURL(file);
+      // Don't set imageUrl here - we'll upload to R2 in handleSave
     }
   };
 
@@ -103,13 +103,30 @@ export function ConceptPopup({ asset, onClose, onSave }: ConceptPopupProps) {
 
     setIsSaving(true);
     try {
+      let finalImageUrl = '';
+      
+      if (method === 'generate') {
+        finalImageUrl = generatedImage!;
+      } else if (method === 'url') {
+        finalImageUrl = imageUrl;
+      } else if (method === 'upload' && uploadedFile) {
+        // Upload file to R2
+        const fileKey = `assets/${asset.id}/concepts/${Date.now()}-${uploadedFile.name}`;
+        const result = await uploadFile(uploadedFile, fileKey);
+        if (result) {
+          finalImageUrl = result.url;
+        } else {
+          throw new Error('Failed to upload file');
+        }
+      }
+
       const conceptData: Omit<AssetConcept, 'id' | 'createdAt' | 'updatedAt'> = {
         assetId: asset.id,
         name: name.trim(),
         description: description.trim() || undefined,
         category: asset.category as AssetCategory,
         tags: tags,
-        imageUrl: method === 'generate' ? generatedImage! : imageUrl,
+        imageUrl: finalImageUrl,
         prompt: method === 'generate' ? prompt.trim() : undefined,
         isGenerated: method === 'generate'
       };

@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { showService, globalAssetService, episodeService, assetConceptService } from '@/lib/firebase-services';
-import { Show, GlobalAsset, Episode, AssetConcept } from '@/types';
+import { showService, globalAssetService, episodeService, assetConceptService, episodeIdeaService } from '@/lib/firebase-services';
+import { Show, GlobalAsset, Episode, AssetConcept, EpisodeIdea } from '@/types';
 import { setupDemoData } from '@/lib/demo-data-setup';
 
 export function useFirebaseData() {
   const [shows, setShows] = useState<Show[]>([]);
   const [globalAssets, setGlobalAssets] = useState<GlobalAsset[]>([]);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
+  const [episodeIdeas, setEpisodeIdeas] = useState<EpisodeIdea[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const isLoadingRef = useRef(false);
@@ -36,6 +37,7 @@ export function useFirebaseData() {
         setShows(showsData);
         setGlobalAssets([]);
         setEpisodes([]);
+        setEpisodeIdeas([]);
         
         // If no shows exist, then set up demo data
         if (showsData.length === 0) {
@@ -55,6 +57,7 @@ export function useFirebaseData() {
       setShows([]);
       setGlobalAssets([]);
       setEpisodes([]);
+      setEpisodeIdeas([]);
       // Set error for timeout or other issues
       setError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {
@@ -175,6 +178,40 @@ export function useFirebaseData() {
     }
   };
 
+  // Episode Idea operations
+  const createEpisodeIdea = async (ideaData: Omit<EpisodeIdea, 'id' | 'createdAt' | 'updatedAt'>) => {
+    try {
+      const newIdea = await episodeIdeaService.create(ideaData);
+      setEpisodeIdeas(prev => [...prev, newIdea]);
+      return newIdea;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create episode idea');
+      throw err;
+    }
+  };
+
+  const updateEpisodeIdea = async (id: string, updates: Partial<EpisodeIdea>) => {
+    try {
+      await episodeIdeaService.update(id, updates);
+      setEpisodeIdeas(prev => prev.map(idea => 
+        idea.id === id ? { ...idea, ...updates } : idea
+      ));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update episode idea');
+      throw err;
+    }
+  };
+
+  const deleteEpisodeIdea = async (id: string) => {
+    try {
+      await episodeIdeaService.delete(id);
+      setEpisodeIdeas(prev => prev.filter(idea => idea.id !== id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete episode idea');
+      throw err;
+    }
+  };
+
   // Asset Concept operations
   const createAssetConcept = async (concept: Omit<AssetConcept, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
@@ -210,13 +247,15 @@ export function useFirebaseData() {
   const loadShowData = async (showId: string) => {
     try {
       setLoading(true);
-      const [assetsData, episodesData] = await Promise.all([
+      const [assetsData, episodesData, ideasData] = await Promise.all([
         globalAssetService.getByShow(showId),
         episodeService.getByShow(showId),
+        episodeIdeaService.getByShow(showId),
       ]);
       
       setGlobalAssets(assetsData);
       setEpisodes(episodesData);
+      setEpisodeIdeas(ideasData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load show data');
       console.error('Error loading show data:', err);
@@ -230,6 +269,7 @@ export function useFirebaseData() {
     shows,
     globalAssets,
     episodes,
+    episodeIdeas,
     loading,
     error,
     
@@ -247,6 +287,11 @@ export function useFirebaseData() {
     createEpisode,
     updateEpisode,
     deleteEpisode,
+    
+    // Episode Idea operations
+    createEpisodeIdea,
+    updateEpisodeIdea,
+    deleteEpisodeIdea,
     
     // Asset Concept operations
     createAssetConcept,

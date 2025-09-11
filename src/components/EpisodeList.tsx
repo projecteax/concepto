@@ -174,7 +174,7 @@ export function EpisodeList({
                             <Calendar className="w-4 h-4" />
                             <span>Created {formatDate(episode.createdAt)}</span>
                           </div>
-                          {episode.updatedAt.getTime() !== episode.createdAt.getTime() && (
+                          {new Date(episode.updatedAt).getTime() !== new Date(episode.createdAt).getTime() && (
                             <span>Updated {formatDate(episode.updatedAt)}</span>
                           )}
                         </div>

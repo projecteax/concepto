@@ -77,14 +77,15 @@ export default function EpisodeDetail({
   };
 
   const handleAddScene = () => {
-    const newSceneNumber = (localEpisode.scenes?.length || 0) + 1;
+    const currentScenes = localEpisode.scenes || [];
+    const newSceneNumber = currentScenes.length + 1;
+    const newSceneId = `scene-${Date.now()}`;
     const newScene: EpisodeScene = {
-      id: `scene-${Date.now()}`,
+      id: newSceneId,
       sceneNumber: newSceneNumber,
       title: `Scene ${newSceneNumber}`,
       description: '',
       script: '',
-      locationId: undefined,
       characters: [],
       gadgets: [],
       shots: [],
@@ -94,9 +95,21 @@ export default function EpisodeDetail({
 
     const updatedEpisode: Episode = {
       ...localEpisode,
-      scenes: [...(localEpisode.scenes || []), newScene],
+      scenes: [...currentScenes, newScene],
     };
     updateEpisodeAndSave(updatedEpisode);
+
+    // Scroll to the newly created scene after a short delay to ensure DOM update
+    setTimeout(() => {
+      const sceneElement = document.getElementById(`scene-${newSceneId}`);
+      if (sceneElement) {
+        sceneElement.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'start',
+          inline: 'nearest'
+        });
+      }
+    }, 100);
   };
 
   const handleDeleteScene = (sceneId: string) => {
@@ -113,8 +126,9 @@ export default function EpisodeDetail({
     if (!scene) return;
 
     const newShotNumber = (scene.shots?.length || 0) + 1;
+    const newShotId = `shot-${Date.now()}`;
     const newShot: SceneShot = {
-      id: `shot-${Date.now()}`,
+      id: newShotId,
       shotNumber: newShotNumber,
       title: `Shot ${newShotNumber}`,
       description: '',
@@ -144,14 +158,33 @@ export default function EpisodeDetail({
       scenes: updatedScenes,
     };
     updateEpisodeAndSave(updatedEpisode);
+
+    // Scroll to the newly created shot after a short delay to ensure DOM update
+    setTimeout(() => {
+      const shotElement = document.getElementById(`shot-${newShotId}`);
+      if (shotElement) {
+        shotElement.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'start',
+          inline: 'nearest'
+        });
+      }
+    }, 100);
   };
 
   const handleDeleteShot = (sceneId: string, shotId: string) => {
     const updatedScenes = (localEpisode.scenes || []).map(s => {
       if (s.id === sceneId) {
+        const filteredShots = (s.shots || []).filter(shot => shot.id !== shotId);
+        // Renumber shots after deletion
+        const renumberedShots = filteredShots.map((shot, index) => ({
+          ...shot,
+          shotNumber: index + 1,
+          updatedAt: new Date(),
+        }));
         return {
           ...s,
-          shots: (s.shots || []).filter(shot => shot.id !== shotId),
+          shots: renumberedShots,
         };
       }
       return s;
@@ -160,6 +193,121 @@ export default function EpisodeDetail({
     const updatedEpisode: Episode = {
       ...localEpisode,
       scenes: updatedScenes,
+    };
+    updateEpisodeAndSave(updatedEpisode);
+  };
+
+  const handleShotDescriptionChange = (sceneId: string, shotId: string, description: string) => {
+    const updatedScenes = (localEpisode.scenes || []).map(s => {
+      if (s.id === sceneId) {
+        return {
+          ...s,
+          shots: (s.shots || []).map(shot => {
+            if (shot.id === shotId) {
+              return {
+                ...shot,
+                description,
+                updatedAt: new Date(),
+              };
+            }
+            return shot;
+          }),
+        };
+      }
+      return s;
+    });
+
+    const updatedEpisode: Episode = {
+      ...localEpisode,
+      scenes: updatedScenes,
+    };
+    updateEpisodeAndSave(updatedEpisode);
+  };
+
+  const handleShotTypeChange = (sceneId: string, shotId: string, shotType: string) => {
+    const updatedScenes = (localEpisode.scenes || []).map(s => {
+      if (s.id === sceneId) {
+        return {
+          ...s,
+          shots: (s.shots || []).map(shot => {
+            if (shot.id === shotId) {
+              return {
+                ...shot,
+                cameraShot: {
+                  ...shot.cameraShot,
+                  shotType: shotType as 'WIDE' | 'MEDIUM' | 'CLOSE_UP' | 'EXTREME_CLOSE_UP' | 'OVER_THE_SHOULDER' | 'POV' | 'ESTABLISHING' | 'CUSTOM',
+                  updatedAt: new Date(),
+                },
+                updatedAt: new Date(),
+              };
+            }
+            return shot;
+          }),
+        };
+      }
+      return s;
+    });
+
+    const updatedEpisode: Episode = {
+      ...localEpisode,
+      scenes: updatedScenes,
+    };
+    updateEpisodeAndSave(updatedEpisode);
+  };
+
+  const handleAddCharacterToEpisode = (characterId: string) => {
+    const characterAsset = globalAssets.find(asset => 
+      asset.category === 'character' && asset.id === characterId
+    ) as Character | undefined;
+    
+    if (!characterAsset) return;
+
+    const newCharacter = {
+      characterId: characterAsset.id,
+      characterName: characterAsset.name,
+      type: 'recurring' as const,
+      role: '',
+    };
+
+    const updatedEpisode: Episode = {
+      ...localEpisode,
+      characters: [...(localEpisode.characters || []), newCharacter],
+    };
+    updateEpisodeAndSave(updatedEpisode);
+  };
+
+  const handleRemoveCharacterFromEpisode = (characterId: string) => {
+    const updatedEpisode: Episode = {
+      ...localEpisode,
+      characters: (localEpisode.characters || []).filter(c => c.characterId !== characterId),
+    };
+    updateEpisodeAndSave(updatedEpisode);
+  };
+
+  const handleAddLocationToEpisode = (locationId: string) => {
+    const locationAsset = globalAssets.find(asset => 
+      asset.category === 'location' && asset.id === locationId
+    );
+    
+    if (!locationAsset) return;
+
+    const newLocation = {
+      locationId: locationAsset.id,
+      locationName: locationAsset.name,
+      description: '',
+    };
+
+    const updatedEpisode: Episode = {
+      ...localEpisode,
+      locations: [...(localEpisode.locations || []), newLocation],
+    };
+    updateEpisodeAndSave(updatedEpisode);
+  };
+
+  const handleRemoveLocationFromEpisode = (locationId: string) => {
+    const updatedEpisode: Episode = {
+      ...localEpisode,
+      locations: (localEpisode.locations || []).filter(l => l.locationId !== locationId),
     };
     updateEpisodeAndSave(updatedEpisode);
   };
@@ -174,8 +322,15 @@ export default function EpisodeDetail({
 
     setUploadingDrawing(true);
     try {
-      // For now, store as data URL (in production, upload to R2)
-      const uploadedUrl = imageData;
+      // Convert data URL to blob and upload to R2
+      const response = await fetch(imageData);
+      const blob = await response.blob();
+      const file = new File([blob], `drawing-${Date.now()}.png`, { type: 'image/png' });
+      
+      const fileKey = `episodes/${episode.id}/scenes/${drawingContext.sceneId}/shots/${drawingContext.shotId}/${drawingContext.type}/${Date.now()}-drawing.png`;
+      const result = await uploadFile(file, fileKey);
+      
+      const uploadedUrl = result ? result.url : imageData;
 
       const updatedScenes = (localEpisode.scenes || []).map(s => {
         if (s.id === drawingContext.sceneId) {
@@ -574,7 +729,7 @@ export default function EpisodeDetail({
               {localEpisode.scenes && localEpisode.scenes.length > 0 ? (
                 <div className="space-y-6">
                   {localEpisode.scenes.map((scene) => (
-                    <div key={scene.id} className="border rounded-lg p-6">
+                    <div key={scene.id} id={`scene-${scene.id}`} className="border rounded-lg p-6">
                       <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center space-x-4">
                           <h3 className="text-lg font-medium text-gray-900">
@@ -738,7 +893,7 @@ export default function EpisodeDetail({
                         {scene.shots && scene.shots.length > 0 ? (
                           <div className="space-y-3">
                             {scene.shots.map((shot) => (
-                              <div key={shot.id} className="border rounded-lg p-4 bg-gray-50">
+                              <div key={shot.id} id={`shot-${shot.id}`} className="border rounded-lg p-4 bg-gray-50">
                                 <div className="flex items-center justify-between mb-3">
                                   <div className="flex items-center space-x-3">
                                     <h5 className="font-medium text-gray-900">
@@ -751,20 +906,85 @@ export default function EpisodeDetail({
                                     />
                                   </div>
                                   <button
-                                    onClick={() => handleDeleteShot(scene.id, shot.id)}
+                                    onClick={() => {
+                                      if (confirm(`Are you sure you want to delete Shot ${shot.shotNumber}? This will automatically renumber the remaining shots.`)) {
+                                        handleDeleteShot(scene.id, shot.id);
+                                      }
+                                    }}
                                     className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded"
+                                    title="Delete shot (will renumber remaining shots)"
                                   >
                                     <X className="w-3 h-3" />
                                   </button>
                                 </div>
 
                                 <div className="mb-3">
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Shot Description
+                                  </label>
                                   <textarea
                                     value={shot.description || ''}
-                                    placeholder="Shot description..."
+                                    onChange={(e) => handleShotDescriptionChange(scene.id, shot.id, e.target.value)}
+                                    placeholder="Describe what happens in this shot..."
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                                     rows={2}
                                   />
+                                </div>
+
+                                <div className="mb-3">
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Shot Type
+                                  </label>
+                                  <select
+                                    value={shot.cameraShot.shotType}
+                                    onChange={(e) => handleShotTypeChange(scene.id, shot.id, e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                  >
+                                    <option value="WIDE">Wide Shot</option>
+                                    <option value="MEDIUM">Medium Shot</option>
+                                    <option value="CLOSE_UP">Close Up</option>
+                                    <option value="EXTREME_CLOSE_UP">Extreme Close Up</option>
+                                    <option value="OVER_THE_SHOULDER">Over the Shoulder</option>
+                                    <option value="POV">Point of View</option>
+                                    <option value="ESTABLISHING">Establishing Shot</option>
+                                    <option value="CUSTOM">Custom</option>
+                                  </select>
+                                  {shot.cameraShot.shotType === 'CUSTOM' && (
+                                    <input
+                                      type="text"
+                                      value={shot.cameraShot.customShotType || ''}
+                                      onChange={(e) => {
+                                        const updatedScenes = (localEpisode.scenes || []).map(s => {
+                                          if (s.id === scene.id) {
+                                            return {
+                                              ...s,
+                                              shots: (s.shots || []).map(sh => {
+                                                if (sh.id === shot.id) {
+                                                  return {
+                                                    ...sh,
+                                                    cameraShot: {
+                                                      ...sh.cameraShot,
+                                                      customShotType: e.target.value,
+                                                    },
+                                                    updatedAt: new Date(),
+                                                  };
+                                                }
+                                                return sh;
+                                              }),
+                                            };
+                                          }
+                                          return s;
+                                        });
+                                        const updatedEpisode: Episode = {
+                                          ...localEpisode,
+                                          scenes: updatedScenes,
+                                        };
+                                        updateEpisodeAndSave(updatedEpisode);
+                                      }}
+                                      placeholder="Enter custom shot type..."
+                                      className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                    />
+                                  )}
                                 </div>
 
                                 {/* Storyboards */}
@@ -911,15 +1131,157 @@ export default function EpisodeDetail({
 
         {activeTab === 'characters' && (
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-medium text-gray-900 mb-4">Characters</h2>
-            <p className="text-gray-500">Character management will be implemented here.</p>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-medium text-gray-900">Characters</h2>
+              <select
+                onChange={(e) => {
+                  if (e.target.value) {
+                    handleAddCharacterToEpisode(e.target.value);
+                    e.target.value = '';
+                  }
+                }}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                defaultValue=""
+              >
+                <option value="">Add Character...</option>
+                {globalAssets
+                  .filter(asset => asset.category === 'character')
+                  .filter(asset => !localEpisode.characters?.some(c => c.characterId === asset.id))
+                  .map(character => (
+                    <option key={character.id} value={character.id}>
+                      {character.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            
+            {localEpisode.characters && localEpisode.characters.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {localEpisode.characters.map((char) => {
+                  const characterAsset = globalAssets.find(asset => 
+                    asset.category === 'character' && asset.id === char.characterId
+                  ) as Character | undefined;
+                  return (
+                    <div key={char.characterId} className="border rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="font-medium">{characterAsset?.name || 'Unknown Character'}</h3>
+                        <button
+                          onClick={() => handleRemoveCharacterFromEpisode(char.characterId)}
+                          className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <div className="space-y-2">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+                          <span className="text-sm text-gray-900 capitalize">{char.type}</span>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Role</label>
+                          <input
+                            type="text"
+                            value={char.role || ''}
+                            onChange={(e) => {
+                              const updatedEpisode: Episode = {
+                                ...localEpisode,
+                                characters: (localEpisode.characters || []).map(c => 
+                                  c.characterId === char.characterId 
+                                    ? { ...c, role: e.target.value }
+                                    : c
+                                ),
+                              };
+                              updateEpisodeAndSave(updatedEpisode);
+                            }}
+                            placeholder="Character role..."
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-transparent"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-lg">
+                <p className="text-gray-500">No characters added to this episode yet.</p>
+                <p className="text-sm text-gray-400 mt-1">Use the dropdown above to add characters.</p>
+              </div>
+            )}
           </div>
         )}
 
         {activeTab === 'locations' && (
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-medium text-gray-900 mb-4">Locations</h2>
-            <p className="text-gray-500">Location management will be implemented here.</p>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-medium text-gray-900">Locations</h2>
+              <select
+                onChange={(e) => {
+                  if (e.target.value) {
+                    handleAddLocationToEpisode(e.target.value);
+                    e.target.value = '';
+                  }
+                }}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                defaultValue=""
+              >
+                <option value="">Add Location...</option>
+                {globalAssets
+                  .filter(asset => asset.category === 'location')
+                  .filter(asset => !localEpisode.locations?.some(l => l.locationId === asset.id))
+                  .map(location => (
+                    <option key={location.id} value={location.id}>
+                      {location.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            
+            {localEpisode.locations && localEpisode.locations.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {localEpisode.locations.map((loc) => {
+                  const locationAsset = globalAssets.find(asset => asset.id === loc.locationId);
+                  return (
+                    <div key={loc.locationId} className="border rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="font-medium">{locationAsset?.name || 'Unknown Location'}</h3>
+                        <button
+                          onClick={() => handleRemoveLocationFromEpisode(loc.locationId)}
+                          className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
+                        <textarea
+                          value={loc.description || ''}
+                          onChange={(e) => {
+                            const updatedEpisode: Episode = {
+                              ...localEpisode,
+                              locations: (localEpisode.locations || []).map(l => 
+                                l.locationId === loc.locationId 
+                                  ? { ...l, description: e.target.value }
+                                  : l
+                              ),
+                            };
+                            updateEpisodeAndSave(updatedEpisode);
+                          }}
+                          placeholder="Location description..."
+                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-transparent resize-none"
+                          rows={2}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-lg">
+                <p className="text-gray-500">No locations added to this episode yet.</p>
+                <p className="text-sm text-gray-400 mt-1">Use the dropdown above to add locations.</p>
+              </div>
+            )}
           </div>
         )}
 

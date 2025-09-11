@@ -22,6 +22,7 @@ interface ShowDashboardProps {
   onBack: () => void;
   onSelectGlobalAssets: () => void;
   onSelectEpisodes: () => void;
+  onSelectEpisodeIdeas: () => void;
   onAddGlobalAsset: (asset: Omit<GlobalAsset, 'id' | 'createdAt' | 'updatedAt'>) => void;
   onAddEpisode: (episode: Omit<Episode, 'id' | 'createdAt' | 'updatedAt'>) => void;
 }
@@ -49,6 +50,7 @@ export function ShowDashboard({
   onBack,
   onSelectGlobalAssets,
   onSelectEpisodes,
+  onSelectEpisodeIdeas,
   onAddGlobalAsset,
   onAddEpisode
 }: ShowDashboardProps) {
@@ -230,6 +232,14 @@ export function ShowDashboard({
             >
               <Play className="w-5 h-5" />
               <span>Manage Episodes</span>
+            </button>
+            
+            <button
+              onClick={onSelectEpisodeIdeas}
+              className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors mt-3"
+            >
+              <FolderOpen className="w-5 h-5" />
+              <span>Episode Ideas</span>
             </button>
           </div>
         </div>
