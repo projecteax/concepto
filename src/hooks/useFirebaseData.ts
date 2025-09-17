@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { showService, globalAssetService, episodeService, assetConceptService, episodeIdeaService } from '@/lib/firebase-services';
-import { Show, GlobalAsset, Episode, AssetConcept, EpisodeIdea } from '@/types';
+import { showService, globalAssetService, episodeService, assetConceptService, episodeIdeaService, generalIdeaService } from '@/lib/firebase-services';
+import { Show, GlobalAsset, Episode, AssetConcept, EpisodeIdea, GeneralIdea } from '@/types';
 import { setupDemoData } from '@/lib/demo-data-setup';
 
 export function useFirebaseData() {
@@ -8,6 +8,7 @@ export function useFirebaseData() {
   const [globalAssets, setGlobalAssets] = useState<GlobalAsset[]>([]);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [episodeIdeas, setEpisodeIdeas] = useState<EpisodeIdea[]>([]);
+  const [generalIdeas, setGeneralIdeas] = useState<GeneralIdea[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const isLoadingRef = useRef(false);
@@ -38,6 +39,7 @@ export function useFirebaseData() {
         setGlobalAssets([]);
         setEpisodes([]);
         setEpisodeIdeas([]);
+        setGeneralIdeas([]);
         
         // If no shows exist, then set up demo data
         if (showsData.length === 0) {
@@ -58,6 +60,7 @@ export function useFirebaseData() {
       setGlobalAssets([]);
       setEpisodes([]);
       setEpisodeIdeas([]);
+      setGeneralIdeas([]);
       // Set error for timeout or other issues
       setError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {
@@ -243,19 +246,55 @@ export function useFirebaseData() {
     }
   };
 
+  // General Idea operations
+  const createGeneralIdea = async (idea: Omit<GeneralIdea, 'id' | 'createdAt' | 'updatedAt'>) => {
+    try {
+      const newIdea = await generalIdeaService.create(idea);
+      setGeneralIdeas(prev => [...prev, newIdea]);
+      return newIdea;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create general idea');
+      throw err;
+    }
+  };
+
+  const updateGeneralIdea = async (id: string, updates: Partial<GeneralIdea>) => {
+    try {
+      await generalIdeaService.update(id, updates);
+      setGeneralIdeas(prev => prev.map(idea => 
+        idea.id === id ? { ...idea, ...updates, updatedAt: new Date() } : idea
+      ));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update general idea');
+      throw err;
+    }
+  };
+
+  const deleteGeneralIdea = async (id: string) => {
+    try {
+      await generalIdeaService.delete(id);
+      setGeneralIdeas(prev => prev.filter(idea => idea.id !== id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete general idea');
+      throw err;
+    }
+  };
+
   // Load data for specific show
   const loadShowData = async (showId: string) => {
     try {
       setLoading(true);
-      const [assetsData, episodesData, ideasData] = await Promise.all([
+      const [assetsData, episodesData, ideasData, generalIdeasData] = await Promise.all([
         globalAssetService.getByShow(showId),
         episodeService.getByShow(showId),
         episodeIdeaService.getByShow(showId),
+        generalIdeaService.getByShow(showId),
       ]);
       
       setGlobalAssets(assetsData);
       setEpisodes(episodesData);
       setEpisodeIdeas(ideasData);
+      setGeneralIdeas(generalIdeasData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load show data');
       console.error('Error loading show data:', err);
@@ -270,6 +309,7 @@ export function useFirebaseData() {
     globalAssets,
     episodes,
     episodeIdeas,
+    generalIdeas,
     loading,
     error,
     
@@ -292,6 +332,11 @@ export function useFirebaseData() {
     createEpisodeIdea,
     updateEpisodeIdea,
     deleteEpisodeIdea,
+    
+    // General Idea operations
+    createGeneralIdea,
+    updateGeneralIdea,
+    deleteGeneralIdea,
     
     // Asset Concept operations
     createAssetConcept,

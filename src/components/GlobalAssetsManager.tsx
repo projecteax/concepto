@@ -9,10 +9,10 @@ import {
   Wrench, 
   Image, 
   Mountain,
+  Car,
   Plus,
   Edit3,
-  Trash2,
-  Eye
+  Trash2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -34,6 +34,7 @@ const categoryIcons = {
   gadget: Wrench,
   texture: Image,
   background: Mountain,
+  vehicle: Car,
 };
 
 const categoryLabels = {
@@ -42,6 +43,7 @@ const categoryLabels = {
   gadget: 'Gadgets',
   texture: 'Textures',
   background: 'Backgrounds',
+  vehicle: 'Vehicles', // Vehicle category
 };
 
 export function GlobalAssetsManager({
@@ -198,7 +200,8 @@ export function GlobalAssetsManager({
                 {filteredAssets.map((asset) => (
                   <div
                     key={asset.id}
-                    className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-shadow"
+                    className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group"
+                    onClick={() => onSelectAsset(asset)}
                   >
                     <div className="p-6">
                       <div className="flex items-start justify-between mb-4">
@@ -206,24 +209,26 @@ export function GlobalAssetsManager({
                           {React.createElement(categoryIcons[asset.category], {
                             className: "w-5 h-5 text-indigo-600"
                           })}
-                          <h3 className="font-semibold text-gray-900">{asset.name}</h3>
+                          <h3 className="font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors">{asset.name}</h3>
                         </div>
                         <div className="flex space-x-1">
                           <button
-                            onClick={() => onSelectAsset(asset)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEditAsset(asset);
+                            }}
                             className="p-1 text-gray-400 hover:text-gray-600"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => onEditAsset(asset)}
-                            className="p-1 text-gray-400 hover:text-gray-600"
+                            title="Edit asset"
                           >
                             <Edit3 className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => onDeleteAsset(asset.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDeleteAsset(asset.id);
+                            }}
                             className="p-1 text-gray-400 hover:text-red-600"
+                            title="Delete asset"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>

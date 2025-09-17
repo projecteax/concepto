@@ -106,7 +106,6 @@ Replace `YOUR_BUCKET_NAME` with your actual bucket name.
 10. **Save the Access Key ID and Secret Access Key** - you'll need these!
 
 ## 5. Configure Environment Variables
-
 Create a `.env.local` file in your project root:
 
 ```env

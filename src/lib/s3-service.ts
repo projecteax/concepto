@@ -107,11 +107,12 @@ export async function uploadToS3(
       secretKeyCheck: isPlaceholder(process.env.NEXT_PUBLIC_R2_SECRET_ACCESS_KEY)
     });
     
-    if (!BUCKET_NAME || isPlaceholder(process.env.NEXT_PUBLIC_R2_ENDPOINT) || 
+    if (!BUCKET_NAME || !PUBLIC_URL || isPlaceholder(process.env.NEXT_PUBLIC_R2_ENDPOINT) || 
         isPlaceholder(process.env.NEXT_PUBLIC_R2_ACCESS_KEY_ID) || isPlaceholder(process.env.NEXT_PUBLIC_R2_SECRET_ACCESS_KEY)) {
-      console.warn('❌ S3/R2 not configured, storing as data URL temporarily');
+      console.warn('❌ S3/R2 not configured properly, storing as data URL temporarily');
       console.log('❌ Fallback reason:', {
         noBucket: !BUCKET_NAME,
+        noPublicUrl: !PUBLIC_URL,
         endpointPlaceholder: isPlaceholder(process.env.NEXT_PUBLIC_R2_ENDPOINT),
         accessKeyPlaceholder: isPlaceholder(process.env.NEXT_PUBLIC_R2_ACCESS_KEY_ID),
         secretKeyPlaceholder: isPlaceholder(process.env.NEXT_PUBLIC_R2_SECRET_ACCESS_KEY),
@@ -174,6 +175,21 @@ export async function uploadToS3(
       // Generate public URL using R2 public domain
       const url = `${PUBLIC_URL}/${key}`;
       console.log('🔗 Generated public URL:', url);
+      console.log('🔍 URL construction debug:', {
+        PUBLIC_URL,
+        key,
+        fullUrl: url,
+        publicUrlType: typeof PUBLIC_URL,
+        keyType: typeof key,
+        publicUrlLength: PUBLIC_URL?.length,
+        keyLength: key?.length
+      });
+
+      // Validate URL format
+      if (!url.startsWith('http')) {
+        console.error('❌ Invalid URL format:', url);
+        throw new Error(`Invalid public URL format: ${url}`);
+      }
 
       return {
         url,

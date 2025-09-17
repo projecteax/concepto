@@ -136,7 +136,8 @@ export function EpisodeList({
             {sortedEpisodes.map((episode) => (
               <div
                 key={episode.id}
-                className="bg-white rounded-lg border border-gray-200 hover:shadow-md transition-shadow"
+                className="bg-white rounded-lg border border-gray-200 hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group"
+                onClick={() => onSelectEpisode(episode)}
               >
                 <div className="p-6">
                   <div className="flex items-start justify-between">
@@ -146,7 +147,7 @@ export function EpisodeList({
                           <div className="w-8 h-8 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-sm font-semibold">
                             {episode.episodeNumber}
                           </div>
-                          <h3 className="text-xl font-semibold text-gray-900">{episode.title}</h3>
+                          <h3 className="text-xl font-semibold text-gray-900 group-hover:text-green-600 transition-colors">{episode.title}</h3>
                         </div>
                         <div className="flex items-center space-x-4 text-sm text-gray-500">
                           <div className="flex items-center space-x-1">
@@ -181,21 +182,22 @@ export function EpisodeList({
 
                         <div className="flex items-center space-x-2">
                           <button
-                            onClick={() => onSelectEpisode(episode)}
-                            className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                          >
-                            <Play className="w-4 h-4" />
-                            <span>Open</span>
-                          </button>
-                          <button
-                            onClick={() => onEditEpisode(episode)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEditEpisode(episode);
+                            }}
                             className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                            title="Edit episode"
                           >
                             <Edit3 className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => onDeleteEpisode(episode.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDeleteEpisode(episode.id);
+                            }}
                             className="p-2 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-lg transition-colors"
+                            title="Delete episode"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>

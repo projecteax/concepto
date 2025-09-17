@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { GlobalAsset, AssetConcept } from '@/types';
 import { 
   ArrowLeft, 
-  Wrench, 
+  Car, 
   Upload, 
   Trash2, 
   Edit3,
@@ -15,28 +15,28 @@ import {
 } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
 
-interface GadgetDetailProps {
-  gadget: GlobalAsset;
+interface VehicleDetailProps {
+  vehicle: GlobalAsset;
   onBack: () => void;
-  onSave: (gadget: GlobalAsset) => void;
+  onSave: (vehicle: GlobalAsset) => void;
   onDeleteConcept: (conceptId: string) => void;
 }
 
-export function GadgetDetail({
-  gadget,
+export function VehicleDetail({
+  vehicle,
   onBack,
   onSave,
   onDeleteConcept
-}: GadgetDetailProps) {
+}: VehicleDetailProps) {
   const [activeTab, setActiveTab] = useState<'general' | 'concepts' | 'production'>('general');
   const [isEditing, setIsEditing] = useState(false);
   
   // Form states
-  const [name, setName] = useState(gadget.name);
-  const [description, setDescription] = useState(gadget.description || '');
-  const [gadgetType, setGadgetType] = useState('');
-  const [functionality, setFunctionality] = useState('');
-  const [powerSource, setPowerSource] = useState('');
+  const [name, setName] = useState(vehicle.name);
+  const [description, setDescription] = useState(vehicle.description || '');
+  const [vehicleType, setVehicleType] = useState('');
+  const [propulsion, setPropulsion] = useState('');
+  const [capacity, setCapacity] = useState('');
   
   // Concept generation
   const [generationPrompt, setGenerationPrompt] = useState('');
@@ -50,8 +50,8 @@ export function GadgetDetail({
   const { uploadFile } = useS3Upload();
   
   // Gallery states
-  const [galleryImages, setGalleryImages] = useState<string[]>(gadget.galleryImages || []);
-  const [mainRender, setMainRender] = useState<string>(gadget.mainRender || '');
+  const [galleryImages, setGalleryImages] = useState<string[]>(vehicle.galleryImages || []);
+  const [mainRender, setMainRender] = useState<string>(vehicle.mainRender || '');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   
   // Concept gallery states
@@ -73,20 +73,20 @@ export function GadgetDetail({
   }, [selectedImage]);
 
   const handleSave = () => {
-    const updatedGadget: GlobalAsset = {
-      ...gadget,
+    const updatedVehicle: GlobalAsset = {
+      ...vehicle,
       name: name.trim(),
       description: description.trim() || undefined,
       galleryImages: galleryImages,
       mainRender: mainRender,
     };
-    onSave(updatedGadget);
+    onSave(updatedVehicle);
     setIsEditing(false);
   };
 
   const handleCancel = () => {
-    setName(gadget.name);
-    setDescription(gadget.description || '');
+    setName(vehicle.name);
+    setDescription(vehicle.description || '');
     setIsEditing(false);
   };
 
@@ -95,30 +95,30 @@ export function GadgetDetail({
     setUploadingFiles(prev => new Map(prev).set(uploadId, { progress: 0 }));
 
     try {
-      const result = await uploadFile(file, 'gadgets');
+      const result = await uploadFile(file, 'vehicles');
       const url = result?.url;
 
       if (url) {
         if (conceptId) {
           // Update existing concept
-          const concept = gadget.concepts.find(c => c.id === conceptId);
+          const concept = vehicle.concepts.find(c => c.id === conceptId);
           if (concept) {
             const updatedConcept: AssetConcept = {
               ...concept,
               imageUrl: url,
               updatedAt: new Date(),
             };
-            const updatedConcepts = gadget.concepts.map(c => 
+            const updatedConcepts = vehicle.concepts.map(c => 
               c.id === conceptId ? updatedConcept : c
             );
-            onSave({ ...gadget, concepts: updatedConcepts });
+            onSave({ ...vehicle, concepts: updatedConcepts });
           }
         } else {
-          // Create new concept and add it directly to gadget's concepts
+          // Create new concept and add it directly to vehicle's concepts
           const newConcept: AssetConcept = {
             id: `concept-${Date.now()}`,
-            category: 'gadget',
-            assetId: gadget.id,
+            category: 'vehicle',
+            assetId: vehicle.id,
             name: newConceptName || file.name.split('.')[0],
             description: '',
             imageUrl: url,
@@ -129,9 +129,9 @@ export function GadgetDetail({
             updatedAt: new Date(),
           };
           
-          // Add the concept directly to the gadget's concepts
-          const updatedConcepts = [...gadget.concepts, newConcept];
-          onSave({ ...gadget, concepts: updatedConcepts });
+          // Add the concept directly to the vehicle's concepts
+          const updatedConcepts = [...vehicle.concepts, newConcept];
+          onSave({ ...vehicle, concepts: updatedConcepts });
           setNewConceptName('');
         }
       }
@@ -151,7 +151,7 @@ export function GadgetDetail({
 
   const handleGalleryUpload = async (file: File) => {
     try {
-      const result = await uploadFile(file, 'gadgets');
+      const result = await uploadFile(file, 'vehicles');
       if (result && result.url) {
         const newGalleryImages = [...galleryImages, result.url];
         setGalleryImages(newGalleryImages);
@@ -161,7 +161,7 @@ export function GadgetDetail({
           setMainRender(result.url);
         }
         
-        onSave({ ...gadget, galleryImages: newGalleryImages, mainRender: mainRender || result.url });
+        onSave({ ...vehicle, galleryImages: newGalleryImages, mainRender: mainRender || result.url });
       }
     } catch (error) {
       console.error('Failed to upload gallery image:', error);
@@ -170,7 +170,7 @@ export function GadgetDetail({
 
   const handleSetMainRender = (imageUrl: string) => {
     setMainRender(imageUrl);
-    onSave({ ...gadget, mainRender: imageUrl });
+    onSave({ ...vehicle, mainRender: imageUrl });
   };
 
   const handleRemoveGalleryImage = (imageUrl: string) => {
@@ -181,9 +181,9 @@ export function GadgetDetail({
     if (mainRender === imageUrl) {
       const newMainRender = newGalleryImages.length > 0 ? newGalleryImages[0] : '';
       setMainRender(newMainRender);
-      onSave({ ...gadget, galleryImages: newGalleryImages, mainRender: newMainRender });
+      onSave({ ...vehicle, galleryImages: newGalleryImages, mainRender: newMainRender });
     } else {
-      onSave({ ...gadget, galleryImages: newGalleryImages });
+      onSave({ ...vehicle, galleryImages: newGalleryImages });
     }
   };
 
@@ -203,21 +203,21 @@ export function GadgetDetail({
 
   const handleUpdateConcept = async (conceptId: string, updates: { name?: string; description?: string; relevanceScale?: number }) => {
     try {
-      const updatedConcepts = (gadget.concepts || []).map(concept => 
+      const updatedConcepts = (vehicle.concepts || []).map(concept => 
         concept.id === conceptId 
           ? { ...concept, ...updates, updatedAt: new Date() }
           : concept
       );
       
-      const updatedGadget = { ...gadget, concepts: updatedConcepts };
-      onSave(updatedGadget);
+      const updatedVehicle = { ...vehicle, concepts: updatedConcepts };
+      onSave(updatedVehicle);
       setEditingConcept(null);
     } catch (error) {
       console.error('Failed to update concept:', error);
     }
   };
 
-  const sortedConcepts = (gadget.concepts || []).sort((a, b) => {
+  const sortedConcepts = (vehicle.concepts || []).sort((a, b) => {
     switch (sortBy) {
       case 'newest':
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
@@ -246,7 +246,7 @@ export function GadgetDetail({
                 <ArrowLeft className="w-5 h-5" />
               </button>
               <div className="flex items-center space-x-3">
-                <Wrench className="w-6 h-6 text-indigo-600" />
+                <Car className="w-6 h-6 text-indigo-600" />
                 <div>
                   <h1 className="text-xl font-semibold text-gray-900">
                     {isEditing ? (
@@ -258,10 +258,10 @@ export function GadgetDetail({
                         autoFocus
                       />
                     ) : (
-                      gadget.name
+                      vehicle.name
                     )}
                   </h1>
-                  <p className="text-sm text-gray-500">Gadget Asset</p>
+                  <p className="text-sm text-gray-500">Vehicle Asset</p>
                 </div>
               </div>
             </div>
@@ -300,7 +300,7 @@ export function GadgetDetail({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <nav className="flex space-x-8">
             {[
-              { id: 'general', label: 'General', icon: Wrench },
+              { id: 'general', label: 'General', icon: Car },
               { id: 'concepts', label: 'Concepts', icon: ImageIcon },
               { id: 'production', label: 'Production', icon: Settings },
             ].map((tab) => (
@@ -326,7 +326,7 @@ export function GadgetDetail({
         {activeTab === 'general' && (
           <div className="space-y-6">
             <div className="bg-white rounded-lg border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Gadget Information</h2>
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Vehicle Information</h2>
               
               <div className="space-y-4">
                 <div>
@@ -339,7 +339,7 @@ export function GadgetDetail({
                       onChange={(e) => setDescription(e.target.value)}
                       rows={4}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                      placeholder="Describe this gadget..."
+                      placeholder="Describe this vehicle..."
                     />
                   ) : (
                     <p className="text-gray-600">
@@ -351,42 +351,42 @@ export function GadgetDetail({
             </div>
 
             <div className="bg-white rounded-lg border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Technical Specifications</h2>
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Vehicle Specifications</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Gadget Type
+                    Vehicle Type
                   </label>
                   <input
                     type="text"
-                    value={gadgetType}
-                    onChange={(e) => setGadgetType(e.target.value)}
+                    value={vehicleType}
+                    onChange={(e) => setVehicleType(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    placeholder="e.g., Communication device, Weapon, Tool"
+                    placeholder="e.g., Spacecraft, Car, Motorcycle, Boat"
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Power Source
+                    Propulsion System
                   </label>
                   <input
                     type="text"
-                    value={powerSource}
-                    onChange={(e) => setPowerSource(e.target.value)}
+                    value={propulsion}
+                    onChange={(e) => setPropulsion(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    placeholder="e.g., Battery, Solar, Manual"
+                    placeholder="e.g., Electric, Fusion, Combustion, Hover"
                   />
                 </div>
-                <div className="md:col-span-2">
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Functionality
+                    Capacity
                   </label>
-                  <textarea
-                    value={functionality}
-                    onChange={(e) => setFunctionality(e.target.value)}
-                    rows={3}
+                  <input
+                    type="text"
+                    value={capacity}
+                    onChange={(e) => setCapacity(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    placeholder="Describe how this gadget works and what it does..."
+                    placeholder="e.g., 2 passengers, 500kg cargo"
                   />
                 </div>
               </div>
@@ -396,20 +396,20 @@ export function GadgetDetail({
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Design Features</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <h3 className="font-medium text-gray-900 mb-2">Materials</h3>
-                  <p className="text-gray-600">Primary construction materials</p>
+                  <h3 className="font-medium text-gray-900 mb-2">Exterior Design</h3>
+                  <p className="text-gray-600">Body style, paint, and exterior features</p>
                 </div>
                 <div>
-                  <h3 className="font-medium text-gray-900 mb-2">Size & Weight</h3>
-                  <p className="text-gray-600">Physical dimensions and weight</p>
+                  <h3 className="font-medium text-gray-900 mb-2">Interior Layout</h3>
+                  <p className="text-gray-600">Seating, controls, and cabin design</p>
                 </div>
                 <div>
-                  <h3 className="font-medium text-gray-900 mb-2">Controls</h3>
-                  <p className="text-gray-600">User interface and controls</p>
+                  <h3 className="font-medium text-gray-900 mb-2">Performance</h3>
+                  <p className="text-gray-600">Speed, range, and handling characteristics</p>
                 </div>
                 <div>
-                  <h3 className="font-medium text-gray-900 mb-2">Safety Features</h3>
-                  <p className="text-gray-600">Safety mechanisms and warnings</p>
+                  <h3 className="font-medium text-gray-900 mb-2">Special Features</h3>
+                  <p className="text-gray-600">Unique capabilities and technologies</p>
                 </div>
               </div>
             </div>
@@ -538,7 +538,7 @@ export function GadgetDetail({
                 <div className="text-center py-8 text-gray-500">
                   <ImageIcon className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                   <p>No renders uploaded yet</p>
-                  <p className="text-sm">Upload images to showcase your gadget</p>
+                  <p className="text-sm">Upload images to showcase your vehicle</p>
                 </div>
               )}
             </div>
@@ -572,7 +572,7 @@ export function GadgetDetail({
                     onChange={(e) => setGenerationPrompt(e.target.value)}
                     rows={3}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    placeholder="Describe the gadget concept you want to generate..."
+                    placeholder="Describe the vehicle concept you want to generate..."
                   />
                 </div>
                 <div className="flex space-x-3">
@@ -776,9 +776,9 @@ export function GadgetDetail({
 
             {sortedConcepts.length === 0 && (
               <div className="text-center py-12">
-                <Wrench className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <Car className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No concepts yet</h3>
-                <p className="text-gray-600 mb-4">Start by generating or uploading your first gadget concept.</p>
+                <p className="text-gray-600 mb-4">Start by generating or uploading your first vehicle concept.</p>
               </div>
             )}
           </div>
@@ -791,12 +791,12 @@ export function GadgetDetail({
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Manufacturing Requirements
+                    Modeling Requirements
                   </label>
                   <textarea
                     rows={4}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    placeholder="Technical specifications for manufacturing..."
+                    placeholder="3D modeling specifications and requirements..."
                   />
                 </div>
                 <div>
@@ -806,7 +806,7 @@ export function GadgetDetail({
                   <textarea
                     rows={3}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    placeholder="Notes for animators about how this gadget moves and functions..."
+                    placeholder="Movement, physics, and animation requirements..."
                   />
                 </div>
                 <div>
@@ -816,7 +816,7 @@ export function GadgetDetail({
                   <textarea
                     rows={3}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    placeholder="Sound effects and audio requirements..."
+                    placeholder="Engine sounds, effects, and audio requirements..."
                   />
                 </div>
               </div>
@@ -875,3 +875,4 @@ export function GadgetDetail({
     </div>
   );
 }
+

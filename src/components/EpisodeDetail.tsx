@@ -44,6 +44,12 @@ export default function EpisodeDetail({
   // Script editing states
   const [editingScripts, setEditingScripts] = useState<{[sceneId: string]: string}>({});
   
+  // Inline editing states
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [tempTitle, setTempTitle] = useState(episode.title);
+  const [tempDescription, setTempDescription] = useState(episode.description || '');
+  
   // Drawing states
   const [showDrawer, setShowDrawer] = useState(false);
   const [drawingContext, setDrawingContext] = useState<{
@@ -74,6 +80,33 @@ export default function EpisodeDetail({
   const updateEpisodeAndSave = (updatedEpisode: Episode) => {
     setLocalEpisode(updatedEpisode);
     onSave(updatedEpisode);
+  };
+
+  // Inline editing handlers
+  const handleSaveTitle = () => {
+    if (tempTitle.trim() !== localEpisode.title) {
+      const updatedEpisode = { ...localEpisode, title: tempTitle.trim() };
+      updateEpisodeAndSave(updatedEpisode);
+    }
+    setEditingTitle(false);
+  };
+
+  const handleCancelTitle = () => {
+    setTempTitle(localEpisode.title);
+    setEditingTitle(false);
+  };
+
+  const handleSaveDescription = () => {
+    if (tempDescription.trim() !== (localEpisode.description || '')) {
+      const updatedEpisode = { ...localEpisode, description: tempDescription.trim() };
+      updateEpisodeAndSave(updatedEpisode);
+    }
+    setEditingDescription(false);
+  };
+
+  const handleCancelDescription = () => {
+    setTempDescription(localEpisode.description || '');
+    setEditingDescription(false);
   };
 
   const handleAddScene = () => {
@@ -621,8 +654,43 @@ export default function EpisodeDetail({
               <span>Back to Episodes</span>
             </button>
             <div className="h-6 w-px bg-gray-300" />
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">{localEpisode.title}</h1>
+            <div className="flex-1">
+              {editingTitle ? (
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="text"
+                    value={tempTitle}
+                    onChange={(e) => setTempTitle(e.target.value)}
+                    className="text-2xl font-bold text-gray-900 bg-transparent border-b-2 border-indigo-500 focus:outline-none flex-1"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveTitle();
+                      if (e.key === 'Escape') handleCancelTitle();
+                    }}
+                    onBlur={handleSaveTitle}
+                    autoFocus
+                  />
+                  <button
+                    onClick={handleSaveTitle}
+                    className="p-1 text-green-600 hover:text-green-700"
+                  >
+                    <Save className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleCancelTitle}
+                    className="p-1 text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <h1 
+                  className="text-2xl font-bold text-gray-900 cursor-pointer hover:text-indigo-600 transition-colors"
+                  onClick={() => setEditingTitle(true)}
+                  title="Click to edit title"
+                >
+                  {localEpisode.title}
+                </h1>
+              )}
               <p className="text-sm text-gray-500">{show.name} • Episode {localEpisode.episodeNumber}</p>
             </div>
           </div>
@@ -656,7 +724,49 @@ export default function EpisodeDetail({
           <div className="space-y-6">
             <div className="bg-white rounded-lg shadow p-6">
               <h2 className="text-lg font-medium text-gray-900 mb-4">Episode Description</h2>
-              <p className="text-gray-600">{localEpisode.description || 'No description available.'}</p>
+              {editingDescription ? (
+                <div className="space-y-3">
+                  <textarea
+                    value={tempDescription}
+                    onChange={(e) => setTempDescription(e.target.value)}
+                    rows={4}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    placeholder="Enter episode description..."
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') handleCancelDescription();
+                    }}
+                    autoFocus
+                  />
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={handleSaveDescription}
+                      className="px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+                    >
+                      <Save className="w-4 h-4 inline mr-1" />
+                      Save
+                    </button>
+                    <button
+                      onClick={handleCancelDescription}
+                      className="px-3 py-1 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className="cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition-colors"
+                  onClick={() => setEditingDescription(true)}
+                  title="Click to edit description"
+                >
+                  <p className="text-gray-600">
+                    {localEpisode.description || 'No description available. Click to add one.'}
+                  </p>
+                  {!localEpisode.description && (
+                    <p className="text-sm text-gray-400 mt-1">Click to add description</p>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="bg-white rounded-lg shadow p-6">
@@ -667,19 +777,50 @@ export default function EpisodeDetail({
                     const characterAsset = globalAssets.find(asset => 
                       asset.category === 'character' && asset.id === char.characterId
                     ) as Character | undefined;
+                    
+                    // Try to get character image from multiple sources
+                    const characterImage = characterAsset?.mainImage || 
+                                         characterAsset?.mainRender || 
+                                         characterAsset?.characterGallery?.[0] ||
+                                         characterAsset?.galleryImages?.[0];
+                    
                     return (
-                      <div key={char.characterId} className="border rounded-lg p-4">
+                      <div key={char.characterId} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
                         <div className="flex items-center space-x-3">
-                          {characterAsset?.mainImage && (
-                            <img
-                              src={characterAsset.mainImage}
-                              alt={characterAsset.name}
-                              className="w-12 h-12 rounded-full object-cover"
-                            />
-                          )}
-                          <div>
-                            <h3 className="font-medium">{characterAsset?.name || 'Unknown Character'}</h3>
-                            <p className="text-sm text-gray-500">{char.role}</p>
+                          <div className="flex-shrink-0">
+                            {characterImage ? (
+                              <img
+                                src={characterImage}
+                                alt={characterAsset?.name || 'Character'}
+                                className="w-16 h-16 rounded-full object-cover border-2 border-gray-200"
+                                onError={(e) => {
+                                  console.error('Character image failed to load:', characterImage);
+                                  const img = e.target as HTMLImageElement;
+                                  img.style.display = 'none';
+                                  // Show fallback div
+                                  const fallback = img.nextElementSibling as HTMLElement;
+                                  if (fallback) fallback.style.display = 'flex';
+                                }}
+                              />
+                            ) : null}
+                            {/* Fallback avatar */}
+                            <div 
+                              className="w-16 h-16 rounded-full bg-indigo-100 flex items-center justify-center border-2 border-gray-200"
+                              style={{ display: characterImage ? 'none' : 'flex' }}
+                            >
+                              <span className="text-indigo-600 font-semibold text-lg">
+                                {(characterAsset?.name || 'U').charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-medium text-gray-900 truncate">
+                              {characterAsset?.name || 'Unknown Character'}
+                            </h3>
+                            <p className="text-sm text-gray-500 truncate">{char.role || 'No role specified'}</p>
+                            {char.type && (
+                              <p className="text-xs text-gray-400 capitalize">{char.type} character</p>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -714,6 +855,53 @@ export default function EpisodeDetail({
 
         {activeTab === 'script' && (
           <div className="space-y-6">
+            {/* Episode Description Reference */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <h3 className="text-sm font-medium text-blue-900 mb-2">Episode Description (Reference)</h3>
+              {editingDescription ? (
+                <div className="space-y-3">
+                  <textarea
+                    value={tempDescription}
+                    onChange={(e) => setTempDescription(e.target.value)}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                    placeholder="Enter episode description..."
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') handleCancelDescription();
+                    }}
+                  />
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={handleSaveDescription}
+                      className="px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                    >
+                      <Save className="w-4 h-4 inline mr-1" />
+                      Save
+                    </button>
+                    <button
+                      onClick={handleCancelDescription}
+                      className="px-3 py-1 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className="cursor-pointer hover:bg-blue-100 p-2 rounded-lg transition-colors"
+                  onClick={() => setEditingDescription(true)}
+                  title="Click to edit description"
+                >
+                  <p className="text-blue-800 text-sm">
+                    {localEpisode.description || 'No description available. Click to add one.'}
+                  </p>
+                  {!localEpisode.description && (
+                    <p className="text-xs text-blue-600 mt-1">Click to add description</p>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="bg-white rounded-lg shadow p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-medium text-gray-900">Episode Script</h2>
@@ -1161,16 +1349,54 @@ export default function EpisodeDetail({
                   const characterAsset = globalAssets.find(asset => 
                     asset.category === 'character' && asset.id === char.characterId
                   ) as Character | undefined;
+                  
+                  // Try to get character image from multiple sources
+                  const characterImage = characterAsset?.mainImage || 
+                                       characterAsset?.mainRender || 
+                                       characterAsset?.characterGallery?.[0] ||
+                                       characterAsset?.galleryImages?.[0];
+                  
                   return (
-                    <div key={char.characterId} className="border rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-medium">{characterAsset?.name || 'Unknown Character'}</h3>
-                        <button
-                          onClick={() => handleRemoveCharacterFromEpisode(char.characterId)}
-                          className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
+                    <div key={char.characterId} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                      <div className="flex items-start space-x-3 mb-3">
+                        <div className="flex-shrink-0">
+                          {characterImage ? (
+                            <img
+                              src={characterImage}
+                              alt={characterAsset?.name || 'Character'}
+                              className="w-16 h-16 rounded-full object-cover border-2 border-gray-200"
+                              onError={(e) => {
+                                console.error('Character image failed to load:', characterImage);
+                                const img = e.target as HTMLImageElement;
+                                img.style.display = 'none';
+                                // Show fallback div
+                                const fallback = img.nextElementSibling as HTMLElement;
+                                if (fallback) fallback.style.display = 'flex';
+                              }}
+                            />
+                          ) : null}
+                          {/* Fallback avatar */}
+                          <div 
+                            className="w-16 h-16 rounded-full bg-indigo-100 flex items-center justify-center border-2 border-gray-200"
+                            style={{ display: characterImage ? 'none' : 'flex' }}
+                          >
+                            <span className="text-indigo-600 font-semibold text-lg">
+                              {(characterAsset?.name || 'U').charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 className="font-medium text-gray-900 truncate">{characterAsset?.name || 'Unknown Character'}</h3>
+                            <button
+                              onClick={() => handleRemoveCharacterFromEpisode(char.characterId)}
+                              className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded flex-shrink-0"
+                              title="Remove character from episode"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
                       </div>
                       <div className="space-y-2">
                         <div>

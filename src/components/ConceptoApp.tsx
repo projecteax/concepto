@@ -9,20 +9,24 @@ import { LocationDetail } from './LocationDetail';
 import { GadgetDetail } from './GadgetDetail';
 import { TextureDetail } from './TextureDetail';
 import { BackgroundDetail } from './BackgroundDetail';
+import { VehicleDetail } from './VehicleDetail';
 import { EpisodeList } from './EpisodeList';
 import EpisodeDetail from './EpisodeDetail';
 import { EpisodeIdeas } from './EpisodeIdeas';
-import { Show, GlobalAsset, Episode, Character, AssetConcept, EpisodeIdea } from '@/types';
+import { GeneralIdeas } from './GeneralIdeas';
+import { GeneralIdeaDetail } from './GeneralIdeaDetail';
+import { Show, GlobalAsset, Episode, Character, AssetConcept, EpisodeIdea, GeneralIdea } from '@/types';
 import { useFirebaseData } from '@/hooks/useFirebaseData';
 
-type AppView = 'shows' | 'dashboard' | 'global-assets' | 'character-detail' | 'location-detail' | 'gadget-detail' | 'texture-detail' | 'background-detail' | 'episodes' | 'episode-detail' | 'episode-ideas';
+type AppView = 'shows' | 'dashboard' | 'global-assets' | 'character-detail' | 'location-detail' | 'gadget-detail' | 'texture-detail' | 'background-detail' | 'vehicle-detail' | 'episodes' | 'episode-detail' | 'episode-ideas' | 'general-ideas' | 'general-idea-detail';
 
 export function ConceptoApp() {
   const [currentView, setCurrentView] = useState<AppView>('shows');
   const [selectedShow, setSelectedShow] = useState<Show | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<GlobalAsset | null>(null);
   const [selectedEpisode, setSelectedEpisode] = useState<Episode | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<'character' | 'location' | 'gadget' | 'texture' | 'background' | 'all'>('all');
+  const [selectedGeneralIdea, setSelectedGeneralIdea] = useState<GeneralIdea | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<'character' | 'location' | 'gadget' | 'texture' | 'background' | 'vehicle' | 'all'>('all');
   
   // Firebase data management
   const {
@@ -30,6 +34,7 @@ export function ConceptoApp() {
     globalAssets,
     episodes,
     episodeIdeas,
+    generalIdeas,
     loading,
     error,
     createShow,
@@ -44,6 +49,9 @@ export function ConceptoApp() {
     createEpisodeIdea,
     updateEpisodeIdea,
     deleteEpisodeIdea,
+    createGeneralIdea,
+    updateGeneralIdea,
+    deleteGeneralIdea,
     createAssetConcept,
     deleteAssetConcept,
     loadShowData,
@@ -127,7 +135,8 @@ export function ConceptoApp() {
     }
   };
 
-  const handleSelectGlobalAssets = () => {
+  const handleSelectGlobalAssets = (category?: 'character' | 'location' | 'gadget' | 'texture' | 'background' | 'vehicle' | 'all') => {
+    setSelectedCategory(category || 'all');
     setCurrentView('global-assets');
   };
 
@@ -137,6 +146,10 @@ export function ConceptoApp() {
 
   const handleSelectEpisodeIdeas = () => {
     setCurrentView('episode-ideas');
+  };
+
+  const handleSelectGeneralIdeas = () => {
+    setCurrentView('general-ideas');
   };
 
   const handleSelectAsset = (asset: GlobalAsset) => {
@@ -157,6 +170,9 @@ export function ConceptoApp() {
       case 'background':
         setCurrentView('background-detail');
         break;
+      case 'vehicle':
+        setCurrentView('vehicle-detail');
+        break;
       default:
         console.warn('Unknown asset category:', asset.category);
     }
@@ -167,12 +183,14 @@ export function ConceptoApp() {
     setSelectedShow(null);
     setSelectedAsset(null);
     setSelectedEpisode(null);
+    setSelectedGeneralIdea(null);
   };
 
   const handleBackToDashboard = () => {
     setCurrentView('dashboard');
     setSelectedAsset(null);
     setSelectedEpisode(null);
+    setSelectedGeneralIdea(null);
   };
 
   const handleBackToGlobalAssets = () => {
@@ -183,6 +201,53 @@ export function ConceptoApp() {
   const handleBackToEpisodes = () => {
     setCurrentView('episodes');
     setSelectedEpisode(null);
+  };
+
+  const handleBackToGeneralIdeas = () => {
+    setCurrentView('general-ideas');
+    setSelectedGeneralIdea(null);
+  };
+
+  const handleSelectGeneralIdea = (idea: GeneralIdea) => {
+    setSelectedGeneralIdea(idea);
+    setCurrentView('general-idea-detail');
+  };
+
+  const handleAddGeneralIdea = async (ideaData: Omit<GeneralIdea, 'id' | 'createdAt' | 'updatedAt'>) => {
+    try {
+      await createGeneralIdea(ideaData);
+    } catch (error) {
+      console.error('Failed to create general idea:', error);
+    }
+  };
+
+  const handleEditGeneralIdea = async (idea: GeneralIdea) => {
+    try {
+      await updateGeneralIdea(idea.id, idea);
+    } catch (error) {
+      console.error('Failed to update general idea:', error);
+    }
+  };
+
+  const handleDeleteGeneralIdea = async (ideaId: string) => {
+    try {
+      await deleteGeneralIdea(ideaId);
+      if (selectedGeneralIdea?.id === ideaId) {
+        setSelectedGeneralIdea(null);
+        setCurrentView('general-ideas');
+      }
+    } catch (error) {
+      console.error('Failed to delete general idea:', error);
+    }
+  };
+
+  const handleSaveGeneralIdea = async (idea: GeneralIdea) => {
+    try {
+      await updateGeneralIdea(idea.id, idea);
+      setSelectedGeneralIdea(idea);
+    } catch (error) {
+      console.error('Failed to save general idea:', error);
+    }
   };
 
   const handleSaveCharacter = async (character: Character) => {
@@ -382,7 +447,9 @@ export function ConceptoApp() {
           onBack={handleBackToShows}
           onSelectGlobalAssets={handleSelectGlobalAssets}
           onSelectEpisodes={handleSelectEpisodes}
+          onSelectEpisode={handleSelectEpisode}
           onSelectEpisodeIdeas={handleSelectEpisodeIdeas}
+          onSelectGeneralIdeas={handleSelectGeneralIdeas}
           onAddGlobalAsset={handleAddGlobalAsset}
           onAddEpisode={handleAddEpisode}
         />
@@ -454,6 +521,16 @@ export function ConceptoApp() {
         />
       ) : null;
 
+    case 'vehicle-detail':
+      return selectedAsset && selectedAsset.category === 'vehicle' ? (
+        <VehicleDetail
+          vehicle={selectedAsset}
+          onBack={handleBackToGlobalAssets}
+          onSave={handleSaveGlobalAsset}
+          onDeleteConcept={handleDeleteConcept}
+        />
+      ) : null;
+
     case 'episodes':
       return selectedShow ? (
         <EpisodeList
@@ -487,6 +564,28 @@ export function ConceptoApp() {
           onSaveIdea={handleSaveEpisodeIdea}
           onUpdateIdea={handleUpdateEpisodeIdea}
           onDeleteIdea={handleDeleteEpisodeIdea}
+        />
+      ) : null;
+
+    case 'general-ideas':
+      return selectedShow ? (
+        <GeneralIdeas
+          show={selectedShow}
+          ideas={generalIdeas}
+          onBack={handleBackToDashboard}
+          onSelectIdea={handleSelectGeneralIdea}
+          onAddIdea={handleAddGeneralIdea}
+          onEditIdea={handleEditGeneralIdea}
+          onDeleteIdea={handleDeleteGeneralIdea}
+        />
+      ) : null;
+
+    case 'general-idea-detail':
+      return selectedShow && selectedGeneralIdea ? (
+        <GeneralIdeaDetail
+          idea={selectedGeneralIdea}
+          onBack={handleBackToGeneralIdeas}
+          onSave={handleSaveGeneralIdea}
         />
       ) : null;
 

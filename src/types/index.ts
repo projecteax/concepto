@@ -22,7 +22,7 @@ export interface Comment {
 
 export interface CommentThread {
   id: string;
-  targetType: 'script' | 'storyboard' | 'scene' | 'shot' | 'character' | 'location';
+  targetType: 'script' | 'storyboard' | 'scene' | 'shot' | 'character' | 'location' | 'general-idea';
   targetId: string;
   comments: Comment[];
   createdAt: Date;
@@ -46,6 +46,8 @@ export interface GlobalAsset {
   description?: string;
   category: AssetCategory;
   concepts: AssetConcept[];
+  galleryImages?: string[];
+  mainRender?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -55,7 +57,8 @@ export type AssetCategory =
   | 'location'
   | 'gadget'
   | 'texture'
-  | 'background';
+  | 'background'
+  | 'vehicle';
 
 export interface AssetConcept {
   category: AssetCategory;
@@ -225,6 +228,18 @@ export interface EpisodeIdea {
   title: string;
   description: string;
   status: 'draft' | 'in-development' | 'ready' | 'archived';
+  tags: string[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// General Ideas
+export interface GeneralIdea {
+  id: string;
+  showId: string;
+  name: string;
+  description: string;
+  images: string[]; // Array of image URLs
   tags: string[];
   createdAt: Date;
   updatedAt: Date;

@@ -8,6 +8,7 @@ import {
   Wrench, 
   Image, 
   Mountain, 
+  Car,
   Plus,
   Tag as TagIcon,
   FolderOpen
@@ -28,6 +29,7 @@ const categoryIcons = {
   gadget: Wrench,
   texture: Image,
   background: Mountain,
+  vehicle: Car,
 };
 
 const categoryLabels = {
@@ -36,6 +38,7 @@ const categoryLabels = {
   gadget: 'Gadgets',
   texture: 'Textures',
   background: 'Backgrounds',
+  vehicle: 'Vehicles',
 };
 
 export function Sidebar({ 

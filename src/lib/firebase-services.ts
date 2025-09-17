@@ -11,7 +11,7 @@ import {
   Timestamp 
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { Show, GlobalAsset, Episode, AssetConcept, EpisodeIdea } from '@/types';
+import { Show, GlobalAsset, Episode, AssetConcept, EpisodeIdea, GeneralIdea } from '@/types';
 
 // Shows
 export const showService = {
@@ -421,5 +421,84 @@ export const episodeIdeaService = {
 
   async delete(id: string): Promise<void> {
     await deleteDoc(doc(db, 'episodeIdeas', id));
+  }
+};
+
+// General Ideas
+export const generalIdeaService = {
+  async create(idea: Omit<GeneralIdea, 'id' | 'createdAt' | 'updatedAt'>): Promise<GeneralIdea> {
+    const cleanIdea = Object.fromEntries(
+      Object.entries(idea).filter(([, value]) => value !== undefined)
+    );
+    
+    const docRef = await addDoc(collection(db, 'generalIdeas'), {
+      ...cleanIdea,
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+    
+    const docSnap = await getDoc(docRef);
+    return { id: docRef.id, ...docSnap.data() } as GeneralIdea;
+  },
+
+  async getByShow(showId: string): Promise<GeneralIdea[]> {
+    try {
+      const q = query(
+        collection(db, 'generalIdeas'),
+        where('showId', '==', showId)
+      );
+      const querySnapshot = await getDocs(q);
+      const ideas = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        
+        // Helper function to safely convert timestamps
+        const safeToDate = (timestamp: unknown): Date => {
+          if (!timestamp) return new Date();
+          if (timestamp instanceof Date) return timestamp;
+          if (timestamp && typeof timestamp === 'object' && 'toDate' in timestamp && typeof (timestamp as {toDate: () => Date}).toDate === 'function') {
+            return (timestamp as {toDate: () => Date}).toDate();
+          }
+          if (typeof timestamp === 'string' || typeof timestamp === 'number') {
+            const date = new Date(timestamp);
+            return isNaN(date.getTime()) ? new Date() : date;
+          }
+          return new Date();
+        };
+
+        return {
+          id: doc.id,
+          ...data,
+          images: data.images || [], // Ensure images array exists
+          tags: data.tags || [], // Ensure tags array exists
+          createdAt: safeToDate(data.createdAt),
+          updatedAt: safeToDate(data.updatedAt),
+        } as GeneralIdea;
+      });
+      
+      // Sort ideas by creation date on the client side
+      return ideas.sort((a, b) => {
+        const aTime = a.createdAt instanceof Date ? a.createdAt.getTime() : new Date(a.createdAt).getTime();
+        const bTime = b.createdAt instanceof Date ? b.createdAt.getTime() : new Date(b.createdAt).getTime();
+        return bTime - aTime;
+      });
+    } catch (error) {
+      console.error('Error fetching general ideas:', error);
+      return [];
+    }
+  },
+
+  async update(id: string, updates: Partial<GeneralIdea>): Promise<void> {
+    const cleanUpdates = Object.fromEntries(
+      Object.entries(updates).filter(([, value]) => value !== undefined)
+    );
+    
+    await updateDoc(doc(db, 'generalIdeas', id), {
+      ...cleanUpdates,
+      updatedAt: Timestamp.now(),
+    });
+  },
+
+  async delete(id: string): Promise<void> {
+    await deleteDoc(doc(db, 'generalIdeas', id));
   }
 };

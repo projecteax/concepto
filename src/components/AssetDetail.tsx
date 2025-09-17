@@ -30,7 +30,8 @@ const categoryIcons = {
   location: '📍',
   gadget: '🔧',
   texture: '🖼️',
-  background: '��️',
+  background: '🏔️',
+  vehicle: '🚗',
 };
 
 const categoryLabels = {
@@ -39,6 +40,7 @@ const categoryLabels = {
   gadget: 'Gadget',
   texture: 'Texture',
   background: 'Background',
+  vehicle: 'Vehicle',
 };
 
 export function AssetDetail({

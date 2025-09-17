@@ -49,6 +49,11 @@ export function LocationDetail({
   const { uploadFile } = useS3Upload();
   
   // Gallery states
+  const [galleryImages, setGalleryImages] = useState<string[]>(location.galleryImages || []);
+  const [mainRender, setMainRender] = useState<string>(location.mainRender || '');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  
+  // Concept gallery states
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'relevance' | 'name'>('newest');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedImage, setSelectedImage] = useState<{ url: string; alt: string } | null>(null);
@@ -86,6 +91,8 @@ export function LocationDetail({
       ...location,
       name: name.trim(),
       description: description.trim() || undefined,
+      galleryImages: galleryImages,
+      mainRender: mainRender,
     };
     onSave(updatedLocation);
     setIsEditing(false);
@@ -157,6 +164,44 @@ export function LocationDetail({
         newMap.delete(uploadId);
         return newMap;
       });
+    }
+  };
+
+  const handleGalleryUpload = async (file: File) => {
+    try {
+      const result = await uploadFile(file, 'locations');
+      if (result && result.url) {
+        const newGalleryImages = [...galleryImages, result.url];
+        setGalleryImages(newGalleryImages);
+        
+        // If this is the first image, set it as main render
+        if (galleryImages.length === 0) {
+          setMainRender(result.url);
+        }
+        
+        onSave({ ...location, galleryImages: newGalleryImages, mainRender: mainRender || result.url });
+      }
+    } catch (error) {
+      console.error('Failed to upload gallery image:', error);
+    }
+  };
+
+  const handleSetMainRender = (imageUrl: string) => {
+    setMainRender(imageUrl);
+    onSave({ ...location, mainRender: imageUrl });
+  };
+
+  const handleRemoveGalleryImage = (imageUrl: string) => {
+    const newGalleryImages = galleryImages.filter(img => img !== imageUrl);
+    setGalleryImages(newGalleryImages);
+    
+    // If we removed the main render, set a new one or clear it
+    if (mainRender === imageUrl) {
+      const newMainRender = newGalleryImages.length > 0 ? newGalleryImages[0] : '';
+      setMainRender(newMainRender);
+      onSave({ ...location, galleryImages: newGalleryImages, mainRender: newMainRender });
+    } else {
+      onSave({ ...location, galleryImages: newGalleryImages });
     }
   };
 
@@ -399,6 +444,135 @@ export function LocationDetail({
                   </select>
                 </div>
               </div>
+            </div>
+
+            {/* Gallery Section */}
+            <div className="bg-white rounded-lg border border-gray-200 p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Gallery</h2>
+              
+              {/* Upload Section */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Upload Renders
+                </label>
+                <div className="flex items-center space-x-4">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleGalleryUpload(file);
+                    }}
+                    className="hidden"
+                    id="gallery-upload"
+                  />
+                  <label
+                    htmlFor="gallery-upload"
+                    className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer transition-colors"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>Upload Image</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Main Render */}
+              {mainRender && (
+                <div className="mb-6">
+                  <h3 className="text-md font-medium text-gray-900 mb-3">Main Render</h3>
+                  <div className="relative inline-block">
+                    <img
+                      src={mainRender}
+                      alt="Main render"
+                      className="w-48 h-48 object-cover rounded-lg border-2 border-blue-500 cursor-pointer hover:opacity-90 transition-opacity"
+                      onClick={() => setSelectedImage({ url: mainRender, alt: 'Main render' })}
+                    />
+                    <div className="absolute top-2 left-2 bg-blue-500 text-white px-2 py-1 rounded text-xs font-medium">
+                      Main
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Gallery Grid */}
+              {galleryImages.length > 0 && (
+                <div>
+                  <h3 className="text-md font-medium text-gray-900 mb-3">All Renders</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {galleryImages.map((imageUrl, index) => (
+                      <div
+                        key={index}
+                        className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-shadow"
+                      >
+                        <div className="relative group overflow-hidden">
+                          <img
+                            src={imageUrl}
+                            alt={`Render ${index + 1}`}
+                            className="w-full h-full object-contain cursor-pointer"
+                            onClick={() => setSelectedImage({ url: imageUrl, alt: `Render ${index + 1}` })}
+                            onError={(e) => {
+                              console.error('Image failed to load:', imageUrl);
+                              const img = e.target as HTMLImageElement;
+                              img.style.backgroundColor = '#f8f9fa';
+                              img.style.color = '#6b7280';
+                              img.style.display = 'flex';
+                              img.style.alignItems = 'center';
+                              img.style.justifyContent = 'center';
+                              img.alt = 'Failed to load image';
+                            }}
+                            onLoad={(e) => {
+                              console.log('✅ Gallery image loaded successfully:', imageUrl);
+                            }}
+                            style={{ 
+                              minHeight: '200px',
+                              backgroundColor: '#f8f9fa'
+                            }}
+                          />
+                          
+                          {/* Main render indicator */}
+                          {mainRender === imageUrl && (
+                            <div className="absolute top-2 left-2 bg-blue-500 text-white px-2 py-1 rounded text-xs font-medium">
+                              Main
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div className="p-4">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-gray-900">
+                              Render {index + 1}
+                            </span>
+                            <div className="flex space-x-2">
+                              {mainRender !== imageUrl && (
+                                <button
+                                  onClick={() => handleSetMainRender(imageUrl)}
+                                  className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
+                                >
+                                  Set Main
+                                </button>
+                              )}
+                              <button
+                                onClick={() => setShowDeleteConfirm(imageUrl)}
+                                className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {galleryImages.length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  <ImageIcon className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                  <p>No renders uploaded yet</p>
+                  <p className="text-sm">Upload images to showcase your location</p>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -692,6 +866,35 @@ export function LocationDetail({
               alt={selectedImage.alt}
               className="max-w-full max-h-full object-contain rounded-lg"
             />
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Confirm Delete</h3>
+            <p className="text-gray-600 mb-6">
+              Are you sure you want to delete this render? This action cannot be undone.
+            </p>
+            <div className="flex space-x-3 justify-end">
+              <button
+                onClick={() => setShowDeleteConfirm(null)}
+                className="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  handleRemoveGalleryImage(showDeleteConfirm);
+                  setShowDeleteConfirm(null);
+                }}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              >
+                Delete
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -9,9 +9,11 @@ import {
   Wrench, 
   Image, 
   Mountain,
+  Car,
   Play,
   Plus,
-  FolderOpen
+  FolderOpen,
+  Lightbulb
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -20,9 +22,11 @@ interface ShowDashboardProps {
   globalAssets: GlobalAsset[];
   episodes: Episode[];
   onBack: () => void;
-  onSelectGlobalAssets: () => void;
+  onSelectGlobalAssets: (category?: 'character' | 'location' | 'gadget' | 'texture' | 'background' | 'vehicle' | 'all') => void;
   onSelectEpisodes: () => void;
+  onSelectEpisode: (episode: Episode) => void;
   onSelectEpisodeIdeas: () => void;
+  onSelectGeneralIdeas: () => void;
   onAddGlobalAsset: (asset: Omit<GlobalAsset, 'id' | 'createdAt' | 'updatedAt'>) => void;
   onAddEpisode: (episode: Omit<Episode, 'id' | 'createdAt' | 'updatedAt'>) => void;
 }
@@ -33,6 +37,7 @@ const assetIcons = {
   gadget: Wrench,
   texture: Image,
   background: Mountain,
+  vehicle: Car,
 };
 
 const assetLabels = {
@@ -41,6 +46,7 @@ const assetLabels = {
   gadget: 'Gadgets',
   texture: 'Textures',
   background: 'Backgrounds',
+  vehicle: 'Vehicles',
 };
 
 export function ShowDashboard({
@@ -50,7 +56,9 @@ export function ShowDashboard({
   onBack,
   onSelectGlobalAssets,
   onSelectEpisodes,
+  onSelectEpisode,
   onSelectEpisodeIdeas,
+  onSelectGeneralIdeas,
   onAddGlobalAsset,
   onAddEpisode
 }: ShowDashboardProps) {
@@ -144,7 +152,7 @@ export function ShowDashboard({
             </div>
 
             <p className="text-gray-600 mb-6">
-              Manage characters, locations, gadgets, textures, and backgrounds that will be used across the show.
+              Manage characters, locations, gadgets, textures, backgrounds, and vehicles that will be used across the show.
             </p>
 
             {/* Asset Categories */}
@@ -157,7 +165,7 @@ export function ShowDashboard({
                   <div
                     key={category}
                     className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
-                    onClick={onSelectGlobalAssets}
+                    onClick={() => onSelectGlobalAssets(category as 'character' | 'location' | 'gadget' | 'texture' | 'background' | 'vehicle')}
                   >
                     <div className="flex items-center space-x-3">
                       <Icon className="w-5 h-5 text-gray-600" />
@@ -173,7 +181,7 @@ export function ShowDashboard({
             </div>
 
             <button
-              onClick={onSelectGlobalAssets}
+              onClick={() => onSelectGlobalAssets('all')}
               className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
             >
               <FolderOpen className="w-5 h-5" />
@@ -206,10 +214,11 @@ export function ShowDashboard({
               {episodes.slice(0, 3).map((episode) => (
                 <div
                   key={episode.id}
-                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+                  onClick={() => onSelectEpisode(episode)}
                 >
                   <div>
-                    <h4 className="font-medium text-gray-900">Episode {episode.episodeNumber}</h4>
+                    <h4 className="font-medium text-gray-900 hover:text-green-600 transition-colors">Episode {episode.episodeNumber}</h4>
                     <p className="text-sm text-gray-600">{episode.title}</p>
                   </div>
                   <span className="text-sm text-gray-500">
@@ -240,6 +249,28 @@ export function ShowDashboard({
             >
               <FolderOpen className="w-5 h-5" />
               <span>Episode Ideas</span>
+            </button>
+          </div>
+
+          {/* General Ideas Card */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center space-x-3">
+                <Lightbulb className="w-6 h-6 text-yellow-600" />
+                <h3 className="text-lg font-semibold text-gray-900">General Ideas</h3>
+              </div>
+            </div>
+
+            <p className="text-gray-600 mb-6">
+              Capture random concepts, inspiration, and creative ideas that don&apos;t fit into specific categories.
+            </p>
+
+            <button
+              onClick={onSelectGeneralIdeas}
+              className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
+            >
+              <Lightbulb className="w-5 h-5" />
+              <span>Manage Ideas</span>
             </button>
           </div>
         </div>
