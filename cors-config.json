@@ -7,7 +7,9 @@
                 "http://localhost:3000",
                 "https://localhost:3000",
                 "http://127.0.0.1:3000",
-                "https://127.0.0.1:3000"
+                "https://127.0.0.1:3000",
+                "https://concepto-ecru.vercel.app",
+                "https://*.vercel.app"
             ],
             "ExposeHeaders": ["ETag", "x-amz-meta-custom-header"],
             "MaxAgeSeconds": 3000
