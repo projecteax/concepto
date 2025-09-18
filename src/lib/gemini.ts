@@ -41,9 +41,9 @@ export async function generateConceptImage(request: GenerationRequest): Promise<
           return uploadResult.url;
         } catch (uploadError) {
           console.error('Failed to upload generated image:', uploadError);
-          // Fallback to data URL if upload fails
-          const imageData = part.inlineData.data;
-          return `data:image/png;base64,${imageData}`;
+          // Don't fallback to data URL as it causes size limit issues
+          // Instead, throw an error to prevent saving oversized data
+          throw new Error('Image generation failed: Cloud storage not configured properly. Please contact support.');
         }
       }
     }

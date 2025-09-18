@@ -100,6 +100,8 @@ export function AssetDetail({
       setShowPromptModal(false);
     } catch (error) {
       console.error('Error generating image:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to generate image. Please try again.';
+      alert(errorMessage);
     } finally {
       setIsGenerating(false);
     }

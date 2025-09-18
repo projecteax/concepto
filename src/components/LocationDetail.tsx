@@ -87,12 +87,15 @@ export function LocationDetail({
   }, [location]);
 
   const handleSave = () => {
+    // Prevent saving data URLs which cause size limit issues
+    const safeMainRender = mainRender?.startsWith('data:') ? undefined : mainRender;
+    
     const updatedLocation: GlobalAsset = {
       ...location,
       name: name.trim(),
       description: description.trim() || undefined,
       galleryImages: galleryImages,
-      mainRender: mainRender,
+      mainRender: safeMainRender,
       environmentType: environmentType || undefined,
       timeOfDay: timeOfDay || undefined,
       weather: weather || undefined,
@@ -191,6 +194,11 @@ export function LocationDetail({
   };
 
   const handleSetMainRender = (imageUrl: string) => {
+    // Prevent setting data URLs as main render
+    if (imageUrl.startsWith('data:')) {
+      alert('Cannot set generated image as main render. Please upload the image to cloud storage first.');
+      return;
+    }
     setMainRender(imageUrl);
     onSave({ ...location, mainRender: imageUrl });
   };

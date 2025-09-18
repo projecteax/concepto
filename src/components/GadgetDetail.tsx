@@ -169,6 +169,11 @@ export function GadgetDetail({
   };
 
   const handleSetMainRender = (imageUrl: string) => {
+    // Prevent setting data URLs as main render
+    if (imageUrl.startsWith('data:')) {
+      alert('Cannot set generated image as main render. Please upload the image to cloud storage first.');
+      return;
+    }
     setMainRender(imageUrl);
     onSave({ ...gadget, mainRender: imageUrl });
   };

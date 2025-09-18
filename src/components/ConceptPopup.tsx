@@ -74,7 +74,8 @@ export function ConceptPopup({ asset, onClose, onSave }: ConceptPopupProps) {
       setGeneratedImage(image);
     } catch (error) {
       console.error('Failed to generate image:', error);
-      alert('Failed to generate image. Please try again.');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to generate image. Please try again.';
+      alert(errorMessage);
     } finally {
       setIsGenerating(false);
     }
