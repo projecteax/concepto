@@ -86,6 +86,16 @@ export function LocationDetail({
     }
   }, [location]);
 
+  // Clean up data URLs in mainRender when component loads
+  useEffect(() => {
+    if (location.mainRender?.startsWith('data:')) {
+      console.warn('Found data URL in mainRender, cleaning up to prevent size issues');
+      // Clean up the data URL immediately
+      onSave({ ...location, mainRender: undefined });
+      setMainRender('');
+    }
+  }, [location.id]); // Only run when location changes
+
   const handleSave = () => {
     // Prevent saving data URLs which cause size limit issues
     const safeMainRender = mainRender?.startsWith('data:') ? undefined : mainRender;
@@ -186,7 +196,9 @@ export function LocationDetail({
           setMainRender(result.url);
         }
         
-        onSave({ ...location, galleryImages: newGalleryImages, mainRender: mainRender || result.url });
+        // Prevent saving data URLs which cause size limit issues
+        const safeMainRender = (mainRender || result.url)?.startsWith('data:') ? result.url : (mainRender || result.url);
+        onSave({ ...location, galleryImages: newGalleryImages, mainRender: safeMainRender });
       }
     } catch (error) {
       console.error('Failed to upload gallery image:', error);
@@ -211,9 +223,13 @@ export function LocationDetail({
     if (mainRender === imageUrl) {
       const newMainRender = newGalleryImages.length > 0 ? newGalleryImages[0] : '';
       setMainRender(newMainRender);
-      onSave({ ...location, galleryImages: newGalleryImages, mainRender: newMainRender });
+      // Prevent saving data URLs
+      const safeMainRender = newMainRender?.startsWith('data:') ? '' : newMainRender;
+      onSave({ ...location, galleryImages: newGalleryImages, mainRender: safeMainRender });
     } else {
-      onSave({ ...location, galleryImages: newGalleryImages });
+      // Prevent saving data URLs in existing mainRender
+      const safeMainRender = mainRender?.startsWith('data:') ? '' : mainRender;
+      onSave({ ...location, galleryImages: newGalleryImages, mainRender: safeMainRender });
     }
   };
 

@@ -72,6 +72,16 @@ export function VehicleDetail({
     }
   }, [selectedImage]);
 
+  // Clean up data URLs in mainRender when component loads
+  useEffect(() => {
+    if (vehicle.mainRender?.startsWith('data:')) {
+      console.warn('Found data URL in mainRender, cleaning up to prevent size issues');
+      // Clean up the data URL immediately
+      onSave({ ...vehicle, mainRender: undefined });
+      setMainRender('');
+    }
+  }, [vehicle.id]); // Only run when vehicle changes
+
   const handleSave = () => {
     const updatedVehicle: GlobalAsset = {
       ...vehicle,
@@ -161,7 +171,9 @@ export function VehicleDetail({
           setMainRender(result.url);
         }
         
-        onSave({ ...vehicle, galleryImages: newGalleryImages, mainRender: mainRender || result.url });
+        // Prevent saving data URLs which cause size limit issues
+        const safeMainRender = (mainRender || result.url)?.startsWith('data:') ? result.url : (mainRender || result.url);
+        onSave({ ...vehicle, galleryImages: newGalleryImages, mainRender: safeMainRender });
       }
     } catch (error) {
       console.error('Failed to upload gallery image:', error);
@@ -186,9 +198,13 @@ export function VehicleDetail({
     if (mainRender === imageUrl) {
       const newMainRender = newGalleryImages.length > 0 ? newGalleryImages[0] : '';
       setMainRender(newMainRender);
-      onSave({ ...vehicle, galleryImages: newGalleryImages, mainRender: newMainRender });
+      // Prevent saving data URLs
+      const safeMainRender = newMainRender?.startsWith('data:') ? '' : newMainRender;
+      onSave({ ...vehicle, galleryImages: newGalleryImages, mainRender: safeMainRender });
     } else {
-      onSave({ ...vehicle, galleryImages: newGalleryImages });
+      // Prevent saving data URLs in existing mainRender
+      const safeMainRender = mainRender?.startsWith('data:') ? '' : mainRender;
+      onSave({ ...vehicle, galleryImages: newGalleryImages, mainRender: safeMainRender });
     }
   };
 

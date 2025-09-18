@@ -72,6 +72,16 @@ export function GadgetDetail({
     }
   }, [selectedImage]);
 
+  // Clean up data URLs in mainRender when component loads
+  useEffect(() => {
+    if (gadget.mainRender?.startsWith('data:')) {
+      console.warn('Found data URL in mainRender, cleaning up to prevent size issues');
+      // Clean up the data URL immediately
+      onSave({ ...gadget, mainRender: undefined });
+      setMainRender('');
+    }
+  }, [gadget.id]); // Only run when gadget changes
+
   const handleSave = () => {
     const updatedGadget: GlobalAsset = {
       ...gadget,
@@ -161,7 +171,9 @@ export function GadgetDetail({
           setMainRender(result.url);
         }
         
-        onSave({ ...gadget, galleryImages: newGalleryImages, mainRender: mainRender || result.url });
+        // Prevent saving data URLs which cause size limit issues
+        const safeMainRender = (mainRender || result.url)?.startsWith('data:') ? result.url : (mainRender || result.url);
+        onSave({ ...gadget, galleryImages: newGalleryImages, mainRender: safeMainRender });
       }
     } catch (error) {
       console.error('Failed to upload gallery image:', error);
@@ -186,9 +198,13 @@ export function GadgetDetail({
     if (mainRender === imageUrl) {
       const newMainRender = newGalleryImages.length > 0 ? newGalleryImages[0] : '';
       setMainRender(newMainRender);
-      onSave({ ...gadget, galleryImages: newGalleryImages, mainRender: newMainRender });
+      // Prevent saving data URLs
+      const safeMainRender = newMainRender?.startsWith('data:') ? '' : newMainRender;
+      onSave({ ...gadget, galleryImages: newGalleryImages, mainRender: safeMainRender });
     } else {
-      onSave({ ...gadget, galleryImages: newGalleryImages });
+      // Prevent saving data URLs in existing mainRender
+      const safeMainRender = mainRender?.startsWith('data:') ? '' : mainRender;
+      onSave({ ...gadget, galleryImages: newGalleryImages, mainRender: safeMainRender });
     }
   };
 
