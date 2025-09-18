@@ -48,6 +48,11 @@ export interface GlobalAsset {
   concepts: AssetConcept[];
   galleryImages?: string[];
   mainRender?: string;
+  // Location-specific properties
+  environmentType?: string;
+  timeOfDay?: string;
+  weather?: string;
+  season?: string;
   createdAt: Date;
   updatedAt: Date;
 }

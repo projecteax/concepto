@@ -34,10 +34,10 @@ export function LocationDetail({
   // Form states
   const [name, setName] = useState(location.name);
   const [description, setDescription] = useState(location.description || '');
-  const [environmentType, setEnvironmentType] = useState('');
-  const [timeOfDay, setTimeOfDay] = useState('');
-  const [weather, setWeather] = useState('');
-  const [season, setSeason] = useState('');
+  const [environmentType, setEnvironmentType] = useState(location.environmentType || '');
+  const [timeOfDay, setTimeOfDay] = useState(location.timeOfDay || '');
+  const [weather, setWeather] = useState(location.weather || '');
+  const [season, setSeason] = useState(location.season || '');
   
   // Concept generation
   const [generationPrompt, setGenerationPrompt] = useState('');
@@ -93,6 +93,10 @@ export function LocationDetail({
       description: description.trim() || undefined,
       galleryImages: galleryImages,
       mainRender: mainRender,
+      environmentType: environmentType || undefined,
+      timeOfDay: timeOfDay || undefined,
+      weather: weather || undefined,
+      season: season || undefined,
     };
     onSave(updatedLocation);
     setIsEditing(false);
@@ -101,10 +105,10 @@ export function LocationDetail({
   const handleCancel = () => {
     setName(location.name);
     setDescription(location.description || '');
-    setEnvironmentType('');
-    setTimeOfDay('');
-    setWeather('');
-    setSeason('');
+    setEnvironmentType(location.environmentType || '');
+    setTimeOfDay(location.timeOfDay || '');
+    setWeather(location.weather || '');
+    setSeason(location.season || '');
     setIsEditing(false);
   };
 

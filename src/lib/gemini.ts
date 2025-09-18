@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { GenerationRequest } from '@/types';
+import { uploadToS3 } from './s3-service';
 
 const genAI = new GoogleGenAI({
   apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY || 'AIzaSyByJ-A6QupTOvOS-4cxcKHvn8acIz-SH_Y'
@@ -18,9 +19,32 @@ export async function generateConceptImage(request: GenerationRequest): Promise<
     // Extract image data from response
     for (const part of response.candidates?.[0]?.content?.parts || []) {
       if (part.inlineData) {
-        // Convert base64 to data URL for display
-        const imageData = part.inlineData.data;
-        return `data:image/png;base64,${imageData}`;
+        try {
+          // Convert base64 to blob and upload to R2/S3
+          const imageData = part.inlineData.data;
+          if (!imageData) {
+            throw new Error('No image data found');
+          }
+          const byteCharacters = atob(imageData);
+          const byteNumbers = new Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+          }
+          const byteArray = new Uint8Array(byteNumbers);
+          const blob = new Blob([byteArray], { type: 'image/png' });
+          const file = new File([blob], `generated-${Date.now()}.png`, { type: 'image/png' });
+          
+          // Upload to R2/S3
+          const fileKey = `generated/${request.showId}/${Date.now()}-${request.category}.png`;
+          const uploadResult = await uploadToS3(file, fileKey);
+          
+          return uploadResult.url;
+        } catch (uploadError) {
+          console.error('Failed to upload generated image:', uploadError);
+          // Fallback to data URL if upload fails
+          const imageData = part.inlineData.data;
+          return `data:image/png;base64,${imageData}`;
+        }
       }
     }
     
