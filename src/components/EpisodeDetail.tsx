@@ -43,7 +43,6 @@ export default function EpisodeDetail({
   
   // Script editing states
   const [editingScripts, setEditingScripts] = useState<{[sceneId: string]: string}>({});
-  const [scriptSelections, setScriptSelections] = useState<{[sceneId: string]: {start: number, end: number}}>({});
   
   // Inline editing states
   const [editingTitle, setEditingTitle] = useState(false);
@@ -645,120 +644,20 @@ export default function EpisodeDetail({
     }));
   };
 
-  // Rich text editor functions for textarea with text selection
+  // Simple formatting functions - disabled for now to keep text clean
   const handleFormatText = (sceneId: string, format: string) => {
-    const currentText = editingScripts[sceneId] || '';
-    const selection = scriptSelections[sceneId];
-    
-    if (!selection || selection.start === selection.end) {
-      // No text selected, just add formatting markers at cursor
-      const cursorPos = selection?.start || currentText.length;
-      let newText = currentText;
-      
-      if (format === 'bold') {
-        newText = currentText.slice(0, cursorPos) + '**bold text**' + currentText.slice(cursorPos);
-      } else if (format === 'italic') {
-        newText = currentText.slice(0, cursorPos) + '*italic text*' + currentText.slice(cursorPos);
-      }
-      
-      handleScriptChange(sceneId, newText);
-      return;
-    }
-
-    // Text is selected, apply formatting
-    const selectedText = currentText.slice(selection.start, selection.end);
-    let formattedText = selectedText;
-    
-    if (format === 'bold') {
-      // Check if already bold
-      if (selectedText.startsWith('**') && selectedText.endsWith('**')) {
-        formattedText = selectedText.slice(2, -2);
-      } else {
-        formattedText = `**${selectedText}**`;
-      }
-    } else if (format === 'italic') {
-      // Check if already italic
-      if (selectedText.startsWith('*') && selectedText.endsWith('*') && !selectedText.startsWith('**')) {
-        formattedText = selectedText.slice(1, -1);
-      } else {
-        formattedText = `*${selectedText}*`;
-      }
-    }
-    
-    const newText = currentText.slice(0, selection.start) + formattedText + currentText.slice(selection.end);
-    handleScriptChange(sceneId, newText);
+    // Formatting disabled - just show a simple message
+    console.log(`Formatting ${format} requested for scene ${sceneId}`);
   };
 
   const handleAlignText = (sceneId: string, alignment: string) => {
-    const currentText = editingScripts[sceneId] || '';
-    const selection = scriptSelections[sceneId];
-    
-    if (!selection || selection.start === selection.end) {
-      // No text selected, add alignment marker at cursor
-      const cursorPos = selection?.start || currentText.length;
-      const alignmentMarkers = {
-        'Left': '<!-- ALIGN: LEFT -->',
-        'Center': '<!-- ALIGN: CENTER -->',
-        'Right': '<!-- ALIGN: RIGHT -->',
-        'Full': '<!-- ALIGN: JUSTIFY -->'
-      };
-      
-      const newText = currentText.slice(0, cursorPos) + '\n' + alignmentMarkers[alignment as keyof typeof alignmentMarkers] + '\n' + currentText.slice(cursorPos);
-      handleScriptChange(sceneId, newText);
-      return;
-    }
-
-    // Text is selected, wrap with alignment markers
-    const selectedText = currentText.slice(selection.start, selection.end);
-    const alignmentMarkers = {
-      'Left': '<!-- ALIGN: LEFT -->',
-      'Center': '<!-- ALIGN: CENTER -->',
-      'Right': '<!-- ALIGN: RIGHT -->',
-      'Full': '<!-- ALIGN: JUSTIFY -->'
-    };
-    
-    const formattedText = `${alignmentMarkers[alignment as keyof typeof alignmentMarkers]}\n${selectedText}\n<!-- END ALIGN -->`;
-    const newText = currentText.slice(0, selection.start) + formattedText + currentText.slice(selection.end);
-    handleScriptChange(sceneId, newText);
+    // Alignment disabled - just show a simple message
+    console.log(`Alignment ${alignment} requested for scene ${sceneId}`);
   };
 
   const handleFontSize = (sceneId: string, size: string) => {
-    const currentText = editingScripts[sceneId] || '';
-    const selection = scriptSelections[sceneId];
-    
-    if (!selection || selection.start === selection.end) {
-      // No text selected, add font size marker at cursor
-      const cursorPos = selection?.start || currentText.length;
-      const sizeMarkers = {
-        '1': '<!-- FONT SIZE: 8px -->',
-        '2': '<!-- FONT SIZE: 10px -->',
-        '3': '<!-- FONT SIZE: 12px -->',
-        '4': '<!-- FONT SIZE: 14px -->',
-        '5': '<!-- FONT SIZE: 18px -->',
-        '6': '<!-- FONT SIZE: 24px -->',
-        '7': '<!-- FONT SIZE: 36px -->'
-      };
-      
-      const newText = currentText.slice(0, cursorPos) + '\n' + sizeMarkers[size as keyof typeof sizeMarkers] + '\n' + currentText.slice(cursorPos);
-      handleScriptChange(sceneId, newText);
-      return;
-    }
-
-    // Text is selected, wrap with font size markers
-    const selectedText = currentText.slice(selection.start, selection.end);
-    const sizeMarkers = {
-      '1': '<!-- FONT SIZE: 8px -->',
-      '2': '<!-- FONT SIZE: 10px -->',
-      '3': '<!-- FONT SIZE: 12px -->',
-      '4': '<!-- FONT SIZE: 14px -->',
-      '5': '<!-- FONT SIZE: 18px -->',
-      '6': '<!-- FONT SIZE: 24px -->',
-      '7': '<!-- FONT SIZE: 36px -->'
-    };
-    
-    const formattedText = `${sizeMarkers[size as keyof typeof sizeMarkers]}\n${selectedText}\n<!-- END FONT SIZE -->`;
-    const newText = currentText.slice(0, selection.start) + formattedText + currentText.slice(selection.end);
-    handleScriptChange(sceneId, newText);
+    // Font size disabled - just show a simple message
+    console.log(`Font size ${size} requested for scene ${sceneId}`);
   };
 
   // Initialize editor content when editing starts
@@ -767,20 +666,9 @@ export default function EpisodeDetail({
     setEditingScripts(prev => ({ ...prev, [sceneId]: script }));
   };
 
-  // Convert formatting markers to display text
+  // Simple display function - no formatting markers to remove
   const formatScriptForDisplay = (script: string) => {
-    if (!script) return '';
-    
-    // Remove formatting markers for display
-    let displayText = script
-      .replace(/<!-- ALIGN: [^>]+ -->/g, '')
-      .replace(/<!-- END ALIGN -->/g, '')
-      .replace(/<!-- FONT SIZE: [^>]+ -->/g, '')
-      .replace(/<!-- END FONT SIZE -->/g, '')
-      .replace(/\*\*([^*]+)\*\*/g, '$1') // Remove bold markers
-      .replace(/\*([^*]+)\*/g, '$1'); // Remove italic markers
-    
-    return displayText;
+    return script || '';
   };
 
   const handleSaveScript = (sceneId: string) => {
@@ -1355,16 +1243,6 @@ export default function EpisodeDetail({
                                 // Auto-resize
                                 e.target.style.height = 'auto';
                                 e.target.style.height = e.target.scrollHeight + 'px';
-                              }}
-                              onSelect={(e) => {
-                                const target = e.target as HTMLTextAreaElement;
-                                setScriptSelections(prev => ({
-                                  ...prev,
-                                  [scene.id]: {
-                                    start: target.selectionStart,
-                                    end: target.selectionEnd
-                                  }
-                                }));
                               }}
                               className="w-full px-3 py-2 text-sm resize-none focus:outline-none font-mono text-gray-900 border-0 overflow-hidden"
                               style={{ 
