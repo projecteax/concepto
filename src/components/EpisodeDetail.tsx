@@ -1096,9 +1096,9 @@ export default function EpisodeDetail({
                                 <div key={char.characterId || index} className="flex items-center space-x-2 p-2 bg-gray-50 rounded-lg border">
                                   {/* Character Avatar */}
                                   <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden">
-                                    {characterAsset?.mainRender ? (
+                                    {characterAsset?.mainImage ? (
                                       <img 
-                                        src={characterAsset.mainRender} 
+                                        src={characterAsset.mainImage} 
                                         alt={char.characterName}
                                         className="w-full h-full object-cover"
                                       />
