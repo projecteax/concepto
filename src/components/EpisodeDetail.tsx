@@ -1088,36 +1088,39 @@ export default function EpisodeDetail({
                           </select>
                         </div>
                         
-                        <div className="space-y-2">
+                        <div className="flex flex-wrap gap-2">
                           {scene.sceneCharacters && scene.sceneCharacters.length > 0 ? (
-                            scene.sceneCharacters.map((char, index) => (
-                              <div key={char.characterId || index} className="flex items-center space-x-2 p-2 bg-gray-50 rounded-lg">
-                                <span className="flex-1 text-sm font-medium text-gray-900">{char.characterName}</span>
-                                <input
-                                  type="text"
-                                  value={char.role || ''}
-                                  onChange={(e) => handleCharacterFieldChange(scene.id, char.characterId, 'role', e.target.value)}
-                                  placeholder="Role in scene..."
-                                  className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-indigo-500 focus:border-transparent"
-                                />
-                                <label className="flex items-center space-x-1 text-sm">
-                                  <input
-                                    type="checkbox"
-                                    checked={char.isPresent}
-                                    onChange={(e) => handleCharacterFieldChange(scene.id, char.characterId, 'isPresent', e.target.checked)}
-                                    className="rounded"
-                                  />
-                                  <span>Present</span>
-                                </label>
-                                <button
-                                  onClick={() => handleRemoveCharacter(scene.id, char.characterId)}
-                                  className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded"
-                                  title="Remove character"
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                              </div>
-                            ))
+                            scene.sceneCharacters.map((char, index) => {
+                              const characterAsset = globalAssets.find(asset => asset.id === char.characterId && asset.category === 'character');
+                              return (
+                                <div key={char.characterId || index} className="flex items-center space-x-2 p-2 bg-gray-50 rounded-lg border">
+                                  {/* Character Avatar */}
+                                  <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden">
+                                    {characterAsset?.mainRender ? (
+                                      <img 
+                                        src={characterAsset.mainRender} 
+                                        alt={char.characterName}
+                                        className="w-full h-full object-cover"
+                                      />
+                                    ) : (
+                                      <span className="text-xs font-medium text-gray-600">
+                                        {char.characterName.charAt(0).toUpperCase()}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {/* Character Name */}
+                                  <span className="text-sm font-medium text-gray-900">{char.characterName}</span>
+                                  {/* Remove Button */}
+                                  <button
+                                    onClick={() => handleRemoveCharacter(scene.id, char.characterId)}
+                                    className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded"
+                                    title="Remove character"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              );
+                            })
                           ) : (
                             <p className="text-gray-500 text-sm">No characters added to this scene.</p>
                           )}
@@ -1261,26 +1264,36 @@ export default function EpisodeDetail({
                             {/* Simple Textarea with Rich Text Styling */}
                             <textarea
                               value={editingScripts[scene.id] || ''}
-                              onChange={(e) => handleScriptChange(scene.id, e.target.value)}
-                              className="w-full px-3 py-2 text-sm resize-none focus:outline-none min-h-[100px] font-mono text-gray-900 border-0"
+                              onChange={(e) => {
+                                handleScriptChange(scene.id, e.target.value);
+                                // Auto-resize textarea
+                                e.target.style.height = 'auto';
+                                e.target.style.height = e.target.scrollHeight + 'px';
+                              }}
+                              className="w-full px-3 py-2 text-sm resize-none focus:outline-none font-mono text-gray-900 border-0 overflow-hidden"
                               style={{ 
                                 fontFamily: 'Courier New, monospace',
                                 color: '#111827',
-                                lineHeight: '1.5'
+                                lineHeight: '1.5',
+                                minHeight: '100px',
+                                height: 'auto'
                               }}
                               placeholder="Enter scene script..."
+                              rows={Math.max(4, (editingScripts[scene.id] || '').split('\n').length)}
                             />
                           </div>
                         ) : (
                           <div 
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm min-h-[100px] font-mono bg-gray-50 text-gray-900"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono bg-gray-50 text-gray-900 whitespace-pre-wrap"
                             style={{ 
                               fontFamily: 'Courier New, monospace',
                               color: '#111827',
-                              lineHeight: '1.5'
+                              lineHeight: '1.5',
+                              minHeight: '100px'
                             }}
-                            dangerouslySetInnerHTML={{ __html: scene.script || '<span class="text-gray-400">No script available</span>' }}
-                          />
+                          >
+                            {scene.script || <span className="text-gray-400">No script available</span>}
+                          </div>
                         )}
                       </div>
 
