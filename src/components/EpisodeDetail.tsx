@@ -74,6 +74,10 @@ export default function EpisodeDetail({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [sceneToDelete, setSceneToDelete] = useState<string | null>(null);
 
+  // Character popup states
+  const [showCharacterPopup, setShowCharacterPopup] = useState(false);
+  const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
+
   // Rich text editor refs (currently unused but kept for future use)
   // const scriptEditorRefs = useRef<{[sceneId: string]: HTMLDivElement | null}>({});
 
@@ -174,6 +178,20 @@ export default function EpisodeDetail({
   const cancelDeleteScene = () => {
     setShowDeleteConfirm(false);
     setSceneToDelete(null);
+  };
+
+  // Character popup handlers
+  const handleCharacterClick = (characterId: string) => {
+    const character = globalAssets.find(asset => asset.id === characterId && asset.category === 'character') as Character;
+    if (character) {
+      setSelectedCharacter(character);
+      setShowCharacterPopup(true);
+    }
+  };
+
+  const handleCloseCharacterPopup = () => {
+    setShowCharacterPopup(false);
+    setSelectedCharacter(null);
   };
 
   // Scene field handlers
@@ -1094,8 +1112,12 @@ export default function EpisodeDetail({
                               const characterAsset = globalAssets.find(asset => asset.id === char.characterId && asset.category === 'character');
                               return (
                                 <div key={char.characterId || index} className="flex items-center space-x-2 p-2 bg-gray-50 rounded-lg border">
-                                  {/* Character Avatar */}
-                                  <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden">
+                                  {/* Character Avatar - Clickable */}
+                                  <div 
+                                    className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden cursor-pointer hover:bg-gray-300 transition-colors"
+                                    onClick={() => handleCharacterClick(char.characterId)}
+                                    title="Click to view character details"
+                                  >
                                     {characterAsset?.mainImage ? (
                                       <img 
                                         src={characterAsset.mainImage} 
@@ -1108,8 +1130,14 @@ export default function EpisodeDetail({
                                       </span>
                                     )}
                                   </div>
-                                  {/* Character Name */}
-                                  <span className="text-sm font-medium text-gray-900">{char.characterName}</span>
+                                  {/* Character Name - Clickable */}
+                                  <span 
+                                    className="text-sm font-medium text-gray-900 cursor-pointer hover:text-indigo-600 transition-colors"
+                                    onClick={() => handleCharacterClick(char.characterId)}
+                                    title="Click to view character details"
+                                  >
+                                    {char.characterName}
+                                  </span>
                                   {/* Remove Button */}
                                   <button
                                     onClick={() => handleRemoveCharacter(scene.id, char.characterId)}
@@ -1155,14 +1183,21 @@ export default function EpisodeDetail({
                         <div className="border border-gray-300 rounded-lg">
                           <textarea
                             value={scene.actionDescription || ''}
-                            onChange={(e) => handleSceneFieldChange(scene.id, 'actionDescription', e.target.value)}
+                            onChange={(e) => {
+                              handleSceneFieldChange(scene.id, 'actionDescription', e.target.value);
+                              // Auto-resize textarea
+                              e.target.style.height = 'auto';
+                              e.target.style.height = e.target.scrollHeight + 'px';
+                            }}
                             placeholder="Describe the action before dialog..."
-                            rows={4}
-                            className="w-full px-3 py-2 text-sm resize-none focus:outline-none border-0 rounded-lg"
+                            className="w-full px-3 py-2 text-sm resize-none focus:outline-none border-0 rounded-lg overflow-hidden"
                             style={{ 
                               fontFamily: 'Courier New, monospace',
                               color: '#111827',
+                              minHeight: '60px',
+                              height: 'auto'
                             }}
+                            rows={Math.max(2, (scene.actionDescription || '').split('\n').length)}
                           />
                         </div>
                       </div>
@@ -1813,6 +1848,172 @@ export default function EpisodeDetail({
               >
                 Delete Scene
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Character Details Modal */}
+      {showCharacterPopup && selectedCharacter && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center space-x-4">
+                  <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden">
+                    {selectedCharacter.mainImage ? (
+                      <img 
+                        src={selectedCharacter.mainImage} 
+                        alt={selectedCharacter.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-xl font-medium text-gray-600">
+                        {selectedCharacter.name.charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-900">{selectedCharacter.name}</h2>
+                    <p className="text-gray-600">{selectedCharacter.description}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleCloseCharacterPopup}
+                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                  title="Close"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              {/* Character Details */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Character Information */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold text-gray-900">Character Details</h3>
+                  
+                  {selectedCharacter.general && (
+                    <div className="space-y-3">
+                      {selectedCharacter.general.age && (
+                        <div>
+                          <label className="text-sm font-medium text-gray-700">Age</label>
+                          <p className="text-gray-900">{selectedCharacter.general.age}</p>
+                        </div>
+                      )}
+                      {selectedCharacter.general.personality && (
+                        <div>
+                          <label className="text-sm font-medium text-gray-700">Personality</label>
+                          <p className="text-gray-900">{selectedCharacter.general.personality}</p>
+                        </div>
+                      )}
+                      {selectedCharacter.general.backstory && (
+                        <div>
+                          <label className="text-sm font-medium text-gray-700">Backstory</label>
+                          <p className="text-gray-900">{selectedCharacter.general.backstory}</p>
+                        </div>
+                      )}
+                      {selectedCharacter.general.specialAbilities && (
+                        <div>
+                          <label className="text-sm font-medium text-gray-700">Special Abilities</label>
+                          <p className="text-gray-900">{selectedCharacter.general.specialAbilities}</p>
+                        </div>
+                      )}
+                      {selectedCharacter.general.relationships && (
+                        <div>
+                          <label className="text-sm font-medium text-gray-700">Relationships</label>
+                          <p className="text-gray-900">{selectedCharacter.general.relationships}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {selectedCharacter.clothing && (
+                    <div className="space-y-3">
+                      <h4 className="text-md font-semibold text-gray-900">Clothing & Style</h4>
+                      {selectedCharacter.clothing.defaultOutfit && (
+                        <div>
+                          <label className="text-sm font-medium text-gray-700">Default Outfit</label>
+                          <p className="text-gray-900">{selectedCharacter.clothing.defaultOutfit}</p>
+                        </div>
+                      )}
+                      {selectedCharacter.clothing.accessories && selectedCharacter.clothing.accessories.length > 0 && (
+                        <div>
+                          <label className="text-sm font-medium text-gray-700">Accessories</label>
+                          <p className="text-gray-900">{selectedCharacter.clothing.accessories.join(', ')}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Character Images and Concepts */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold text-gray-900">Images & Concepts</h3>
+                  
+                  {/* Main Image */}
+                  {selectedCharacter.mainImage && (
+                    <div>
+                      <label className="text-sm font-medium text-gray-700 block mb-2">Main Image</label>
+                      <img 
+                        src={selectedCharacter.mainImage} 
+                        alt={selectedCharacter.name}
+                        className="w-full h-48 object-cover rounded-lg border"
+                        onClick={() => setSelectedImage({ url: selectedCharacter.mainImage!, alt: selectedCharacter.name })}
+                      />
+                    </div>
+                  )}
+
+                  {/* Character Gallery */}
+                  {selectedCharacter.characterGallery && selectedCharacter.characterGallery.length > 0 && (
+                    <div>
+                      <label className="text-sm font-medium text-gray-700 block mb-2">Character Gallery</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {selectedCharacter.characterGallery.map((imageUrl, index) => (
+                          <img 
+                            key={index}
+                            src={imageUrl} 
+                            alt={`${selectedCharacter.name} - Image ${index + 1}`}
+                            className="w-full h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80 transition-opacity"
+                            onClick={() => setSelectedImage({ url: imageUrl, alt: `${selectedCharacter.name} - Image ${index + 1}` })}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Concepts */}
+                  {selectedCharacter.concepts && selectedCharacter.concepts.length > 0 && (
+                    <div>
+                      <label className="text-sm font-medium text-gray-700 block mb-2">Concepts</label>
+                      <div className="space-y-2">
+                        {selectedCharacter.concepts.map((concept, index) => (
+                          <div key={index} className="border rounded-lg p-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <h4 className="font-medium text-gray-900">{concept.name}</h4>
+                              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
+                                {concept.conceptType || 'General'}
+                              </span>
+                            </div>
+                            {concept.description && (
+                              <p className="text-sm text-gray-600 mb-2">{concept.description}</p>
+                            )}
+                            {concept.imageUrl && (
+                              <img 
+                                src={concept.imageUrl} 
+                                alt={concept.name}
+                                className="w-full h-20 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity"
+                                onClick={() => setSelectedImage({ url: concept.imageUrl!, alt: concept.name })}
+                              />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
