@@ -17,7 +17,8 @@ import {
   AlignLeft,
   AlignCenter,
   AlignRight,
-  AlignJustify
+  AlignJustify,
+  UserPlus
 } from 'lucide-react';
 import StoryboardDrawer from './StoryboardDrawer';
 import CommentThread from './CommentThread';
@@ -118,8 +119,11 @@ export default function EpisodeDetail({
       sceneNumber: newSceneNumber,
       title: `Scene ${newSceneNumber}`,
       description: '',
+      actionDescription: '',
       script: '',
+      locationName: '',
       characters: [],
+      actors: [],
       gadgets: [],
       shots: [],
       createdAt: new Date(),
@@ -147,6 +151,104 @@ export default function EpisodeDetail({
 
   const handleDeleteScene = (sceneId: string) => {
     const updatedScenes = (localEpisode.scenes || []).filter(s => s.id !== sceneId);
+    const updatedEpisode: Episode = {
+      ...localEpisode,
+      scenes: updatedScenes,
+    };
+    updateEpisodeAndSave(updatedEpisode);
+  };
+
+  // Scene field handlers
+  const handleSceneFieldChange = (sceneId: string, field: string, value: string) => {
+    const updatedScenes = (localEpisode.scenes || []).map(s => {
+      if (s.id === sceneId) {
+        return {
+          ...s,
+          [field]: value,
+          updatedAt: new Date(),
+        };
+      }
+      return s;
+    });
+
+    const updatedEpisode: Episode = {
+      ...localEpisode,
+      scenes: updatedScenes,
+    };
+    updateEpisodeAndSave(updatedEpisode);
+  };
+
+  // Actor handlers
+  const handleAddActor = (sceneId: string) => {
+    const scene = (localEpisode.scenes || []).find(s => s.id === sceneId);
+    if (!scene) return;
+
+    const newActorId = `actor-${Date.now()}`;
+    const newActor = {
+      actorId: newActorId,
+      actorName: '',
+      characterName: '',
+      role: '',
+      isPresent: true,
+    };
+
+    const updatedScenes = (localEpisode.scenes || []).map(s => {
+      if (s.id === sceneId) {
+        return {
+          ...s,
+          actors: [...(s.actors || []), newActor],
+          updatedAt: new Date(),
+        };
+      }
+      return s;
+    });
+
+    const updatedEpisode: Episode = {
+      ...localEpisode,
+      scenes: updatedScenes,
+    };
+    updateEpisodeAndSave(updatedEpisode);
+  };
+
+  const handleActorFieldChange = (sceneId: string, actorId: string, field: string, value: string | boolean) => {
+    const updatedScenes = (localEpisode.scenes || []).map(s => {
+      if (s.id === sceneId) {
+        return {
+          ...s,
+          actors: (s.actors || []).map(actor => {
+            if (actor.actorId === actorId) {
+              return {
+                ...actor,
+                [field]: value,
+              };
+            }
+            return actor;
+          }),
+          updatedAt: new Date(),
+        };
+      }
+      return s;
+    });
+
+    const updatedEpisode: Episode = {
+      ...localEpisode,
+      scenes: updatedScenes,
+    };
+    updateEpisodeAndSave(updatedEpisode);
+  };
+
+  const handleRemoveActor = (sceneId: string, actorId: string) => {
+    const updatedScenes = (localEpisode.scenes || []).map(s => {
+      if (s.id === sceneId) {
+        return {
+          ...s,
+          actors: (s.actors || []).filter(actor => actor.actorId !== actorId),
+          updatedAt: new Date(),
+        };
+      }
+      return s;
+    });
+
     const updatedEpisode: Episode = {
       ...localEpisode,
       scenes: updatedScenes,
@@ -943,6 +1045,95 @@ export default function EpisodeDetail({
                       <div className="mb-4">
                         <h4 className="font-medium text-gray-900 mb-2">{scene.title}</h4>
                         <p className="text-gray-600">{scene.description}</p>
+                      </div>
+
+                      {/* Scene Details Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        {/* Location */}
+                        <div className="bg-gray-50 p-3 rounded-lg">
+                          <label className="text-sm font-medium text-gray-700 block mb-2">Location</label>
+                          <input
+                            type="text"
+                            value={scene.locationName || ''}
+                            onChange={(e) => handleSceneFieldChange(scene.id, 'locationName', e.target.value)}
+                            placeholder="Enter scene location..."
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
+                          />
+                        </div>
+
+                        {/* Action Description */}
+                        <div className="bg-gray-50 p-3 rounded-lg">
+                          <label className="text-sm font-medium text-gray-700 block mb-2">Action Description</label>
+                          <textarea
+                            value={scene.actionDescription || ''}
+                            onChange={(e) => handleSceneFieldChange(scene.id, 'actionDescription', e.target.value)}
+                            placeholder="Describe the action before dialog..."
+                            rows={3}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm resize-none"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Actors Section */}
+                      <div className="mb-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <label className="text-sm font-medium text-gray-700">Actors in Scene</label>
+                          <button
+                            onClick={() => handleAddActor(scene.id)}
+                            className="flex items-center space-x-1 px-3 py-1 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700"
+                          >
+                            <UserPlus className="w-3 h-3" />
+                            <span>Add Actor</span>
+                          </button>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          {scene.actors && scene.actors.length > 0 ? (
+                            scene.actors.map((actor, index) => (
+                              <div key={actor.actorId || index} className="flex items-center space-x-2 p-2 bg-gray-50 rounded-lg">
+                                <input
+                                  type="text"
+                                  value={actor.actorName}
+                                  onChange={(e) => handleActorFieldChange(scene.id, actor.actorId || index.toString(), 'actorName', e.target.value)}
+                                  placeholder="Actor name..."
+                                  className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-indigo-500 focus:border-transparent"
+                                />
+                                <input
+                                  type="text"
+                                  value={actor.characterName || ''}
+                                  onChange={(e) => handleActorFieldChange(scene.id, actor.actorId || index.toString(), 'characterName', e.target.value)}
+                                  placeholder="Character name..."
+                                  className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-indigo-500 focus:border-transparent"
+                                />
+                                <input
+                                  type="text"
+                                  value={actor.role || ''}
+                                  onChange={(e) => handleActorFieldChange(scene.id, actor.actorId || index.toString(), 'role', e.target.value)}
+                                  placeholder="Role..."
+                                  className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-indigo-500 focus:border-transparent"
+                                />
+                                <label className="flex items-center space-x-1 text-sm">
+                                  <input
+                                    type="checkbox"
+                                    checked={actor.isPresent}
+                                    onChange={(e) => handleActorFieldChange(scene.id, actor.actorId || index.toString(), 'isPresent', e.target.checked)}
+                                    className="rounded"
+                                  />
+                                  <span>Present</span>
+                                </label>
+                                <button
+                                  onClick={() => handleRemoveActor(scene.id, actor.actorId || index.toString())}
+                                  className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded"
+                                  title="Remove actor"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-gray-500 text-sm">No actors added to this scene.</p>
+                          )}
+                        </div>
                       </div>
 
                       {/* Script Editor */}
