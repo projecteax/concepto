@@ -70,6 +70,10 @@ export default function EpisodeDetail({
     alt: string;
   } | null>(null);
 
+  // Delete confirmation states
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [sceneToDelete, setSceneToDelete] = useState<string | null>(null);
+
   // Rich text editor refs (currently unused but kept for future use)
   // const scriptEditorRefs = useRef<{[sceneId: string]: HTMLDivElement | null}>({});
 
@@ -123,7 +127,7 @@ export default function EpisodeDetail({
       script: '',
       locationName: '',
       characters: [],
-      actors: [],
+      sceneCharacters: [],
       gadgets: [],
       shots: [],
       createdAt: new Date(),
@@ -150,12 +154,26 @@ export default function EpisodeDetail({
   };
 
   const handleDeleteScene = (sceneId: string) => {
-    const updatedScenes = (localEpisode.scenes || []).filter(s => s.id !== sceneId);
-    const updatedEpisode: Episode = {
-      ...localEpisode,
-      scenes: updatedScenes,
-    };
-    updateEpisodeAndSave(updatedEpisode);
+    setSceneToDelete(sceneId);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDeleteScene = () => {
+    if (sceneToDelete) {
+      const updatedScenes = (localEpisode.scenes || []).filter(s => s.id !== sceneToDelete);
+      const updatedEpisode: Episode = {
+        ...localEpisode,
+        scenes: updatedScenes,
+      };
+      updateEpisodeAndSave(updatedEpisode);
+    }
+    setShowDeleteConfirm(false);
+    setSceneToDelete(null);
+  };
+
+  const cancelDeleteScene = () => {
+    setShowDeleteConfirm(false);
+    setSceneToDelete(null);
   };
 
   // Scene field handlers
@@ -178,16 +196,14 @@ export default function EpisodeDetail({
     updateEpisodeAndSave(updatedEpisode);
   };
 
-  // Actor handlers
-  const handleAddActor = (sceneId: string) => {
-    const scene = (localEpisode.scenes || []).find(s => s.id === sceneId);
-    if (!scene) return;
+  // Character handlers
+  const handleAddCharacter = (sceneId: string, characterId: string) => {
+    const character = globalAssets.find(asset => asset.id === characterId && asset.category === 'character');
+    if (!character) return;
 
-    const newActorId = `actor-${Date.now()}`;
-    const newActor = {
-      actorId: newActorId,
-      actorName: '',
-      characterName: '',
+    const newSceneCharacter = {
+      characterId: character.id,
+      characterName: character.name,
       role: '',
       isPresent: true,
     };
@@ -196,7 +212,7 @@ export default function EpisodeDetail({
       if (s.id === sceneId) {
         return {
           ...s,
-          actors: [...(s.actors || []), newActor],
+          sceneCharacters: [...(s.sceneCharacters || []), newSceneCharacter],
           updatedAt: new Date(),
         };
       }
@@ -210,19 +226,19 @@ export default function EpisodeDetail({
     updateEpisodeAndSave(updatedEpisode);
   };
 
-  const handleActorFieldChange = (sceneId: string, actorId: string, field: string, value: string | boolean) => {
+  const handleCharacterFieldChange = (sceneId: string, characterId: string, field: string, value: string | boolean) => {
     const updatedScenes = (localEpisode.scenes || []).map(s => {
       if (s.id === sceneId) {
         return {
           ...s,
-          actors: (s.actors || []).map(actor => {
-            if (actor.actorId === actorId) {
+          sceneCharacters: (s.sceneCharacters || []).map(char => {
+            if (char.characterId === characterId) {
               return {
-                ...actor,
+                ...char,
                 [field]: value,
               };
             }
-            return actor;
+            return char;
           }),
           updatedAt: new Date(),
         };
@@ -237,12 +253,12 @@ export default function EpisodeDetail({
     updateEpisodeAndSave(updatedEpisode);
   };
 
-  const handleRemoveActor = (sceneId: string, actorId: string) => {
+  const handleRemoveCharacter = (sceneId: string, characterId: string) => {
     const updatedScenes = (localEpisode.scenes || []).map(s => {
       if (s.id === sceneId) {
         return {
           ...s,
-          actors: (s.actors || []).filter(actor => actor.actorId !== actorId),
+          sceneCharacters: (s.sceneCharacters || []).filter(char => char.characterId !== characterId),
           updatedAt: new Date(),
         };
       }
@@ -1047,92 +1063,104 @@ export default function EpisodeDetail({
                         <p className="text-gray-600">{scene.description}</p>
                       </div>
 
-                      {/* Scene Details Grid */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                        {/* Location */}
-                        <div className="bg-gray-50 p-3 rounded-lg">
-                          <label className="text-sm font-medium text-gray-700 block mb-2">Location</label>
-                          <input
-                            type="text"
-                            value={scene.locationName || ''}
-                            onChange={(e) => handleSceneFieldChange(scene.id, 'locationName', e.target.value)}
-                            placeholder="Enter scene location..."
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
-                          />
-                        </div>
-
-                        {/* Action Description */}
-                        <div className="bg-gray-50 p-3 rounded-lg">
-                          <label className="text-sm font-medium text-gray-700 block mb-2">Action Description</label>
-                          <textarea
-                            value={scene.actionDescription || ''}
-                            onChange={(e) => handleSceneFieldChange(scene.id, 'actionDescription', e.target.value)}
-                            placeholder="Describe the action before dialog..."
-                            rows={3}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm resize-none"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Actors Section */}
+                      {/* Characters Section */}
                       <div className="mb-4">
                         <div className="flex items-center justify-between mb-3">
-                          <label className="text-sm font-medium text-gray-700">Actors in Scene</label>
-                          <button
-                            onClick={() => handleAddActor(scene.id)}
-                            className="flex items-center space-x-1 px-3 py-1 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700"
+                          <label className="text-sm font-medium text-gray-700">Characters in Scene</label>
+                          <select
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                handleAddCharacter(scene.id, e.target.value);
+                                e.target.value = '';
+                              }
+                            }}
+                            className="px-3 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-indigo-500 focus:border-transparent"
+                            defaultValue=""
                           >
-                            <UserPlus className="w-3 h-3" />
-                            <span>Add Actor</span>
-                          </button>
+                            <option value="">Add Character...</option>
+                            {globalAssets
+                              .filter(asset => asset.category === 'character')
+                              .map(character => (
+                                <option key={character.id} value={character.id}>
+                                  {character.name}
+                                </option>
+                              ))}
+                          </select>
                         </div>
                         
                         <div className="space-y-2">
-                          {scene.actors && scene.actors.length > 0 ? (
-                            scene.actors.map((actor, index) => (
-                              <div key={actor.actorId || index} className="flex items-center space-x-2 p-2 bg-gray-50 rounded-lg">
+                          {scene.sceneCharacters && scene.sceneCharacters.length > 0 ? (
+                            scene.sceneCharacters.map((char, index) => (
+                              <div key={char.characterId || index} className="flex items-center space-x-2 p-2 bg-gray-50 rounded-lg">
+                                <span className="flex-1 text-sm font-medium text-gray-900">{char.characterName}</span>
                                 <input
                                   type="text"
-                                  value={actor.actorName}
-                                  onChange={(e) => handleActorFieldChange(scene.id, actor.actorId || index.toString(), 'actorName', e.target.value)}
-                                  placeholder="Actor name..."
-                                  className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-indigo-500 focus:border-transparent"
-                                />
-                                <input
-                                  type="text"
-                                  value={actor.characterName || ''}
-                                  onChange={(e) => handleActorFieldChange(scene.id, actor.actorId || index.toString(), 'characterName', e.target.value)}
-                                  placeholder="Character name..."
-                                  className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-indigo-500 focus:border-transparent"
-                                />
-                                <input
-                                  type="text"
-                                  value={actor.role || ''}
-                                  onChange={(e) => handleActorFieldChange(scene.id, actor.actorId || index.toString(), 'role', e.target.value)}
-                                  placeholder="Role..."
+                                  value={char.role || ''}
+                                  onChange={(e) => handleCharacterFieldChange(scene.id, char.characterId, 'role', e.target.value)}
+                                  placeholder="Role in scene..."
                                   className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-indigo-500 focus:border-transparent"
                                 />
                                 <label className="flex items-center space-x-1 text-sm">
                                   <input
                                     type="checkbox"
-                                    checked={actor.isPresent}
-                                    onChange={(e) => handleActorFieldChange(scene.id, actor.actorId || index.toString(), 'isPresent', e.target.checked)}
+                                    checked={char.isPresent}
+                                    onChange={(e) => handleCharacterFieldChange(scene.id, char.characterId, 'isPresent', e.target.checked)}
                                     className="rounded"
                                   />
                                   <span>Present</span>
                                 </label>
                                 <button
-                                  onClick={() => handleRemoveActor(scene.id, actor.actorId || index.toString())}
+                                  onClick={() => handleRemoveCharacter(scene.id, char.characterId)}
                                   className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded"
-                                  title="Remove actor"
+                                  title="Remove character"
                                 >
                                   <X className="w-3 h-3" />
                                 </button>
                               </div>
                             ))
                           ) : (
-                            <p className="text-gray-500 text-sm">No actors added to this scene.</p>
+                            <p className="text-gray-500 text-sm">No characters added to this scene.</p>
                           )}
+                        </div>
+                      </div>
+
+                      {/* Location Section */}
+                      <div className="mb-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="text-sm font-medium text-gray-700">Location</label>
+                        </div>
+                        <div className="border border-gray-300 rounded-lg">
+                          <input
+                            type="text"
+                            value={scene.locationName || ''}
+                            onChange={(e) => handleSceneFieldChange(scene.id, 'locationName', e.target.value)}
+                            placeholder="Enter scene location..."
+                            className="w-full px-3 py-2 text-sm resize-none focus:outline-none border-0 rounded-lg"
+                            style={{ 
+                              fontFamily: 'Courier New, monospace',
+                              color: '#111827',
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Action Description Section */}
+                      <div className="mb-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="text-sm font-medium text-gray-700">Action Description</label>
+                        </div>
+                        <div className="border border-gray-300 rounded-lg">
+                          <textarea
+                            value={scene.actionDescription || ''}
+                            onChange={(e) => handleSceneFieldChange(scene.id, 'actionDescription', e.target.value)}
+                            placeholder="Describe the action before dialog..."
+                            rows={4}
+                            className="w-full px-3 py-2 text-sm resize-none focus:outline-none border-0 rounded-lg"
+                            style={{ 
+                              fontFamily: 'Courier New, monospace',
+                              color: '#111827',
+                            }}
+                          />
                         </div>
                       </div>
 
@@ -1173,14 +1201,14 @@ export default function EpisodeDetail({
                             <div className="flex items-center space-x-1 p-2 bg-gray-50 border-b border-gray-300 rounded-t-lg">
                               <button
                                 onClick={() => handleFormatText(scene.id, 'bold')}
-                                className="p-1 hover:bg-gray-200 rounded"
+                                className="p-1 hover:bg-gray-200 rounded text-gray-700 hover:text-gray-900"
                                 title="Bold"
                               >
                                 <Bold className="w-4 h-4" />
                               </button>
                               <button
                                 onClick={() => handleFormatText(scene.id, 'italic')}
-                                className="p-1 hover:bg-gray-200 rounded"
+                                className="p-1 hover:bg-gray-200 rounded text-gray-700 hover:text-gray-900"
                                 title="Italic"
                               >
                                 <Italic className="w-4 h-4" />
@@ -1188,28 +1216,28 @@ export default function EpisodeDetail({
                               <div className="w-px h-4 bg-gray-300 mx-1" />
                               <button
                                 onClick={() => handleAlignText(scene.id, 'Left')}
-                                className="p-1 hover:bg-gray-200 rounded"
+                                className="p-1 hover:bg-gray-200 rounded text-gray-700 hover:text-gray-900"
                                 title="Align Left"
                               >
                                 <AlignLeft className="w-4 h-4" />
                               </button>
                               <button
                                 onClick={() => handleAlignText(scene.id, 'Center')}
-                                className="p-1 hover:bg-gray-200 rounded"
+                                className="p-1 hover:bg-gray-200 rounded text-gray-700 hover:text-gray-900"
                                 title="Align Center"
                               >
                                 <AlignCenter className="w-4 h-4" />
                               </button>
                               <button
                                 onClick={() => handleAlignText(scene.id, 'Right')}
-                                className="p-1 hover:bg-gray-200 rounded"
+                                className="p-1 hover:bg-gray-200 rounded text-gray-700 hover:text-gray-900"
                                 title="Align Right"
                               >
                                 <AlignRight className="w-4 h-4" />
                               </button>
                               <button
                                 onClick={() => handleAlignText(scene.id, 'Full')}
-                                className="p-1 hover:bg-gray-200 rounded"
+                                className="p-1 hover:bg-gray-200 rounded text-gray-700 hover:text-gray-900"
                                 title="Justify"
                               >
                                 <AlignJustify className="w-4 h-4" />
@@ -1738,6 +1766,40 @@ export default function EpisodeDetail({
             />
             <div className="absolute bottom-4 left-4 bg-black bg-opacity-50 text-white px-3 py-1 rounded text-sm">
               {selectedImage.alt}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                <Trash2 className="w-5 h-5 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-medium text-gray-900">Delete Scene</h3>
+                <p className="text-sm text-gray-500">This action cannot be undone.</p>
+              </div>
+            </div>
+            <p className="text-gray-700 mb-6">
+              Are you sure you want to delete this scene? All associated shots, storyboards, and other data will be permanently removed.
+            </p>
+            <div className="flex space-x-3 justify-end">
+              <button
+                onClick={cancelDeleteScene}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteScene}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              >
+                Delete Scene
+              </button>
             </div>
           </div>
         </div>

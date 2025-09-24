@@ -162,7 +162,7 @@ export interface EpisodeScene {
   locationId?: string;
   locationName?: string;
   characters: SceneCharacter[];
-  actors: SceneActor[]; // Actors in the scene
+  sceneCharacters: SceneCharacter[]; // Characters in the scene (selectable from dataset)
   gadgets: SceneGadget[];
   shots: SceneShot[];
   createdAt: Date;
