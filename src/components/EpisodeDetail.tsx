@@ -17,8 +17,7 @@ import {
   AlignLeft,
   AlignCenter,
   AlignRight,
-  AlignJustify,
-  UserPlus
+  AlignJustify
 } from 'lucide-react';
 import StoryboardDrawer from './StoryboardDrawer';
 import CommentThread from './CommentThread';
@@ -244,32 +243,6 @@ export default function EpisodeDetail({
     updateEpisodeAndSave(updatedEpisode);
   };
 
-  const handleCharacterFieldChange = (sceneId: string, characterId: string, field: string, value: string | boolean) => {
-    const updatedScenes = (localEpisode.scenes || []).map(s => {
-      if (s.id === sceneId) {
-        return {
-          ...s,
-          sceneCharacters: (s.sceneCharacters || []).map(char => {
-            if (char.characterId === characterId) {
-              return {
-                ...char,
-                [field]: value,
-              };
-            }
-            return char;
-          }),
-          updatedAt: new Date(),
-        };
-      }
-      return s;
-    });
-
-    const updatedEpisode: Episode = {
-      ...localEpisode,
-      scenes: updatedScenes,
-    };
-    updateEpisodeAndSave(updatedEpisode);
-  };
 
   const handleRemoveCharacter = (sceneId: string, characterId: string) => {
     const updatedScenes = (localEpisode.scenes || []).map(s => {
@@ -1109,7 +1082,7 @@ export default function EpisodeDetail({
                         <div className="flex flex-wrap gap-2">
                           {scene.sceneCharacters && scene.sceneCharacters.length > 0 ? (
                             scene.sceneCharacters.map((char, index) => {
-                              const characterAsset = globalAssets.find(asset => asset.id === char.characterId && asset.category === 'character');
+                              const characterAsset = globalAssets.find(asset => asset.id === char.characterId && asset.category === 'character') as Character;
                               return (
                                 <div key={char.characterId || index} className="flex items-center space-x-2 p-2 bg-gray-50 rounded-lg border">
                                   {/* Character Avatar - Clickable */}
