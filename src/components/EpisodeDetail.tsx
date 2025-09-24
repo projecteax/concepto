@@ -644,59 +644,75 @@ export default function EpisodeDetail({
     }));
   };
 
-  // Rich text editor functions for textarea
+  // Rich text editor functions for contentEditable
   const handleFormatText = (sceneId: string, format: string) => {
-    const currentText = editingScripts[sceneId] || '';
-    let newText = currentText;
-    
+    // Find the contentEditable div for this scene
+    const editorElement = document.querySelector(`[data-scene-id="${sceneId}"]`) as HTMLElement;
+    if (!editorElement) return;
+
+    // Focus the editor
+    editorElement.focus();
+
+    // Use document.execCommand for formatting
     if (format === 'bold') {
-      // Simple bold formatting with **text**
-      newText = currentText.replace(/\*\*(.*?)\*\*/g, '$1');
-      if (newText === currentText) {
-        // No bold text found, add bold markers around selection (or at cursor)
-        newText = currentText + '**bold text**';
-      }
+      document.execCommand('bold', false);
     } else if (format === 'italic') {
-      // Simple italic formatting with *text*
-      newText = currentText.replace(/\*(.*?)\*/g, '$1');
-      if (newText === currentText) {
-        // No italic text found, add italic markers around selection (or at cursor)
-        newText = currentText + '*italic text*';
-      }
+      document.execCommand('italic', false);
     }
-    
-    handleScriptChange(sceneId, newText);
+
+    // Update the content
+    const content = editorElement.innerHTML;
+    handleScriptChange(sceneId, content);
   };
 
   const handleAlignText = (sceneId: string, alignment: string) => {
-    // For now, just add alignment markers as comments
-    const currentText = editingScripts[sceneId] || '';
-    const alignmentMarkers = {
-      'Left': '<!-- ALIGN: LEFT -->',
-      'Center': '<!-- ALIGN: CENTER -->',
-      'Right': '<!-- ALIGN: RIGHT -->',
-      'Full': '<!-- ALIGN: JUSTIFY -->'
-    };
-    
-    const newText = currentText + '\n' + alignmentMarkers[alignment as keyof typeof alignmentMarkers];
-    handleScriptChange(sceneId, newText);
+    // Find the contentEditable div for this scene
+    const editorElement = document.querySelector(`[data-scene-id="${sceneId}"]`) as HTMLElement;
+    if (!editorElement) return;
+
+    // Focus the editor
+    editorElement.focus();
+
+    // Use document.execCommand for alignment
+    if (alignment === 'Left') {
+      document.execCommand('justifyLeft', false);
+    } else if (alignment === 'Center') {
+      document.execCommand('justifyCenter', false);
+    } else if (alignment === 'Right') {
+      document.execCommand('justifyRight', false);
+    } else if (alignment === 'Full') {
+      document.execCommand('justifyFull', false);
+    }
+
+    // Update the content
+    const content = editorElement.innerHTML;
+    handleScriptChange(sceneId, content);
   };
 
   const handleFontSize = (sceneId: string, size: string) => {
-    // For now, just add font size markers as comments
-    const currentText = editingScripts[sceneId] || '';
-    const sizeMarkers = {
-      '1': '<!-- FONT SIZE: 8px -->',
-      '2': '<!-- FONT SIZE: 10px -->',
-      '3': '<!-- FONT SIZE: 12px -->',
-      '4': '<!-- FONT SIZE: 14px -->',
-      '5': '<!-- FONT SIZE: 18px -->',
-      '6': '<!-- FONT SIZE: 24px -->',
-      '7': '<!-- FONT SIZE: 36px -->'
+    // Find the contentEditable div for this scene
+    const editorElement = document.querySelector(`[data-scene-id="${sceneId}"]`) as HTMLElement;
+    if (!editorElement) return;
+
+    // Focus the editor
+    editorElement.focus();
+
+    // Use document.execCommand for font size
+    const sizeMap = {
+      '1': '1',
+      '2': '2', 
+      '3': '3',
+      '4': '4',
+      '5': '5',
+      '6': '6',
+      '7': '7'
     };
-    
-    const newText = currentText + '\n' + sizeMarkers[size as keyof typeof sizeMarkers];
-    handleScriptChange(sceneId, newText);
+
+    document.execCommand('fontSize', false, sizeMap[size as keyof typeof sizeMap]);
+
+    // Update the content
+    const content = editorElement.innerHTML;
+    handleScriptChange(sceneId, content);
   };
 
   // Initialize editor content when editing starts
@@ -1269,14 +1285,17 @@ export default function EpisodeDetail({
                               </select>
                             </div>
                             
-                            {/* Simple Textarea with Rich Text Styling */}
-                            <textarea
-                              value={editingScripts[scene.id] || ''}
-                              onChange={(e) => {
-                                handleScriptChange(scene.id, e.target.value);
-                                // Auto-resize textarea
-                                e.target.style.height = 'auto';
-                                e.target.style.height = e.target.scrollHeight + 'px';
+                            {/* Rich Text Editor */}
+                            <div
+                              contentEditable
+                              suppressContentEditableWarning={true}
+                              data-scene-id={scene.id}
+                              onInput={(e) => {
+                                const content = e.currentTarget.innerHTML;
+                                handleScriptChange(scene.id, content);
+                                // Auto-resize
+                                e.currentTarget.style.height = 'auto';
+                                e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px';
                               }}
                               className="w-full px-3 py-2 text-sm resize-none focus:outline-none font-mono text-gray-900 border-0 overflow-hidden"
                               style={{ 
@@ -1286,8 +1305,7 @@ export default function EpisodeDetail({
                                 minHeight: '100px',
                                 height: 'auto'
                               }}
-                              placeholder="Enter scene script..."
-                              rows={Math.max(4, (editingScripts[scene.id] || '').split('\n').length)}
+                              dangerouslySetInnerHTML={{ __html: editingScripts[scene.id] || '' }}
                             />
                           </div>
                         ) : (
@@ -1771,7 +1789,7 @@ export default function EpisodeDetail({
 
       {/* Image Popup Modal */}
       {selectedImage && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[60] p-4">
           <div className="relative max-w-4xl max-h-full">
             <button
               onClick={handleCloseImagePopup}
@@ -1932,7 +1950,7 @@ export default function EpisodeDetail({
                       <img 
                         src={selectedCharacter.mainImage} 
                         alt={selectedCharacter.name}
-                        className="w-full h-48 object-cover rounded-lg border"
+                        className="w-full max-h-96 object-contain rounded-lg border cursor-pointer hover:opacity-80 transition-opacity"
                         onClick={() => setSelectedImage({ url: selectedCharacter.mainImage!, alt: selectedCharacter.name })}
                       />
                     </div>
@@ -1948,7 +1966,7 @@ export default function EpisodeDetail({
                             key={index}
                             src={imageUrl} 
                             alt={`${selectedCharacter.name} - Image ${index + 1}`}
-                            className="w-full h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80 transition-opacity"
+                            className="w-full h-32 object-contain rounded-lg border cursor-pointer hover:opacity-80 transition-opacity bg-gray-50"
                             onClick={() => setSelectedImage({ url: imageUrl, alt: `${selectedCharacter.name} - Image ${index + 1}` })}
                           />
                         ))}
@@ -1976,7 +1994,7 @@ export default function EpisodeDetail({
                               <img 
                                 src={concept.imageUrl} 
                                 alt={concept.name}
-                                className="w-full h-20 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity"
+                                className="w-full h-24 object-contain rounded cursor-pointer hover:opacity-80 transition-opacity bg-gray-50"
                                 onClick={() => setSelectedImage({ url: concept.imageUrl!, alt: concept.name })}
                               />
                             )}
