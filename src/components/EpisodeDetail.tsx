@@ -644,7 +644,7 @@ export default function EpisodeDetail({
     }));
   };
 
-  // Formatting functions with markdown-style formatting
+  // Simple formatting functions - just basic markdown for bold/italic
   const handleFormatText = (sceneId: string, format: string) => {
     const currentText = editingScripts[sceneId] || '';
     const textarea = document.querySelector(`textarea[data-scene-id="${sceneId}"]`) as HTMLTextAreaElement;
@@ -688,81 +688,44 @@ export default function EpisodeDetail({
   };
 
   const handleAlignText = (sceneId: string, alignment: string) => {
+    // For alignment, just add a simple comment at the cursor
     const currentText = editingScripts[sceneId] || '';
     const textarea = document.querySelector(`textarea[data-scene-id="${sceneId}"]`) as HTMLTextAreaElement;
     
     if (!textarea) return;
     
     const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selectedText = currentText.slice(start, end);
+    const alignmentText = {
+      'Left': '<!-- LEFT -->',
+      'Center': '<!-- CENTER -->',
+      'Right': '<!-- RIGHT -->',
+      'Full': '<!-- JUSTIFY -->'
+    };
     
-    if (start === end) {
-      // No text selected, add alignment at cursor
-      const alignmentMarkers = {
-        'Left': '[ALIGN: LEFT]',
-        'Center': '[ALIGN: CENTER]',
-        'Right': '[ALIGN: RIGHT]',
-        'Full': '[ALIGN: JUSTIFY]'
-      };
-      
-      const newText = currentText.slice(0, start) + alignmentMarkers[alignment as keyof typeof alignmentMarkers] + '\n' + currentText.slice(start);
-      handleScriptChange(sceneId, newText);
-    } else {
-      // Text is selected, wrap with alignment
-      const alignmentMarkers = {
-        'Left': '[ALIGN: LEFT]',
-        'Center': '[ALIGN: CENTER]',
-        'Right': '[ALIGN: RIGHT]',
-        'Full': '[ALIGN: JUSTIFY]'
-      };
-      
-      const formattedText = `${alignmentMarkers[alignment as keyof typeof alignmentMarkers]}\n${selectedText}\n[/ALIGN]`;
-      const newText = currentText.slice(0, start) + formattedText + currentText.slice(end);
-      handleScriptChange(sceneId, newText);
-    }
+    const newText = currentText.slice(0, start) + alignmentText[alignment as keyof typeof alignmentText] + ' ' + currentText.slice(start);
+    handleScriptChange(sceneId, newText);
   };
 
   const handleFontSize = (sceneId: string, size: string) => {
+    // For font size, just add a simple comment at the cursor
     const currentText = editingScripts[sceneId] || '';
     const textarea = document.querySelector(`textarea[data-scene-id="${sceneId}"]`) as HTMLTextAreaElement;
     
     if (!textarea) return;
     
     const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selectedText = currentText.slice(start, end);
+    const sizeText = {
+      '1': '<!-- SIZE: 8px -->',
+      '2': '<!-- SIZE: 10px -->',
+      '3': '<!-- SIZE: 12px -->',
+      '4': '<!-- SIZE: 14px -->',
+      '5': '<!-- SIZE: 18px -->',
+      '6': '<!-- SIZE: 24px -->',
+      '7': '<!-- SIZE: 36px -->'
+    };
     
-    if (start === end) {
-      // No text selected, add font size at cursor
-      const sizeMarkers = {
-        '1': '[SIZE: 8px]',
-        '2': '[SIZE: 10px]',
-        '3': '[SIZE: 12px]',
-        '4': '[SIZE: 14px]',
-        '5': '[SIZE: 18px]',
-        '6': '[SIZE: 24px]',
-        '7': '[SIZE: 36px]'
-      };
-      
-      const newText = currentText.slice(0, start) + sizeMarkers[size as keyof typeof sizeMarkers] + '\n' + currentText.slice(start);
-      handleScriptChange(sceneId, newText);
-    } else {
-      // Text is selected, wrap with font size
-      const sizeMarkers = {
-        '1': '[SIZE: 8px]',
-        '2': '[SIZE: 10px]',
-        '3': '[SIZE: 12px]',
-        '4': '[SIZE: 14px]',
-        '5': '[SIZE: 18px]',
-        '6': '[SIZE: 24px]',
-        '7': '[SIZE: 36px]'
-      };
-      
-      const formattedText = `${sizeMarkers[size as keyof typeof sizeMarkers]}\n${selectedText}\n[/SIZE]`;
-      const newText = currentText.slice(0, start) + formattedText + currentText.slice(end);
-      handleScriptChange(sceneId, newText);
-    }
+    const newText = currentText.slice(0, start) + sizeText[size as keyof typeof sizeText] + ' ' + currentText.slice(start);
+    handleScriptChange(sceneId, newText);
   };
 
   // Initialize editor content when editing starts
@@ -777,10 +740,11 @@ export default function EpisodeDetail({
     
     // Remove formatting markers for display
     let displayText = script
-      .replace(/\[ALIGN: [^\]]+\]/g, '')
-      .replace(/\[\/ALIGN\]/g, '')
-      .replace(/\[SIZE: [^\]]+\]/g, '')
-      .replace(/\[\/SIZE\]/g, '')
+      .replace(/<!-- LEFT -->/g, '')
+      .replace(/<!-- CENTER -->/g, '')
+      .replace(/<!-- RIGHT -->/g, '')
+      .replace(/<!-- JUSTIFY -->/g, '')
+      .replace(/<!-- SIZE: [^>]+ -->/g, '')
       .replace(/\*\*([^*]+)\*\*/g, '$1') // Remove bold markers
       .replace(/\*([^*]+)\*/g, '$1'); // Remove italic markers
     
