@@ -11,13 +11,7 @@ import {
   Edit3,
   Save,
   Trash2,
-  Upload,
-  Bold,
-  Italic,
-  AlignLeft,
-  AlignCenter,
-  AlignRight,
-  AlignJustify
+  Upload
 } from 'lucide-react';
 import StoryboardDrawer from './StoryboardDrawer';
 import CommentThread from './CommentThread';
@@ -644,89 +638,6 @@ export default function EpisodeDetail({
     }));
   };
 
-  // Simple formatting functions - just basic markdown for bold/italic
-  const handleFormatText = (sceneId: string, format: string) => {
-    const currentText = editingScripts[sceneId] || '';
-    const textarea = document.querySelector(`textarea[data-scene-id="${sceneId}"]`) as HTMLTextAreaElement;
-    
-    if (!textarea) return;
-    
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selectedText = currentText.slice(start, end);
-    
-    if (start === end) {
-      // No text selected, add formatting markers at cursor
-      let newText = currentText;
-      if (format === 'bold') {
-        newText = currentText.slice(0, start) + '**bold text**' + currentText.slice(start);
-      } else if (format === 'italic') {
-        newText = currentText.slice(0, start) + '*italic text*' + currentText.slice(start);
-      }
-      handleScriptChange(sceneId, newText);
-    } else {
-      // Text is selected, apply formatting
-      let formattedText = selectedText;
-      
-      if (format === 'bold') {
-        if (selectedText.startsWith('**') && selectedText.endsWith('**')) {
-          formattedText = selectedText.slice(2, -2);
-        } else {
-          formattedText = `**${selectedText}**`;
-        }
-      } else if (format === 'italic') {
-        if (selectedText.startsWith('*') && selectedText.endsWith('*') && !selectedText.startsWith('**')) {
-          formattedText = selectedText.slice(1, -1);
-        } else {
-          formattedText = `*${selectedText}*`;
-        }
-      }
-      
-      const newText = currentText.slice(0, start) + formattedText + currentText.slice(end);
-      handleScriptChange(sceneId, newText);
-    }
-  };
-
-  const handleAlignText = (sceneId: string, alignment: string) => {
-    // For alignment, just add a simple comment at the cursor
-    const currentText = editingScripts[sceneId] || '';
-    const textarea = document.querySelector(`textarea[data-scene-id="${sceneId}"]`) as HTMLTextAreaElement;
-    
-    if (!textarea) return;
-    
-    const start = textarea.selectionStart;
-    const alignmentText = {
-      'Left': '<!-- LEFT -->',
-      'Center': '<!-- CENTER -->',
-      'Right': '<!-- RIGHT -->',
-      'Full': '<!-- JUSTIFY -->'
-    };
-    
-    const newText = currentText.slice(0, start) + alignmentText[alignment as keyof typeof alignmentText] + ' ' + currentText.slice(start);
-    handleScriptChange(sceneId, newText);
-  };
-
-  const handleFontSize = (sceneId: string, size: string) => {
-    // For font size, just add a simple comment at the cursor
-    const currentText = editingScripts[sceneId] || '';
-    const textarea = document.querySelector(`textarea[data-scene-id="${sceneId}"]`) as HTMLTextAreaElement;
-    
-    if (!textarea) return;
-    
-    const start = textarea.selectionStart;
-    const sizeText = {
-      '1': '<!-- SIZE: 8px -->',
-      '2': '<!-- SIZE: 10px -->',
-      '3': '<!-- SIZE: 12px -->',
-      '4': '<!-- SIZE: 14px -->',
-      '5': '<!-- SIZE: 18px -->',
-      '6': '<!-- SIZE: 24px -->',
-      '7': '<!-- SIZE: 36px -->'
-    };
-    
-    const newText = currentText.slice(0, start) + sizeText[size as keyof typeof sizeText] + ' ' + currentText.slice(start);
-    handleScriptChange(sceneId, newText);
-  };
 
   // Initialize editor content when editing starts
   const handleStartEditing = (sceneId: string) => {
@@ -734,22 +645,6 @@ export default function EpisodeDetail({
     setEditingScripts(prev => ({ ...prev, [sceneId]: script }));
   };
 
-  // Display function that removes formatting markers for clean display
-  const formatScriptForDisplay = (script: string) => {
-    if (!script) return '';
-    
-    // Remove formatting markers for display
-    const displayText = script
-      .replace(/<!-- LEFT -->/g, '')
-      .replace(/<!-- CENTER -->/g, '')
-      .replace(/<!-- RIGHT -->/g, '')
-      .replace(/<!-- JUSTIFY -->/g, '')
-      .replace(/<!-- SIZE: [^>]+ -->/g, '')
-      .replace(/\*\*([^*]+)\*\*/g, '$1') // Remove bold markers
-      .replace(/\*([^*]+)\*/g, '$1'); // Remove italic markers
-    
-    return displayText;
-  };
 
   const handleSaveScript = (sceneId: string) => {
     const script = editingScripts[sceneId];
@@ -1253,71 +1148,9 @@ export default function EpisodeDetail({
                         </div>
                         
                         {editingScripts[scene.id] !== undefined ? (
-                          <div className="border border-gray-300 rounded-lg">
-                            {/* Rich Text Editor Toolbar */}
-                            <div className="flex items-center space-x-1 p-2 bg-gray-50 border-b border-gray-300 rounded-t-lg">
-                              <button
-                                onClick={() => handleFormatText(scene.id, 'bold')}
-                                className="p-1 hover:bg-gray-200 rounded text-gray-700 hover:text-gray-900"
-                                title="Bold"
-                              >
-                                <Bold className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => handleFormatText(scene.id, 'italic')}
-                                className="p-1 hover:bg-gray-200 rounded text-gray-700 hover:text-gray-900"
-                                title="Italic"
-                              >
-                                <Italic className="w-4 h-4" />
-                              </button>
-                              <div className="w-px h-4 bg-gray-300 mx-1" />
-                              <button
-                                onClick={() => handleAlignText(scene.id, 'Left')}
-                                className="p-1 hover:bg-gray-200 rounded text-gray-700 hover:text-gray-900"
-                                title="Align Left"
-                              >
-                                <AlignLeft className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => handleAlignText(scene.id, 'Center')}
-                                className="p-1 hover:bg-gray-200 rounded text-gray-700 hover:text-gray-900"
-                                title="Align Center"
-                              >
-                                <AlignCenter className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => handleAlignText(scene.id, 'Right')}
-                                className="p-1 hover:bg-gray-200 rounded text-gray-700 hover:text-gray-900"
-                                title="Align Right"
-                              >
-                                <AlignRight className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => handleAlignText(scene.id, 'Full')}
-                                className="p-1 hover:bg-gray-200 rounded text-gray-700 hover:text-gray-900"
-                                title="Justify"
-                              >
-                                <AlignJustify className="w-4 h-4" />
-                              </button>
-                              <div className="w-px h-4 bg-gray-300 mx-1" />
-                              <select
-                                onChange={(e) => handleFontSize(scene.id, e.target.value)}
-                                className="text-xs border border-gray-300 rounded px-1 py-1"
-                                title="Font Size"
-                              >
-                                <option value="1">8px</option>
-                                <option value="2">10px</option>
-                                <option value="3" selected>12px</option>
-                                <option value="4">14px</option>
-                                <option value="5">18px</option>
-                                <option value="6">24px</option>
-                                <option value="7">36px</option>
-                              </select>
-                            </div>
-                            
-                            {/* Rich Text Editor */}
+                          <div className="space-y-4">
+                            {/* Simple Script Editor */}
                             <textarea
-                              data-scene-id={scene.id}
                               value={editingScripts[scene.id] || ''}
                               onChange={(e) => {
                                 handleScriptChange(scene.id, e.target.value);
@@ -1325,7 +1158,7 @@ export default function EpisodeDetail({
                                 e.target.style.height = 'auto';
                                 e.target.style.height = e.target.scrollHeight + 'px';
                               }}
-                              className="w-full px-3 py-2 text-sm resize-none focus:outline-none font-mono text-gray-900 border-0 overflow-hidden"
+                              className="w-full px-3 py-2 text-sm resize-none focus:outline-none font-mono text-gray-900 border border-gray-300 rounded-lg"
                               style={{ 
                                 fontFamily: 'Courier New, monospace',
                                 color: '#111827',
@@ -1347,7 +1180,7 @@ export default function EpisodeDetail({
                               minHeight: '100px'
                             }}
                           >
-                            {formatScriptForDisplay(scene.script || '') || <span className="text-gray-400">No script available</span>}
+                            {scene.script || <span className="text-gray-400">No script available</span>}
                           </div>
                         )}
                       </div>
