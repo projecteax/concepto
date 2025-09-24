@@ -739,7 +739,7 @@ export default function EpisodeDetail({
     if (!script) return '';
     
     // Remove formatting markers for display
-    let displayText = script
+    const displayText = script
       .replace(/<!-- LEFT -->/g, '')
       .replace(/<!-- CENTER -->/g, '')
       .replace(/<!-- RIGHT -->/g, '')
