@@ -43,6 +43,7 @@ export default function EpisodeDetail({
   
   // Script editing states
   const [editingScripts, setEditingScripts] = useState<{[sceneId: string]: string}>({});
+  const [scriptSelections, setScriptSelections] = useState<{[sceneId: string]: {start: number, end: number}}>({});
   
   // Inline editing states
   const [editingTitle, setEditingTitle] = useState(false);
@@ -644,81 +645,142 @@ export default function EpisodeDetail({
     }));
   };
 
-  // Rich text editor functions for contentEditable
+  // Rich text editor functions for textarea with text selection
   const handleFormatText = (sceneId: string, format: string) => {
-    // Find the contentEditable div for this scene
-    const editorElement = document.querySelector(`[data-scene-id="${sceneId}"]`) as HTMLElement;
-    if (!editorElement) return;
-
-    // Focus the editor
-    editorElement.focus();
-
-    // Use document.execCommand for formatting
-    if (format === 'bold') {
-      document.execCommand('bold', false);
-    } else if (format === 'italic') {
-      document.execCommand('italic', false);
+    const currentText = editingScripts[sceneId] || '';
+    const selection = scriptSelections[sceneId];
+    
+    if (!selection || selection.start === selection.end) {
+      // No text selected, just add formatting markers at cursor
+      const cursorPos = selection?.start || currentText.length;
+      let newText = currentText;
+      
+      if (format === 'bold') {
+        newText = currentText.slice(0, cursorPos) + '**bold text**' + currentText.slice(cursorPos);
+      } else if (format === 'italic') {
+        newText = currentText.slice(0, cursorPos) + '*italic text*' + currentText.slice(cursorPos);
+      }
+      
+      handleScriptChange(sceneId, newText);
+      return;
     }
 
-    // Update the content
-    const content = editorElement.innerHTML;
-    handleScriptChange(sceneId, content);
+    // Text is selected, apply formatting
+    const selectedText = currentText.slice(selection.start, selection.end);
+    let formattedText = selectedText;
+    
+    if (format === 'bold') {
+      // Check if already bold
+      if (selectedText.startsWith('**') && selectedText.endsWith('**')) {
+        formattedText = selectedText.slice(2, -2);
+      } else {
+        formattedText = `**${selectedText}**`;
+      }
+    } else if (format === 'italic') {
+      // Check if already italic
+      if (selectedText.startsWith('*') && selectedText.endsWith('*') && !selectedText.startsWith('**')) {
+        formattedText = selectedText.slice(1, -1);
+      } else {
+        formattedText = `*${selectedText}*`;
+      }
+    }
+    
+    const newText = currentText.slice(0, selection.start) + formattedText + currentText.slice(selection.end);
+    handleScriptChange(sceneId, newText);
   };
 
   const handleAlignText = (sceneId: string, alignment: string) => {
-    // Find the contentEditable div for this scene
-    const editorElement = document.querySelector(`[data-scene-id="${sceneId}"]`) as HTMLElement;
-    if (!editorElement) return;
-
-    // Focus the editor
-    editorElement.focus();
-
-    // Use document.execCommand for alignment
-    if (alignment === 'Left') {
-      document.execCommand('justifyLeft', false);
-    } else if (alignment === 'Center') {
-      document.execCommand('justifyCenter', false);
-    } else if (alignment === 'Right') {
-      document.execCommand('justifyRight', false);
-    } else if (alignment === 'Full') {
-      document.execCommand('justifyFull', false);
+    const currentText = editingScripts[sceneId] || '';
+    const selection = scriptSelections[sceneId];
+    
+    if (!selection || selection.start === selection.end) {
+      // No text selected, add alignment marker at cursor
+      const cursorPos = selection?.start || currentText.length;
+      const alignmentMarkers = {
+        'Left': '<!-- ALIGN: LEFT -->',
+        'Center': '<!-- ALIGN: CENTER -->',
+        'Right': '<!-- ALIGN: RIGHT -->',
+        'Full': '<!-- ALIGN: JUSTIFY -->'
+      };
+      
+      const newText = currentText.slice(0, cursorPos) + '\n' + alignmentMarkers[alignment as keyof typeof alignmentMarkers] + '\n' + currentText.slice(cursorPos);
+      handleScriptChange(sceneId, newText);
+      return;
     }
 
-    // Update the content
-    const content = editorElement.innerHTML;
-    handleScriptChange(sceneId, content);
+    // Text is selected, wrap with alignment markers
+    const selectedText = currentText.slice(selection.start, selection.end);
+    const alignmentMarkers = {
+      'Left': '<!-- ALIGN: LEFT -->',
+      'Center': '<!-- ALIGN: CENTER -->',
+      'Right': '<!-- ALIGN: RIGHT -->',
+      'Full': '<!-- ALIGN: JUSTIFY -->'
+    };
+    
+    const formattedText = `${alignmentMarkers[alignment as keyof typeof alignmentMarkers]}\n${selectedText}\n<!-- END ALIGN -->`;
+    const newText = currentText.slice(0, selection.start) + formattedText + currentText.slice(selection.end);
+    handleScriptChange(sceneId, newText);
   };
 
   const handleFontSize = (sceneId: string, size: string) => {
-    // Find the contentEditable div for this scene
-    const editorElement = document.querySelector(`[data-scene-id="${sceneId}"]`) as HTMLElement;
-    if (!editorElement) return;
+    const currentText = editingScripts[sceneId] || '';
+    const selection = scriptSelections[sceneId];
+    
+    if (!selection || selection.start === selection.end) {
+      // No text selected, add font size marker at cursor
+      const cursorPos = selection?.start || currentText.length;
+      const sizeMarkers = {
+        '1': '<!-- FONT SIZE: 8px -->',
+        '2': '<!-- FONT SIZE: 10px -->',
+        '3': '<!-- FONT SIZE: 12px -->',
+        '4': '<!-- FONT SIZE: 14px -->',
+        '5': '<!-- FONT SIZE: 18px -->',
+        '6': '<!-- FONT SIZE: 24px -->',
+        '7': '<!-- FONT SIZE: 36px -->'
+      };
+      
+      const newText = currentText.slice(0, cursorPos) + '\n' + sizeMarkers[size as keyof typeof sizeMarkers] + '\n' + currentText.slice(cursorPos);
+      handleScriptChange(sceneId, newText);
+      return;
+    }
 
-    // Focus the editor
-    editorElement.focus();
-
-    // Use document.execCommand for font size
-    const sizeMap = {
-      '1': '1',
-      '2': '2', 
-      '3': '3',
-      '4': '4',
-      '5': '5',
-      '6': '6',
-      '7': '7'
+    // Text is selected, wrap with font size markers
+    const selectedText = currentText.slice(selection.start, selection.end);
+    const sizeMarkers = {
+      '1': '<!-- FONT SIZE: 8px -->',
+      '2': '<!-- FONT SIZE: 10px -->',
+      '3': '<!-- FONT SIZE: 12px -->',
+      '4': '<!-- FONT SIZE: 14px -->',
+      '5': '<!-- FONT SIZE: 18px -->',
+      '6': '<!-- FONT SIZE: 24px -->',
+      '7': '<!-- FONT SIZE: 36px -->'
     };
-
-    document.execCommand('fontSize', false, sizeMap[size as keyof typeof sizeMap]);
-
-    // Update the content
-    const content = editorElement.innerHTML;
-    handleScriptChange(sceneId, content);
+    
+    const formattedText = `${sizeMarkers[size as keyof typeof sizeMarkers]}\n${selectedText}\n<!-- END FONT SIZE -->`;
+    const newText = currentText.slice(0, selection.start) + formattedText + currentText.slice(selection.end);
+    handleScriptChange(sceneId, newText);
   };
 
   // Initialize editor content when editing starts
   const handleStartEditing = (sceneId: string) => {
     const script = localEpisode.scenes?.find(s => s.id === sceneId)?.script || '';
     setEditingScripts(prev => ({ ...prev, [sceneId]: script }));
+  };
+
+  // Convert formatting markers to display text
+  const formatScriptForDisplay = (script: string) => {
+    if (!script) return '';
+    
+    // Remove formatting markers for display
+    let displayText = script
+      .replace(/<!-- ALIGN: [^>]+ -->/g, '')
+      .replace(/<!-- END ALIGN -->/g, '')
+      .replace(/<!-- FONT SIZE: [^>]+ -->/g, '')
+      .replace(/<!-- END FONT SIZE -->/g, '')
+      .replace(/\*\*([^*]+)\*\*/g, '$1') // Remove bold markers
+      .replace(/\*([^*]+)\*/g, '$1'); // Remove italic markers
+    
+    return displayText;
   };
 
   const handleSaveScript = (sceneId: string) => {
@@ -1286,16 +1348,23 @@ export default function EpisodeDetail({
                             </div>
                             
                             {/* Rich Text Editor */}
-                            <div
-                              contentEditable
-                              suppressContentEditableWarning={true}
-                              data-scene-id={scene.id}
-                              onInput={(e) => {
-                                const content = e.currentTarget.innerHTML;
-                                handleScriptChange(scene.id, content);
+                            <textarea
+                              value={editingScripts[scene.id] || ''}
+                              onChange={(e) => {
+                                handleScriptChange(scene.id, e.target.value);
                                 // Auto-resize
-                                e.currentTarget.style.height = 'auto';
-                                e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px';
+                                e.target.style.height = 'auto';
+                                e.target.style.height = e.target.scrollHeight + 'px';
+                              }}
+                              onSelect={(e) => {
+                                const target = e.target as HTMLTextAreaElement;
+                                setScriptSelections(prev => ({
+                                  ...prev,
+                                  [scene.id]: {
+                                    start: target.selectionStart,
+                                    end: target.selectionEnd
+                                  }
+                                }));
                               }}
                               className="w-full px-3 py-2 text-sm resize-none focus:outline-none font-mono text-gray-900 border-0 overflow-hidden"
                               style={{ 
@@ -1305,7 +1374,8 @@ export default function EpisodeDetail({
                                 minHeight: '100px',
                                 height: 'auto'
                               }}
-                              dangerouslySetInnerHTML={{ __html: editingScripts[scene.id] || '' }}
+                              placeholder="Enter scene script..."
+                              rows={Math.max(4, (editingScripts[scene.id] || '').split('\n').length)}
                             />
                           </div>
                         ) : (
@@ -1318,7 +1388,7 @@ export default function EpisodeDetail({
                               minHeight: '100px'
                             }}
                           >
-                            {scene.script || <span className="text-gray-400">No script available</span>}
+                            {formatScriptForDisplay(scene.script || '') || <span className="text-gray-400">No script available</span>}
                           </div>
                         )}
                       </div>
