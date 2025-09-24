@@ -1158,13 +1158,14 @@ export default function EpisodeDetail({
                                 e.target.style.height = 'auto';
                                 e.target.style.height = e.target.scrollHeight + 'px';
                               }}
-                              className="w-full px-3 py-2 text-sm resize-none focus:outline-none font-mono text-gray-900 border border-gray-300 rounded-lg"
+                              className="w-full px-3 py-2 text-sm resize-none focus:outline-none font-mono text-gray-900 border border-gray-300 rounded-lg text-center"
                               style={{ 
                                 fontFamily: 'Courier New, monospace',
                                 color: '#111827',
                                 lineHeight: '1.5',
                                 minHeight: '100px',
-                                height: 'auto'
+                                height: 'auto',
+                                textAlign: 'center'
                               }}
                               placeholder="Enter scene script..."
                               rows={Math.max(4, (editingScripts[scene.id] || '').split('\n').length)}
@@ -1172,12 +1173,13 @@ export default function EpisodeDetail({
                           </div>
                         ) : (
                           <div 
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono bg-gray-50 text-gray-900 whitespace-pre-wrap"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono bg-gray-50 text-gray-900 whitespace-pre-wrap text-center"
                             style={{ 
                               fontFamily: 'Courier New, monospace',
                               color: '#111827',
                               lineHeight: '1.5',
-                              minHeight: '100px'
+                              minHeight: '100px',
+                              textAlign: 'center'
                             }}
                           >
                             {scene.script || <span className="text-gray-400">No script available</span>}
