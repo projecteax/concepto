@@ -39,6 +39,21 @@ export default function EpisodeDetail({
   
   // Script editing states
   const [editingScripts, setEditingScripts] = useState<{[sceneId: string]: string}>({});
+  const [showContextMenu, setShowContextMenu] = useState<{sceneId: string, x: number, y: number, selectedText: string, selectionStart: number, selectionEnd: number} | null>(null);
+  const [showShotPopup, setShowShotPopup] = useState<{sceneId: string, selectedText: string, selectionStart: number, selectionEnd: number} | null>(null);
+  const [shotFormData, setShotFormData] = useState<{
+    shotNumber: string;
+    description: string;
+    images: string[];
+    featuredImage: string;
+  }>({
+    shotNumber: '',
+    description: '',
+    images: [],
+    featuredImage: ''
+  });
+  const [uploadingShotImages, setUploadingShotImages] = useState(false);
+  const [hoveredShot, setHoveredShot] = useState<{shotId: string, x: number, y: number} | null>(null);
   
   // Inline editing states
   const [editingTitle, setEditingTitle] = useState(false);
@@ -621,7 +636,7 @@ export default function EpisodeDetail({
     setSelectedImage(null);
   };
 
-  // Handle ESC key for image popup
+  // Handle ESC key for image popup and click outside for context menu
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && selectedImage) {
@@ -629,15 +644,174 @@ export default function EpisodeDetail({
       }
     };
 
+    const handleClickOutside = (e: MouseEvent) => {
+      if (showContextMenu) {
+        setShowContextMenu(null);
+      }
+    };
+
     document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [selectedImage]);
+    document.addEventListener('click', handleClickOutside);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('click', handleClickOutside);
+    };
+  }, [selectedImage, showContextMenu]);
 
   const handleScriptChange = (sceneId: string, script: string) => {
     setEditingScripts(prev => ({
       ...prev,
       [sceneId]: script,
     }));
+  };
+
+  // Context menu handlers
+  const handleTextareaContextMenu = (e: React.MouseEvent<HTMLTextAreaElement>, sceneId: string) => {
+    e.preventDefault();
+    const textarea = e.target as HTMLTextAreaElement;
+    const selectedText = textarea.value.substring(textarea.selectionStart, textarea.selectionEnd);
+    
+    if (selectedText.trim()) {
+      setShowContextMenu({
+        sceneId,
+        x: e.clientX,
+        y: e.clientY,
+        selectedText,
+        selectionStart: textarea.selectionStart,
+        selectionEnd: textarea.selectionEnd
+      });
+    }
+  };
+
+  const handleAddShotFromText = (sceneId: string, selectedText: string, selectionStart: number, selectionEnd: number) => {
+    setShowContextMenu(null);
+    setShowShotPopup({
+      sceneId,
+      selectedText,
+      selectionStart,
+      selectionEnd
+    });
+  };
+
+  const handleCloseContextMenu = () => {
+    setShowContextMenu(null);
+  };
+
+  const handleCloseShotPopup = () => {
+    setShowShotPopup(null);
+    setShotFormData({
+      shotNumber: '',
+      description: '',
+      images: [],
+      featuredImage: ''
+    });
+  };
+
+  // Shot image upload handlers
+  const handleShotImageUpload = async (files: FileList) => {
+    if (!files.length) return;
+    
+    setUploadingShotImages(true);
+    const uploadPromises = Array.from(files).map(file => uploadToS3(file));
+    
+    try {
+      const uploadedUrls = await Promise.all(uploadPromises);
+      setShotFormData(prev => ({
+        ...prev,
+        images: [...prev.images, ...uploadedUrls]
+      }));
+    } catch (error) {
+      console.error('Error uploading images:', error);
+    } finally {
+      setUploadingShotImages(false);
+    }
+  };
+
+  const handleRemoveShotImage = (imageUrl: string) => {
+    setShotFormData(prev => ({
+      ...prev,
+      images: prev.images.filter(img => img !== imageUrl),
+      featuredImage: prev.featuredImage === imageUrl ? '' : prev.featuredImage
+    }));
+  };
+
+  const handleSetShotFeaturedImage = (imageUrl: string) => {
+    setShotFormData(prev => ({
+      ...prev,
+      featuredImage: imageUrl
+    }));
+  };
+
+  // Shot creation handler
+  const handleCreateShot = async () => {
+    if (!showShotPopup || !shotFormData.shotNumber || !shotFormData.description) return;
+
+    const newShot: SceneShot = {
+      id: `shot-${Date.now()}`,
+      shotNumber: shotFormData.shotNumber,
+      description: shotFormData.description,
+      images: shotFormData.images,
+      featuredImage: shotFormData.featuredImage || shotFormData.images[0] || '',
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    // Add shot to the scene
+    const updatedScenes = (localEpisode.scenes || []).map(scene => {
+      if (scene.id === showShotPopup.sceneId) {
+        return {
+          ...scene,
+          shots: [...(scene.shots || []), newShot]
+        };
+      }
+      return scene;
+    });
+
+    // Replace selected text with shot reference
+    const currentScript = editingScripts[showShotPopup.sceneId] || '';
+    const shotReference = `[${shotFormData.shotNumber}]`;
+    const newScript = currentScript.slice(0, showShotPopup.selectionStart) + 
+                     shotReference + 
+                     currentScript.slice(showShotPopup.selectionEnd);
+
+    setLocalEpisode(prev => ({
+      ...prev,
+      scenes: updatedScenes
+    }));
+
+    setEditingScripts(prev => ({
+      ...prev,
+      [showShotPopup.sceneId]: newScript
+    }));
+
+    handleCloseShotPopup();
+  };
+
+  // Function to render script with shot highlights
+  const renderScriptWithShots = (script: string, sceneId: string) => {
+    if (!script) return script;
+    
+    const scene = localEpisode.scenes?.find(s => s.id === sceneId);
+    if (!scene?.shots) return script;
+
+    let highlightedScript = script;
+    
+    // Replace shot references with highlighted versions
+    scene.shots.forEach(shot => {
+      const shotPattern = new RegExp(`\\[${shot.shotNumber}\\]`, 'g');
+      highlightedScript = highlightedScript.replace(shotPattern, `[${shot.shotNumber}]`);
+    });
+
+    return highlightedScript;
+  };
+
+  // Function to get shot by reference
+  const getShotByReference = (shotRef: string, sceneId: string) => {
+    const scene = localEpisode.scenes?.find(s => s.id === sceneId);
+    if (!scene?.shots) return null;
+    
+    const shotNumber = shotRef.replace(/[\[\]]/g, '');
+    return scene.shots.find(shot => shot.shotNumber === shotNumber);
   };
 
 
@@ -1151,14 +1325,52 @@ export default function EpisodeDetail({
                         
                         {editingScripts[scene.id] !== undefined ? (
                           <div className="space-y-4">
-                            {/* Simple Script Editor */}
-                            <textarea
-                              value={editingScripts[scene.id] || ''}
-                              onChange={(e) => {
-                                handleScriptChange(scene.id, e.target.value);
+                            {/* Script Editor with Shot Highlighting */}
+                            <div
+                              contentEditable
+                              suppressContentEditableWarning={true}
+                              onInput={(e) => {
+                                const content = e.currentTarget.textContent || '';
+                                handleScriptChange(scene.id, content);
                                 // Auto-resize
-                                e.target.style.height = 'auto';
-                                e.target.style.height = e.target.scrollHeight + 'px';
+                                e.currentTarget.style.height = 'auto';
+                                e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px';
+                              }}
+                              onContextMenu={(e) => {
+                                e.preventDefault();
+                                const selection = window.getSelection();
+                                const selectedText = selection?.toString() || '';
+                                
+                                if (selectedText.trim()) {
+                                  setShowContextMenu({
+                                    sceneId: scene.id,
+                                    x: e.clientX,
+                                    y: e.clientY,
+                                    selectedText,
+                                    selectionStart: 0, // We'll handle this differently for contentEditable
+                                    selectionEnd: 0
+                                  });
+                                }
+                              }}
+                              onMouseOver={(e) => {
+                                const target = e.target as HTMLElement;
+                                if (target.classList.contains('shot-reference')) {
+                                  const shotRef = target.textContent || '';
+                                  const shot = getShotByReference(shotRef, scene.id);
+                                  if (shot && shot.featuredImage) {
+                                    setHoveredShot({
+                                      shotId: shot.id,
+                                      x: e.clientX,
+                                      y: e.clientY
+                                    });
+                                  }
+                                }
+                              }}
+                              onMouseOut={(e) => {
+                                const target = e.target as HTMLElement;
+                                if (target.classList.contains('shot-reference')) {
+                                  setHoveredShot(null);
+                                }
                               }}
                               className="w-full px-3 py-2 text-sm resize-none focus:outline-none font-mono text-gray-900 border border-gray-300 rounded-lg text-center"
                               style={{ 
@@ -1169,8 +1381,10 @@ export default function EpisodeDetail({
                                 height: 'auto',
                                 textAlign: 'center'
                               }}
-                              placeholder="Enter scene script..."
-                              rows={Math.max(4, (editingScripts[scene.id] || '').split('\n').length)}
+                              dangerouslySetInnerHTML={{
+                                __html: renderScriptWithShots(editingScripts[scene.id] || '', scene.id)
+                                  .replace(/\[([^\]]+)\]/g, '<span class="shot-reference bg-yellow-200 underline cursor-pointer hover:bg-yellow-300 transition-colors px-1 rounded">[$1]</span>')
+                              }}
                             />
                           </div>
                         ) : (
@@ -1873,6 +2087,202 @@ export default function EpisodeDetail({
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Context Menu */}
+      {showContextMenu && (
+        <div
+          className="fixed bg-white border border-gray-300 rounded-lg shadow-lg py-1 z-50"
+          style={{
+            left: showContextMenu.x,
+            top: showContextMenu.y,
+          }}
+          onClick={handleCloseContextMenu}
+        >
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleAddShotFromText(
+                showContextMenu.sceneId,
+                showContextMenu.selectedText,
+                showContextMenu.selectionStart,
+                showContextMenu.selectionEnd
+              );
+            }}
+            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center space-x-2"
+          >
+            <Camera className="w-4 h-4" />
+            <span>Add Shot</span>
+          </button>
+        </div>
+      )}
+
+      {/* Shot Creation Popup */}
+      {showShotPopup && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Create Shot from Text</h3>
+              <button
+                onClick={handleCloseShotPopup}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Selected Text
+                </label>
+                <div className="p-3 bg-gray-50 rounded border text-sm">
+                  "{showShotPopup.selectedText}"
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Shot Number
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g., SC1SH1"
+                  value={shotFormData.shotNumber}
+                  onChange={(e) => setShotFormData(prev => ({ ...prev, shotNumber: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Shot Description
+                </label>
+                <textarea
+                  placeholder="Describe the shot..."
+                  rows={3}
+                  value={shotFormData.description}
+                  onChange={(e) => setShotFormData(prev => ({ ...prev, description: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Shot Images
+                </label>
+                <div 
+                  className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center cursor-pointer hover:border-indigo-400 hover:bg-indigo-50 transition-colors"
+                  onClick={() => document.getElementById('shot-image-upload')?.click()}
+                >
+                  <input
+                    id="shot-image-upload"
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    onChange={(e) => e.target.files && handleShotImageUpload(e.target.files)}
+                    className="hidden"
+                  />
+                  {uploadingShotImages ? (
+                    <div className="flex items-center justify-center">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                      <span className="ml-2 text-sm text-gray-600">Uploading...</span>
+                    </div>
+                  ) : (
+                    <>
+                      <Upload className="w-8 h-8 mx-auto text-gray-400 mb-2" />
+                      <p className="text-sm text-gray-500">Click to upload images or drag and drop</p>
+                    </>
+                  )}
+                </div>
+                
+                {/* Display uploaded images */}
+                {shotFormData.images.length > 0 && (
+                  <div className="mt-4">
+                    <div className="grid grid-cols-3 gap-2">
+                      {shotFormData.images.map((imageUrl, index) => (
+                        <div key={index} className="relative group">
+                          <img
+                            src={imageUrl}
+                            alt={`Shot image ${index + 1}`}
+                            className="w-full h-24 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity"
+                            onClick={() => handleSetShotFeaturedImage(imageUrl)}
+                          />
+                          {shotFormData.featuredImage === imageUrl && (
+                            <div className="absolute top-1 right-1 bg-indigo-600 text-white text-xs px-1 rounded">
+                              ★
+                            </div>
+                          )}
+                          <button
+                            onClick={() => handleRemoveShotImage(imageUrl)}
+                            className="absolute top-1 left-1 bg-red-500 text-white text-xs px-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2">
+                      Click on an image to set it as featured (★)
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={handleCloseShotPopup}
+                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateShot}
+                disabled={!shotFormData.shotNumber || !shotFormData.description}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                Create Shot
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Shot Hover Preview */}
+      {hoveredShot && (
+        <div
+          className="fixed bg-white border border-gray-300 rounded-lg shadow-lg p-3 z-50 max-w-xs"
+          style={{
+            left: hoveredShot.x + 10,
+            top: hoveredShot.y - 10,
+          }}
+        >
+          {(() => {
+            const scene = localEpisode.scenes?.find(s => s.shots?.some(shot => shot.id === hoveredShot.shotId));
+            const shot = scene?.shots?.find(shot => shot.id === hoveredShot.shotId);
+            
+            if (!shot) return null;
+            
+            return (
+              <div className="space-y-2">
+                <div className="font-semibold text-sm text-gray-900">
+                  {shot.shotNumber}
+                </div>
+                {shot.featuredImage && (
+                  <img
+                    src={shot.featuredImage}
+                    alt={shot.shotNumber}
+                    className="w-full h-32 object-cover rounded"
+                  />
+                )}
+                <div className="text-xs text-gray-600">
+                  {shot.description}
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>
