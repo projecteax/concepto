@@ -22,7 +22,8 @@ interface EpisodeDetailProps {
   show: Show;
   globalAssets: GlobalAsset[];
   onBack: () => void;
-  onSave: (episode: Episode) => void;
+  onSave?: (episode: Episode) => void;
+  isPublicMode?: boolean;
 }
 
 export default function EpisodeDetail({
@@ -31,6 +32,7 @@ export default function EpisodeDetail({
   globalAssets,
   onBack,
   onSave,
+  isPublicMode = false,
 }: EpisodeDetailProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'script' | 'characters' | 'locations' | 'gadgets'>('overview');
   const [localEpisode, setLocalEpisode] = useState<Episode>(episode);
@@ -81,7 +83,7 @@ export default function EpisodeDetail({
 
   const updateEpisodeAndSave = (updatedEpisode: Episode) => {
     setLocalEpisode(updatedEpisode);
-    onSave(updatedEpisode);
+    onSave?.(updatedEpisode);
   };
 
   // Inline editing handlers

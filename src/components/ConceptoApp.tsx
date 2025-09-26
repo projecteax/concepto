@@ -20,7 +20,11 @@ import { useFirebaseData } from '@/hooks/useFirebaseData';
 
 type AppView = 'shows' | 'dashboard' | 'global-assets' | 'character-detail' | 'location-detail' | 'gadget-detail' | 'texture-detail' | 'background-detail' | 'vehicle-detail' | 'episodes' | 'episode-detail' | 'episode-ideas' | 'general-ideas' | 'general-idea-detail';
 
-export function ConceptoApp() {
+interface ConceptoAppProps {
+  isPublicMode?: boolean;
+}
+
+export function ConceptoApp({ isPublicMode = false }: ConceptoAppProps = {}) {
   const [currentView, setCurrentView] = useState<AppView>('shows');
   const [selectedShow, setSelectedShow] = useState<Show | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<GlobalAsset | null>(null);
@@ -432,9 +436,9 @@ export function ConceptoApp() {
         <ShowSelection
           shows={shows}
           onSelectShow={handleSelectShow}
-          onAddShow={handleAddShow}
-          onEditShow={handleEditShow}
-          onDeleteShow={handleDeleteShow}
+          onAddShow={isPublicMode ? () => {} : handleAddShow}
+          onEditShow={isPublicMode ? () => {} : handleEditShow}
+          onDeleteShow={isPublicMode ? () => {} : handleDeleteShow}
         />
       );
 
@@ -450,8 +454,8 @@ export function ConceptoApp() {
           onSelectEpisode={handleSelectEpisode}
           onSelectEpisodeIdeas={handleSelectEpisodeIdeas}
           onSelectGeneralIdeas={handleSelectGeneralIdeas}
-          onAddGlobalAsset={handleAddGlobalAsset}
-          onAddEpisode={handleAddEpisode}
+          onAddGlobalAsset={isPublicMode ? () => {} : handleAddGlobalAsset}
+          onAddEpisode={isPublicMode ? () => {} : handleAddEpisode}
         />
       ) : null;
 
@@ -464,9 +468,9 @@ export function ConceptoApp() {
           onBack={handleBackToDashboard}
           onSelectCategory={setSelectedCategory}
           onSelectAsset={handleSelectAsset}
-          onAddAsset={handleAddGlobalAsset}
-          onEditAsset={(asset) => console.log('Edit asset:', asset)}
-          onDeleteAsset={handleDeleteGlobalAsset}
+          onAddAsset={isPublicMode ? () => {} : handleAddGlobalAsset}
+          onEditAsset={isPublicMode ? () => {} : (asset) => console.log('Edit asset:', asset)}
+          onDeleteAsset={isPublicMode ? () => {} : handleDeleteGlobalAsset}
         />
       ) : null;
 
@@ -475,9 +479,9 @@ export function ConceptoApp() {
         <CharacterDetail
           character={selectedAsset as Character}
           onBack={handleBackToGlobalAssets}
-          onSave={handleSaveCharacter}
-          onAddConcept={handleAddConcept}
-          onDeleteConcept={handleDeleteConcept}
+          onSave={isPublicMode ? () => {} : handleSaveCharacter}
+          onAddConcept={isPublicMode ? () => {} : handleAddConcept}
+          onDeleteConcept={isPublicMode ? () => {} : handleDeleteConcept}
         />
       ) : null;
 
@@ -486,8 +490,8 @@ export function ConceptoApp() {
         <LocationDetail
           location={selectedAsset}
           onBack={handleBackToGlobalAssets}
-          onSave={handleSaveGlobalAsset}
-          onDeleteConcept={handleDeleteConcept}
+          onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
+          onDeleteConcept={isPublicMode ? () => {} : handleDeleteConcept}
         />
       ) : null;
 
@@ -496,8 +500,8 @@ export function ConceptoApp() {
         <GadgetDetail
           gadget={selectedAsset}
           onBack={handleBackToGlobalAssets}
-          onSave={handleSaveGlobalAsset}
-          onDeleteConcept={handleDeleteConcept}
+          onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
+          onDeleteConcept={isPublicMode ? () => {} : handleDeleteConcept}
         />
       ) : null;
 
@@ -506,8 +510,8 @@ export function ConceptoApp() {
         <TextureDetail
           texture={selectedAsset}
           onBack={handleBackToGlobalAssets}
-          onSave={handleSaveGlobalAsset}
-          onDeleteConcept={handleDeleteConcept}
+          onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
+          onDeleteConcept={isPublicMode ? () => {} : handleDeleteConcept}
         />
       ) : null;
 
@@ -516,8 +520,8 @@ export function ConceptoApp() {
         <BackgroundDetail
           background={selectedAsset}
           onBack={handleBackToGlobalAssets}
-          onSave={handleSaveGlobalAsset}
-          onDeleteConcept={handleDeleteConcept}
+          onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
+          onDeleteConcept={isPublicMode ? () => {} : handleDeleteConcept}
         />
       ) : null;
 
@@ -526,8 +530,8 @@ export function ConceptoApp() {
         <VehicleDetail
           vehicle={selectedAsset}
           onBack={handleBackToGlobalAssets}
-          onSave={handleSaveGlobalAsset}
-          onDeleteConcept={handleDeleteConcept}
+          onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
+          onDeleteConcept={isPublicMode ? () => {} : handleDeleteConcept}
         />
       ) : null;
 
@@ -538,9 +542,9 @@ export function ConceptoApp() {
           episodes={episodes}
           onBack={handleBackToDashboard}
           onSelectEpisode={handleSelectEpisode}
-          onAddEpisode={handleAddEpisode}
-          onEditEpisode={handleEditEpisode}
-          onDeleteEpisode={handleDeleteEpisode}
+          onAddEpisode={isPublicMode ? () => {} : handleAddEpisode}
+          onEditEpisode={isPublicMode ? () => {} : handleEditEpisode}
+          onDeleteEpisode={isPublicMode ? () => {} : handleDeleteEpisode}
         />
       ) : null;
 
@@ -551,7 +555,7 @@ export function ConceptoApp() {
           episode={selectedEpisode}
           globalAssets={globalAssets}
           onBack={handleBackToEpisodes}
-          onSave={handleSaveEpisode}
+          onSave={isPublicMode ? () => {} : handleSaveEpisode}
         />
       ) : null;
 
@@ -561,9 +565,9 @@ export function ConceptoApp() {
           showId={selectedShow.id}
           ideas={episodeIdeas}
           onBack={handleBackToDashboard}
-          onSaveIdea={handleSaveEpisodeIdea}
-          onUpdateIdea={handleUpdateEpisodeIdea}
-          onDeleteIdea={handleDeleteEpisodeIdea}
+          onSaveIdea={isPublicMode ? async () => {} : handleSaveEpisodeIdea}
+          onUpdateIdea={isPublicMode ? async () => {} : handleUpdateEpisodeIdea}
+          onDeleteIdea={isPublicMode ? async () => {} : handleDeleteEpisodeIdea}
         />
       ) : null;
 
@@ -574,9 +578,9 @@ export function ConceptoApp() {
           ideas={generalIdeas}
           onBack={handleBackToDashboard}
           onSelectIdea={handleSelectGeneralIdea}
-          onAddIdea={handleAddGeneralIdea}
-          onEditIdea={handleEditGeneralIdea}
-          onDeleteIdea={handleDeleteGeneralIdea}
+          onAddIdea={isPublicMode ? () => {} : handleAddGeneralIdea}
+          onEditIdea={isPublicMode ? () => {} : handleEditGeneralIdea}
+          onDeleteIdea={isPublicMode ? () => {} : handleDeleteGeneralIdea}
         />
       ) : null;
 
@@ -585,7 +589,7 @@ export function ConceptoApp() {
         <GeneralIdeaDetail
           idea={selectedGeneralIdea}
           onBack={handleBackToGeneralIdeas}
-          onSave={handleSaveGeneralIdea}
+          onSave={isPublicMode ? () => {} : handleSaveGeneralIdea}
         />
       ) : null;
 
