@@ -712,10 +712,14 @@ export default function EpisodeDetail({
     if (!files.length) return;
     
     setUploadingShotImages(true);
-    const uploadPromises = Array.from(files).map(file => uploadToS3(file));
+    const uploadPromises = Array.from(files).map(file => uploadFile(file, `shot-images/${Date.now()}-${file.name}`));
     
     try {
-      const uploadedUrls = await Promise.all(uploadPromises);
+      const uploadResults = await Promise.all(uploadPromises);
+      const uploadedUrls = uploadResults
+        .filter((result): result is { url: string; key: string; size: number } => result !== null)
+        .map(result => result.url);
+      
       setShotFormData(prev => ({
         ...prev,
         images: [...prev.images, ...uploadedUrls]
@@ -748,10 +752,17 @@ export default function EpisodeDetail({
 
     const newShot: SceneShot = {
       id: `shot-${Date.now()}`,
-      shotNumber: shotFormData.shotNumber,
+      shotNumber: parseInt(shotFormData.shotNumber) || 1,
+      title: `Shot ${parseInt(shotFormData.shotNumber) || 1}`,
       description: shotFormData.description,
-      images: shotFormData.images,
+      storyboards: [],
+      inspirationImages: shotFormData.images,
       featuredImage: shotFormData.featuredImage || shotFormData.images[0] || '',
+      cameraShot: {
+        id: `camera-${Date.now()}`,
+        shotType: 'MEDIUM',
+        duration: 0
+      },
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -811,7 +822,7 @@ export default function EpisodeDetail({
     if (!scene?.shots) return null;
     
     const shotNumber = shotRef.replace(/[\[\]]/g, '');
-    return scene.shots.find(shot => shot.shotNumber === shotNumber);
+    return scene.shots.find(shot => shot.shotNumber === parseInt(shotNumber));
   };
 
 
@@ -2273,7 +2284,7 @@ export default function EpisodeDetail({
                 {shot.featuredImage && (
                   <img
                     src={shot.featuredImage}
-                    alt={shot.shotNumber}
+                    alt={`Shot ${shot.shotNumber}`}
                     className="w-full h-32 object-cover rounded"
                   />
                 )}

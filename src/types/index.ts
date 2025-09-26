@@ -176,6 +176,7 @@ export interface SceneShot {
   description?: string;
   storyboards: Storyboard[];
   inspirationImages: string[];
+  featuredImage?: string;
   cameraShot: CameraShot;
   createdAt: Date;
   updatedAt: Date;
