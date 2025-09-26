@@ -39,7 +39,6 @@ export function ConceptoApp({
   category: initialCategory = 'all'
 }: ConceptoAppProps = {}) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   
   const [currentView, setCurrentView] = useState<AppView>(initialView);
   const [selectedShow, setSelectedShow] = useState<Show | null>(null);

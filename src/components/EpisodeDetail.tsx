@@ -2148,9 +2148,9 @@ export default function EpisodeDetail({
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Selected Text
                 </label>
-                <div className="p-3 bg-gray-50 rounded border text-sm">
-                  "{showShotPopup.selectedText}"
-                </div>
+                 <div className="p-3 bg-gray-50 rounded border text-sm">
+                   &quot;{showShotPopup.selectedText}&quot;
+                 </div>
               </div>
               
               <div>
