@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Show, GlobalAsset, Episode } from '@/types';
+import { Show, GlobalAsset, Episode, EpisodeIdea, GeneralIdea } from '@/types';
 import { 
   ArrowLeft, 
   Users, 
@@ -17,11 +17,14 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { PublicLinkGenerator } from './PublicLinkGenerator';
+import { ShowDownloadButton } from './ShowDownloadButton';
 
 interface ShowDashboardProps {
   show: Show;
   globalAssets: GlobalAsset[];
   episodes: Episode[];
+  episodeIdeas?: EpisodeIdea[];
+  generalIdeas?: GeneralIdea[];
   onBack: () => void;
   onSelectGlobalAssets: (category?: 'character' | 'location' | 'gadget' | 'texture' | 'background' | 'vehicle' | 'all') => void;
   onSelectEpisodes: () => void;
@@ -55,6 +58,8 @@ export function ShowDashboard({
   show,
   globalAssets,
   episodes,
+  episodeIdeas = [],
+  generalIdeas = [],
   onBack,
   onSelectGlobalAssets,
   onSelectEpisodes,
@@ -123,9 +128,20 @@ export function ShowDashboard({
                 <p className="text-sm text-gray-600">Show Dashboard</p>
               </div>
             </div>
-            {!isPublicMode && (
-              <PublicLinkGenerator showId={show.id} />
-            )}
+            <div className="flex items-center space-x-3">
+              {!isPublicMode && (
+                <ShowDownloadButton
+                  show={show}
+                  globalAssets={globalAssets}
+                  episodes={episodes}
+                  episodeIdeas={episodeIdeas}
+                  generalIdeas={generalIdeas}
+                />
+              )}
+              {!isPublicMode && (
+                <PublicLinkGenerator showId={show.id} />
+              )}
+            </div>
           </div>
         </div>
       </div>

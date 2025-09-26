@@ -490,6 +490,8 @@ export function ConceptoApp({
           show={selectedShow}
           globalAssets={globalAssets}
           episodes={episodes}
+          episodeIdeas={episodeIdeas}
+          generalIdeas={generalIdeas}
           onBack={handleBackToShows}
           onSelectGlobalAssets={handleSelectGlobalAssets}
           onSelectEpisodes={handleSelectEpisodes}
@@ -498,6 +500,7 @@ export function ConceptoApp({
           onSelectGeneralIdeas={handleSelectGeneralIdeas}
           onAddGlobalAsset={isPublicMode ? () => {} : handleAddGlobalAsset}
           onAddEpisode={isPublicMode ? () => {} : handleAddEpisode}
+          isPublicMode={isPublicMode}
         />
       ) : null;
 
