@@ -1,0 +1,480 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { DragDropContext, Droppable, Draggable, DropResult, DraggableProvidedDragHandleProps } from 'react-beautiful-dnd';
+import { AVScript, AVSegment, AVShot } from '@/types';
+import { 
+  Plus, 
+  MessageCircle, 
+  Image as ImageIcon,
+  GripVertical
+} from 'lucide-react';
+import { useS3Upload } from '@/hooks/useS3Upload';
+
+interface AVScriptEditorProps {
+  episodeId: string;
+  avScript?: AVScript;
+  onSave: (avScript: AVScript) => void;
+}
+
+export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorProps) {
+  const [script, setScript] = useState<AVScript>(avScript || {
+    id: `av-script-${Date.now()}`,
+    episodeId,
+    title: 'BT AV script',
+    version: 'v1',
+    segments: [],
+    totalRuntime: 0,
+    totalWords: 0,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  const [showAddSegment, setShowAddSegment] = useState(false);
+  const [newSegmentTitle, setNewSegmentTitle] = useState('');
+
+  const { uploadFile } = useS3Upload();
+
+  // Calculate totals whenever script changes
+  useEffect(() => {
+    const totalWords = script.segments.reduce((sum, segment) => sum + segment.totalWords, 0);
+    const totalRuntime = script.segments.reduce((sum, segment) => sum + segment.totalRuntime, 0);
+    
+    setScript(prev => ({
+      ...prev,
+      totalWords,
+      totalRuntime,
+      updatedAt: new Date(),
+    }));
+  }, [script.segments]);
+
+  // Auto-save when script changes
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      onSave(script);
+    }, 1000);
+
+    return () => clearTimeout(timeoutId);
+  }, [script, onSave]);
+
+  const handleAddSegment = () => {
+    if (!newSegmentTitle.trim()) return;
+
+    const newSegment: AVSegment = {
+      id: `segment-${Date.now()}`,
+      episodeId,
+      segmentNumber: script.segments.length + 1,
+      title: newSegmentTitle.trim(),
+      shots: [],
+      totalRuntime: 0,
+      totalWords: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    setScript(prev => ({
+      ...prev,
+      segments: [...prev.segments, newSegment],
+    }));
+
+    setNewSegmentTitle('');
+    setShowAddSegment(false);
+  };
+
+  const handleAddShot = (segmentId: string) => {
+    const segment = script.segments.find(s => s.id === segmentId);
+    if (!segment) return;
+
+    const newShot: AVShot = {
+      id: `shot-${Date.now()}`,
+      segmentId,
+      shotNumber: 0, // Will be calculated
+      audio: '',
+      visual: '',
+      duration: 0,
+      wordCount: 0,
+      runtime: 0,
+      order: segment.shots.length,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    setScript(prev => ({
+      ...prev,
+      segments: prev.segments.map(segment => 
+        segment.id === segmentId 
+          ? { 
+              ...segment, 
+              shots: [...segment.shots, newShot],
+              updatedAt: new Date(),
+            }
+          : segment
+      ),
+    }));
+  };
+
+  const handleUpdateShot = (segmentId: string, shotId: string, updates: Partial<AVShot>) => {
+    setScript(prev => ({
+      ...prev,
+      segments: prev.segments.map(segment => 
+        segment.id === segmentId 
+          ? {
+              ...segment,
+              shots: segment.shots.map(shot => 
+                shot.id === shotId 
+                  ? { 
+                      ...shot, 
+                      ...updates, 
+                      updatedAt: new Date(),
+                      wordCount: updates.audio !== undefined ? calculateWordCount(updates.audio) : shot.wordCount,
+                      runtime: updates.audio !== undefined ? calculateRuntime(updates.audio) : shot.runtime,
+                    }
+                  : shot
+              ),
+              updatedAt: new Date(),
+            }
+          : segment
+      ),
+    }));
+  };
+
+
+  const handleDragEnd = (result: DropResult) => {
+    if (!result.destination) return;
+
+    const { source, destination } = result;
+    const segmentId = source.droppableId;
+
+    const segment = script.segments.find(s => s.id === segmentId);
+    if (!segment) return;
+
+    const shots = Array.from(segment.shots);
+    const [reorderedShot] = shots.splice(source.index, 1);
+    shots.splice(destination.index, 0, reorderedShot);
+
+    // Update order and shot numbers
+    const updatedShots = shots.map((shot, index) => ({
+      ...shot,
+      order: index,
+      shotNumber: segment.segmentNumber * 100 + (index + 1), // e.g., 101, 102, 103
+      updatedAt: new Date(),
+    }));
+
+    setScript(prev => ({
+      ...prev,
+      segments: prev.segments.map(segment => 
+        segment.id === segmentId 
+          ? {
+              ...segment,
+              shots: updatedShots,
+              updatedAt: new Date(),
+            }
+          : segment
+      ),
+    }));
+  };
+
+  const calculateWordCount = (text: string): number => {
+    return text.trim().split(/\s+/).filter(word => word.length > 0).length;
+  };
+
+  const calculateRuntime = (text: string): number => {
+    // Rough estimate: 3 words per second
+    const wordCount = calculateWordCount(text);
+    return Math.ceil(wordCount / 3);
+  };
+
+  const formatDuration = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const formatShotNumber = (segmentNumber: number, shotNumber: number): string => {
+    return `${segmentNumber}.${shotNumber}`;
+  };
+
+  return (
+    <DragDropContext onDragEnd={handleDragEnd}>
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+        {/* Header */}
+        <div className="border-b border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">{script.title}</h2>
+              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                {script.version}
+              </span>
+            </div>
+            <div className="text-right">
+              <div className="text-sm text-gray-500">Total RT</div>
+              <div className="text-lg font-semibold text-gray-900">{formatDuration(script.totalRuntime)}</div>
+            </div>
+          </div>
+          <div className="mt-4 flex items-center space-x-6">
+            <div>
+              <span className="text-sm text-gray-500">Total Words:</span>
+              <span className="ml-2 font-medium text-gray-900">{script.totalWords}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Segments */}
+        <div className="p-6">
+        {script.segments.map((segment) => (
+          <div key={segment.id} className="mb-8">
+            {/* Segment Header */}
+            <div className="mb-4">
+              <h3 className="text-xl font-semibold text-gray-900">
+                Scene {segment.segmentNumber.toString().padStart(2, '0')}
+              </h3>
+              <p className="text-sm text-gray-600">{segment.title}</p>
+            </div>
+
+            {/* Shots Table */}
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <div className="grid grid-cols-12 bg-gray-50 border-b border-gray-200">
+                <div className="col-span-1 px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Row</div>
+                <div className="col-span-3 px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Audio</div>
+                <div className="col-span-3 px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Visual</div>
+                <div className="col-span-2 px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Image</div>
+                <div className="col-span-3 px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</div>
+              </div>
+
+              <Droppable droppableId={segment.id}>
+                {(provided, snapshot) => (
+                  <div
+                    ref={provided.innerRef}
+                    {...provided.droppableProps}
+                    className={`${snapshot.isDraggingOver ? 'bg-blue-50' : ''}`}
+                  >
+                    {segment.shots.map((shot, shotIndex) => (
+                      <Draggable key={shot.id} draggableId={shot.id} index={shotIndex}>
+                        {(provided, snapshot) => (
+                          <div
+                            ref={provided.innerRef}
+                            {...provided.draggableProps}
+                            className={`${snapshot.isDragging ? 'bg-blue-100 shadow-lg' : ''}`}
+                          >
+                            <ShotRow
+                              shot={shot}
+                              segmentNumber={segment.segmentNumber}
+                              shotIndex={shotIndex}
+                              onUpdate={(updates) => handleUpdateShot(segment.id, shot.id, updates)}
+                              onImageUpload={async (file) => {
+                                const result = await uploadFile(file, `episodes/${episodeId}/av-script/storyboards/`);
+                                if (result) {
+                                  handleUpdateShot(segment.id, shot.id, { imageUrl: result.url });
+                                }
+                              }}
+                              formatDuration={formatDuration}
+                              formatShotNumber={formatShotNumber}
+                              dragHandleProps={provided.dragHandleProps}
+                            />
+                          </div>
+                        )}
+                      </Draggable>
+                    ))}
+                    {provided.placeholder}
+                  </div>
+                )}
+              </Droppable>
+            </div>
+
+            {/* Add Shot Button */}
+            <div className="mt-4">
+              <button
+                onClick={() => handleAddShot(segment.id)}
+                className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                + Row
+              </button>
+            </div>
+
+            {/* Segment Footer */}
+            <div className="mt-6 flex items-center justify-between text-sm text-gray-500">
+              <div>END OF SEGMENT {segment.segmentNumber}</div>
+              <div className="flex items-center space-x-4">
+                <div>
+                  <span className="font-medium">SEGMENT RT</span> {formatDuration(segment.totalRuntime)}
+                </div>
+                <div>
+                  <span className="font-medium">SEGMENT WORDS</span> {segment.totalWords}
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {/* Add Segment */}
+        {showAddSegment ? (
+          <div className="mt-8 p-4 border border-gray-200 rounded-lg">
+            <input
+              type="text"
+              value={newSegmentTitle}
+              onChange={(e) => setNewSegmentTitle(e.target.value)}
+              placeholder="Enter segment title..."
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              onKeyPress={(e) => e.key === 'Enter' && handleAddSegment()}
+            />
+            <div className="mt-3 flex space-x-2">
+              <button
+                onClick={handleAddSegment}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+              >
+                Add Segment
+              </button>
+              <button
+                onClick={() => setShowAddSegment(false)}
+                className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-8">
+            <button
+              onClick={() => setShowAddSegment(true)}
+              className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              + Segment
+            </button>
+          </div>
+        )}
+        </div>
+      </div>
+    </DragDropContext>
+  );
+}
+
+// Shot Row Component
+interface ShotRowProps {
+  shot: AVShot;
+  segmentNumber: number;
+  shotIndex: number;
+  onUpdate: (updates: Partial<AVShot>) => void;
+  onImageUpload: (file: File) => Promise<void>;
+  formatDuration: (seconds: number) => string;
+  formatShotNumber: (segmentNumber: number, shotNumber: number) => string;
+  dragHandleProps?: DraggableProvidedDragHandleProps | null;
+}
+
+function ShotRow({ 
+  shot, 
+  segmentNumber, 
+  shotIndex, 
+  onUpdate, 
+  onImageUpload,
+  formatDuration,
+  formatShotNumber,
+  dragHandleProps
+}: ShotRowProps) {
+  const [commentCount, setCommentCount] = useState(0); // TODO: Get from comment system
+
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      onImageUpload(file);
+    }
+  };
+
+  return (
+    <div className="grid grid-cols-12 border-b border-gray-200 hover:bg-gray-50">
+      {/* Row Number */}
+      <div className="col-span-1 px-4 py-3 flex items-center">
+        <div {...dragHandleProps}>
+          <GripVertical className="w-4 h-4 text-gray-400 mr-2 cursor-grab hover:text-gray-600" />
+        </div>
+        <div className="flex flex-col">
+          <div className="text-sm font-medium text-gray-900">
+            {formatShotNumber(segmentNumber, shotIndex + 1)}
+          </div>
+          <div className="text-xs text-gray-500">
+            {shot.wordCount} words {formatDuration(shot.runtime)} RT
+          </div>
+        </div>
+      </div>
+
+      {/* Audio */}
+      <div className="col-span-3 px-4 py-3">
+        <textarea
+          value={shot.audio}
+          onChange={(e) => onUpdate({ audio: e.target.value })}
+          placeholder="Audio..."
+          className="w-full h-20 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none"
+        />
+      </div>
+
+      {/* Visual */}
+      <div className="col-span-3 px-4 py-3">
+        <textarea
+          value={shot.visual}
+          onChange={(e) => onUpdate({ visual: e.target.value })}
+          placeholder="Visual..."
+          className="w-full h-20 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none"
+        />
+      </div>
+
+      {/* Image */}
+      <div className="col-span-2 px-4 py-3">
+        <div className="relative">
+          {shot.imageUrl ? (
+            <div className="relative group">
+              <img
+                src={shot.imageUrl}
+                alt="Storyboard"
+                className="w-full h-20 object-cover rounded border"
+              />
+              <button
+                onClick={() => onUpdate({ imageUrl: undefined })}
+                className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100"
+              >
+                ×
+              </button>
+            </div>
+          ) : (
+            <label className="flex flex-col items-center justify-center w-full h-20 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+              <ImageIcon className="w-6 h-6 text-gray-400 mb-1" />
+              <span className="text-xs text-gray-500">Upload</span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleImageUpload}
+                className="hidden"
+              />
+            </label>
+          )}
+        </div>
+      </div>
+
+      {/* Duration & Actions */}
+      <div className="col-span-3 px-4 py-3">
+        <div className="flex items-center space-x-2">
+          <input
+            type="text"
+            value={formatDuration(shot.duration)}
+            onChange={(e) => {
+              // Parse MM:SS format to seconds
+              const [mins, secs] = e.target.value.split(':').map(Number);
+              if (!isNaN(mins) && !isNaN(secs)) {
+                onUpdate({ duration: mins * 60 + secs });
+              }
+            }}
+            className="w-16 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            placeholder="00:00"
+          />
+          <button
+            onClick={() => setCommentCount(prev => prev + 1)}
+            className="flex items-center space-x-1 text-gray-500 hover:text-gray-700"
+          >
+            <MessageCircle className="w-4 h-4" />
+            <span className="text-xs">{commentCount}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

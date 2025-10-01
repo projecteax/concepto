@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import StoryboardDrawer from './StoryboardDrawer';
 import CommentThread from './CommentThread';
+import { AVScriptEditor } from './AVScriptEditor';
 import { useS3Upload } from '@/hooks/useS3Upload';
 
 interface EpisodeDetailProps {
@@ -38,7 +39,7 @@ export default function EpisodeDetail({
   onBack,
   onSave,
 }: EpisodeDetailProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'script' | 'characters' | 'locations' | 'gadgets'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'script' | 'av-script' | 'characters' | 'locations' | 'gadgets'>('overview');
   const [localEpisode, setLocalEpisode] = useState<Episode>(episode);
   
   // Script editing states
@@ -635,6 +636,7 @@ export default function EpisodeDetail({
   const tabs = [
     { id: 'overview', label: 'Overview' },
     { id: 'script', label: 'Script' },
+    { id: 'av-script', label: 'AV Script' },
     { id: 'characters', label: 'Characters' },
     { id: 'locations', label: 'Locations' },
     { id: 'gadgets', label: 'Special Gadgets' },
@@ -704,7 +706,7 @@ export default function EpisodeDetail({
             {tabs.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as 'overview' | 'script' | 'characters' | 'locations' | 'gadgets')}
+                onClick={() => setActiveTab(tab.id as 'overview' | 'script' | 'av-script' | 'characters' | 'locations' | 'gadgets')}
                 className={`py-4 px-1 border-b-2 font-medium text-sm ${
                   activeTab === tab.id
                     ? 'border-indigo-500 text-indigo-600'
@@ -1314,6 +1316,19 @@ export default function EpisodeDetail({
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {activeTab === 'av-script' && (
+          <div className="bg-white rounded-lg shadow-sm">
+            <AVScriptEditor
+              episodeId={episode.id}
+              avScript={localEpisode.avScript}
+              onSave={(avScript) => {
+                setLocalEpisode(prev => ({ ...prev, avScript }));
+                onSave({ ...localEpisode, avScript });
+              }}
+            />
           </div>
         )}
 

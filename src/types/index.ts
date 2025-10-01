@@ -22,7 +22,7 @@ export interface Comment {
 
 export interface CommentThread {
   id: string;
-  targetType: 'script' | 'storyboard' | 'scene' | 'shot' | 'character' | 'location' | 'general-idea';
+  targetType: 'script' | 'storyboard' | 'scene' | 'shot' | 'character' | 'location' | 'general-idea' | 'av-shot';
   targetId: string;
   comments: Comment[];
   createdAt: Date;
@@ -132,6 +132,7 @@ export interface Episode {
   episodeNumber: number;
   description?: string;
   script?: string;
+  avScript?: AVScript;
   characters: EpisodeCharacter[];
   locations: EpisodeLocation[];
   scenes?: EpisodeScene[];
@@ -246,6 +247,46 @@ export interface GeneralIdea {
   description: string;
   images: string[]; // Array of image URLs
   tags: string[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// AV Script System
+export interface AVShot {
+  id: string;
+  segmentId: string;
+  shotNumber: number; // 1.1, 1.2, etc. - auto-calculated based on order
+  audio: string;
+  visual: string;
+  imageUrl?: string; // Storyboard image
+  duration: number; // Duration in seconds
+  wordCount: number; // Auto-calculated from audio text
+  runtime: number; // Auto-calculated from audio text (seconds)
+  order: number; // For drag and drop ordering
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AVSegment {
+  id: string;
+  episodeId: string;
+  segmentNumber: number; // 1, 2, 3, etc.
+  title: string;
+  shots: AVShot[];
+  totalRuntime: number; // Sum of all shots in segment
+  totalWords: number; // Sum of all shots in segment
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AVScript {
+  id: string;
+  episodeId: string;
+  title: string;
+  version: string; // v1, v2, etc.
+  segments: AVSegment[];
+  totalRuntime: number; // Sum of all segments
+  totalWords: number; // Sum of all segments
   createdAt: Date;
   updatedAt: Date;
 }
