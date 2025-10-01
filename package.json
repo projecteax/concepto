@@ -6,7 +6,7 @@
     "dev": "next dev --turbopack",
     "dev:stable": "next dev",
     "dev:clean": "./scripts/cleanup.sh && next dev",
-    "build": "next build --turbopack",
+    "build": "next build",
     "build:clean": "./scripts/cleanup.sh && next build",
     "start": "next start",
     "lint": "eslint",
