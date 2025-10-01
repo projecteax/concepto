@@ -132,9 +132,9 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
   };
 
   const handleUpdateShot = (segmentId: string, shotId: string, updates: Partial<AVShot>) => {
-    setScript(prev => ({
-      ...prev,
-      segments: prev.segments.map(segment => 
+    const updatedScript = {
+      ...script,
+      segments: script.segments.map(segment => 
         segment.id === segmentId 
           ? {
               ...segment,
@@ -153,7 +153,10 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
             }
           : segment
       ),
-    }));
+    };
+    setScript(updatedScript);
+    // Immediate save for text field updates
+    onSave(updatedScript);
   };
 
   const handleDeleteSegment = (segmentId: string) => {
