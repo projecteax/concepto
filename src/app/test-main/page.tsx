@@ -65,6 +65,7 @@ export default function TestMainPage() {
       description: '',
       script: '',
       characters: [],
+      sceneCharacters: [],
       gadgets: [],
       shots: [],
       createdAt: new Date(),

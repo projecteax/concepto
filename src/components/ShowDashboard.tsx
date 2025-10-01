@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Show, GlobalAsset, Episode } from '@/types';
+import { Show, GlobalAsset, Episode, EpisodeIdea, GeneralIdea } from '@/types';
 import { 
   ArrowLeft, 
   Users, 
@@ -16,19 +16,24 @@ import {
   Lightbulb
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { PublicLinkGenerator } from './PublicLinkGenerator';
+import { ShowDownloadButton } from './ShowDownloadButton';
 
 interface ShowDashboardProps {
   show: Show;
   globalAssets: GlobalAsset[];
   episodes: Episode[];
+  episodeIdeas?: EpisodeIdea[];
+  generalIdeas?: GeneralIdea[];
   onBack: () => void;
   onSelectGlobalAssets: (category?: 'character' | 'location' | 'gadget' | 'texture' | 'background' | 'vehicle' | 'all') => void;
   onSelectEpisodes: () => void;
   onSelectEpisode: (episode: Episode) => void;
   onSelectEpisodeIdeas: () => void;
   onSelectGeneralIdeas: () => void;
-  onAddGlobalAsset: (asset: Omit<GlobalAsset, 'id' | 'createdAt' | 'updatedAt'>) => void;
-  onAddEpisode: (episode: Omit<Episode, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  onAddGlobalAsset?: (asset: Omit<GlobalAsset, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  onAddEpisode?: (episode: Omit<Episode, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  isPublicMode?: boolean;
 }
 
 const assetIcons = {
@@ -53,6 +58,8 @@ export function ShowDashboard({
   show,
   globalAssets,
   episodes,
+  episodeIdeas = [],
+  generalIdeas = [],
   onBack,
   onSelectGlobalAssets,
   onSelectEpisodes,
@@ -60,7 +67,8 @@ export function ShowDashboard({
   onSelectEpisodeIdeas,
   onSelectGeneralIdeas,
   onAddGlobalAsset,
-  onAddEpisode
+  onAddEpisode,
+  isPublicMode = false,
 }: ShowDashboardProps) {
   const [showAddAsset, setShowAddAsset] = useState(false);
   const [showAddEpisode, setShowAddEpisode] = useState(false);
@@ -75,7 +83,7 @@ export function ShowDashboard({
 
   const handleAddAsset = () => {
     if (newAssetName.trim()) {
-      onAddGlobalAsset({
+      onAddGlobalAsset?.({
         showId: show.id,
         name: newAssetName.trim(),
         category: newAssetCategory,
@@ -88,7 +96,7 @@ export function ShowDashboard({
 
   const handleAddEpisode = () => {
     if (newEpisodeTitle.trim()) {
-      onAddEpisode({
+      onAddEpisode?.({
         showId: show.id,
         title: newEpisodeTitle.trim(),
         episodeNumber: newEpisodeNumber,
@@ -119,6 +127,20 @@ export function ShowDashboard({
                 <h1 className="text-2xl font-bold text-gray-900">{show.name}</h1>
                 <p className="text-sm text-gray-600">Show Dashboard</p>
               </div>
+            </div>
+            <div className="flex items-center space-x-3">
+              {!isPublicMode && (
+                <ShowDownloadButton
+                  show={show}
+                  globalAssets={globalAssets}
+                  episodes={episodes}
+                  episodeIdeas={episodeIdeas}
+                  generalIdeas={generalIdeas}
+                />
+              )}
+              {!isPublicMode && (
+                <PublicLinkGenerator showId={show.id} />
+              )}
             </div>
           </div>
         </div>

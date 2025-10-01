@@ -158,10 +158,12 @@ export interface EpisodeScene {
   sceneNumber: number;
   title: string;
   description?: string;
+  actionDescription?: string; // Action description before dialog
   script?: string;
   locationId?: string;
   locationName?: string;
   characters: SceneCharacter[];
+  sceneCharacters: SceneCharacter[]; // Characters in the scene (selectable from dataset)
   gadgets: SceneGadget[];
   shots: SceneShot[];
   createdAt: Date;
@@ -175,6 +177,7 @@ export interface SceneShot {
   description?: string;
   storyboards: Storyboard[];
   inspirationImages: string[];
+  featuredImage?: string;
   cameraShot: CameraShot;
   createdAt: Date;
   updatedAt: Date;
@@ -183,6 +186,15 @@ export interface SceneShot {
 export interface SceneCharacter {
   characterId: string;
   characterName: string;
+  role?: string;
+  isPresent: boolean;
+}
+
+export interface SceneActor {
+  actorId: string;
+  actorName: string;
+  characterId?: string; // Reference to the character they're playing
+  characterName?: string;
   role?: string;
   isPresent: boolean;
 }

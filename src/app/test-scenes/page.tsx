@@ -29,6 +29,7 @@ export default function TestScenesPage() {
       description: '',
       script: '',
       characters: [],
+      sceneCharacters: [],
       gadgets: [],
       shots: [],
       createdAt: new Date(),

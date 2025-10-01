@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ShowSelection } from './ShowSelection';
 import { ShowDashboard } from './ShowDashboard';
 import { GlobalAssetsManager } from './GlobalAssetsManager';
@@ -18,15 +19,33 @@ import { GeneralIdeaDetail } from './GeneralIdeaDetail';
 import { Show, GlobalAsset, Episode, Character, AssetConcept, EpisodeIdea, GeneralIdea } from '@/types';
 import { useFirebaseData } from '@/hooks/useFirebaseData';
 
-type AppView = 'shows' | 'dashboard' | 'global-assets' | 'character-detail' | 'location-detail' | 'gadget-detail' | 'texture-detail' | 'background-detail' | 'vehicle-detail' | 'episodes' | 'episode-detail' | 'episode-ideas' | 'general-ideas' | 'general-idea-detail';
+type AppView = 'shows' | 'dashboard' | 'global-assets' | 'asset-detail' | 'character-detail' | 'location-detail' | 'gadget-detail' | 'texture-detail' | 'background-detail' | 'vehicle-detail' | 'episodes' | 'episode-detail' | 'episode-ideas' | 'general-ideas' | 'general-idea-detail';
 
-export function ConceptoApp() {
-  const [currentView, setCurrentView] = useState<AppView>('shows');
+interface ConceptoAppProps {
+  isPublicMode?: boolean;
+  initialView?: AppView;
+  showId?: string;
+  episodeId?: string;
+  assetId?: string;
+  category?: 'character' | 'location' | 'gadget' | 'texture' | 'background' | 'vehicle' | 'all';
+}
+
+export function ConceptoApp({ 
+  isPublicMode = false, 
+  initialView = 'shows',
+  showId: initialShowId,
+  episodeId: initialEpisodeId,
+  assetId: initialAssetId,
+  category: initialCategory = 'all'
+}: ConceptoAppProps = {}) {
+  const router = useRouter();
+  
+  const [currentView, setCurrentView] = useState<AppView>(initialView);
   const [selectedShow, setSelectedShow] = useState<Show | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<GlobalAsset | null>(null);
   const [selectedEpisode, setSelectedEpisode] = useState<Episode | null>(null);
   const [selectedGeneralIdea, setSelectedGeneralIdea] = useState<GeneralIdea | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<'character' | 'location' | 'gadget' | 'texture' | 'background' | 'vehicle' | 'all'>('all');
+  const [selectedCategory, setSelectedCategory] = useState<'character' | 'location' | 'gadget' | 'texture' | 'background' | 'vehicle' | 'all'>(initialCategory);
   
   // Firebase data management
   const {
@@ -57,6 +76,35 @@ export function ConceptoApp() {
     loadShowData,
   } = useFirebaseData();
 
+  // Initialize from URL parameters
+  useEffect(() => {
+    if (initialShowId && shows.length > 0) {
+      const show = shows.find(s => s.id === initialShowId);
+      if (show) {
+        setSelectedShow(show);
+        loadShowData(show.id);
+      }
+    }
+  }, [initialShowId, shows, loadShowData]);
+
+  useEffect(() => {
+    if (initialEpisodeId && episodes.length > 0) {
+      const episode = episodes.find(e => e.id === initialEpisodeId);
+      if (episode) {
+        setSelectedEpisode(episode);
+      }
+    }
+  }, [initialEpisodeId, episodes]);
+
+  useEffect(() => {
+    if (initialAssetId && globalAssets.length > 0) {
+      const asset = globalAssets.find(a => a.id === initialAssetId);
+      if (asset) {
+        setSelectedAsset(asset);
+      }
+    }
+  }, [initialAssetId, globalAssets]);
+
   // Load show data when a show is selected
   useEffect(() => {
     if (selectedShow) {
@@ -67,6 +115,8 @@ export function ConceptoApp() {
   const handleSelectShow = (show: Show) => {
     setSelectedShow(show);
     setCurrentView('dashboard');
+    const basePath = isPublicMode ? '/public' : '/app';
+    router.push(`${basePath}/shows/${show.id}`);
   };
 
   const handleAddShow = async (showData: Omit<Show, 'id' | 'createdAt' | 'updatedAt'>) => {
@@ -138,10 +188,15 @@ export function ConceptoApp() {
   const handleSelectGlobalAssets = (category?: 'character' | 'location' | 'gadget' | 'texture' | 'background' | 'vehicle' | 'all') => {
     setSelectedCategory(category || 'all');
     setCurrentView('global-assets');
+    const basePath = isPublicMode ? '/public' : '/app';
+    const categoryParam = category && category !== 'all' ? `?category=${category}` : '';
+    router.push(`${basePath}/shows/${selectedShow?.id}/assets${categoryParam}`);
   };
 
   const handleSelectEpisodes = () => {
     setCurrentView('episodes');
+    const basePath = isPublicMode ? '/public' : '/app';
+    router.push(`${basePath}/shows/${selectedShow?.id}/episodes`);
   };
 
   const handleSelectEpisodeIdeas = () => {
@@ -154,28 +209,8 @@ export function ConceptoApp() {
 
   const handleSelectAsset = (asset: GlobalAsset) => {
     setSelectedAsset(asset);
-    switch (asset.category) {
-      case 'character':
-        setCurrentView('character-detail');
-        break;
-      case 'location':
-        setCurrentView('location-detail');
-        break;
-      case 'gadget':
-        setCurrentView('gadget-detail');
-        break;
-      case 'texture':
-        setCurrentView('texture-detail');
-        break;
-      case 'background':
-        setCurrentView('background-detail');
-        break;
-      case 'vehicle':
-        setCurrentView('vehicle-detail');
-        break;
-      default:
-        console.warn('Unknown asset category:', asset.category);
-    }
+    const basePath = isPublicMode ? '/public' : '/app';
+    router.push(`${basePath}/shows/${selectedShow?.id}/assets/${asset.id}`);
   };
 
   const handleBackToShows = () => {
@@ -184,6 +219,8 @@ export function ConceptoApp() {
     setSelectedAsset(null);
     setSelectedEpisode(null);
     setSelectedGeneralIdea(null);
+    const basePath = isPublicMode ? '/public' : '/app';
+    router.push(`${basePath}/shows`);
   };
 
   const handleBackToDashboard = () => {
@@ -191,16 +228,23 @@ export function ConceptoApp() {
     setSelectedAsset(null);
     setSelectedEpisode(null);
     setSelectedGeneralIdea(null);
+    const basePath = isPublicMode ? '/public' : '/app';
+    router.push(`${basePath}/shows/${selectedShow?.id}`);
   };
 
   const handleBackToGlobalAssets = () => {
     setCurrentView('global-assets');
     setSelectedAsset(null);
+    const basePath = isPublicMode ? '/public' : '/app';
+    const categoryParam = selectedCategory && selectedCategory !== 'all' ? `?category=${selectedCategory}` : '';
+    router.push(`${basePath}/shows/${selectedShow?.id}/assets${categoryParam}`);
   };
 
   const handleBackToEpisodes = () => {
     setCurrentView('episodes');
     setSelectedEpisode(null);
+    const basePath = isPublicMode ? '/public' : '/app';
+    router.push(`${basePath}/shows/${selectedShow?.id}/episodes`);
   };
 
   const handleBackToGeneralIdeas = () => {
@@ -334,6 +378,8 @@ export function ConceptoApp() {
   const handleSelectEpisode = (episode: Episode) => {
     setSelectedEpisode(episode);
     setCurrentView('episode-detail');
+    const basePath = isPublicMode ? '/public' : '/app';
+    router.push(`${basePath}/shows/${selectedShow?.id}/episodes/${episode.id}`);
   };
 
   const handleEditEpisode = async (episode: Episode) => {
@@ -432,9 +478,9 @@ export function ConceptoApp() {
         <ShowSelection
           shows={shows}
           onSelectShow={handleSelectShow}
-          onAddShow={handleAddShow}
-          onEditShow={handleEditShow}
-          onDeleteShow={handleDeleteShow}
+          onAddShow={isPublicMode ? () => {} : handleAddShow}
+          onEditShow={isPublicMode ? () => {} : handleEditShow}
+          onDeleteShow={isPublicMode ? () => {} : handleDeleteShow}
         />
       );
 
@@ -444,14 +490,17 @@ export function ConceptoApp() {
           show={selectedShow}
           globalAssets={globalAssets}
           episodes={episodes}
+          episodeIdeas={episodeIdeas}
+          generalIdeas={generalIdeas}
           onBack={handleBackToShows}
           onSelectGlobalAssets={handleSelectGlobalAssets}
           onSelectEpisodes={handleSelectEpisodes}
           onSelectEpisode={handleSelectEpisode}
           onSelectEpisodeIdeas={handleSelectEpisodeIdeas}
           onSelectGeneralIdeas={handleSelectGeneralIdeas}
-          onAddGlobalAsset={handleAddGlobalAsset}
-          onAddEpisode={handleAddEpisode}
+          onAddGlobalAsset={isPublicMode ? () => {} : handleAddGlobalAsset}
+          onAddEpisode={isPublicMode ? () => {} : handleAddEpisode}
+          isPublicMode={isPublicMode}
         />
       ) : null;
 
@@ -464,72 +513,83 @@ export function ConceptoApp() {
           onBack={handleBackToDashboard}
           onSelectCategory={setSelectedCategory}
           onSelectAsset={handleSelectAsset}
-          onAddAsset={handleAddGlobalAsset}
-          onEditAsset={(asset) => console.log('Edit asset:', asset)}
-          onDeleteAsset={handleDeleteGlobalAsset}
+          onAddAsset={isPublicMode ? () => {} : handleAddGlobalAsset}
+          onEditAsset={isPublicMode ? () => {} : (asset) => console.log('Edit asset:', asset)}
+          onDeleteAsset={isPublicMode ? () => {} : handleDeleteGlobalAsset}
         />
       ) : null;
 
+    case 'asset-detail':
     case 'character-detail':
-      return selectedAsset && selectedAsset.category === 'character' ? (
-        <CharacterDetail
-          character={selectedAsset as Character}
-          onBack={handleBackToGlobalAssets}
-          onSave={handleSaveCharacter}
-          onAddConcept={handleAddConcept}
-          onDeleteConcept={handleDeleteConcept}
-        />
-      ) : null;
-
     case 'location-detail':
-      return selectedAsset && selectedAsset.category === 'location' ? (
-        <LocationDetail
-          location={selectedAsset}
-          onBack={handleBackToGlobalAssets}
-          onSave={handleSaveGlobalAsset}
-          onDeleteConcept={handleDeleteConcept}
-        />
-      ) : null;
-
     case 'gadget-detail':
-      return selectedAsset && selectedAsset.category === 'gadget' ? (
-        <GadgetDetail
-          gadget={selectedAsset}
-          onBack={handleBackToGlobalAssets}
-          onSave={handleSaveGlobalAsset}
-          onDeleteConcept={handleDeleteConcept}
-        />
-      ) : null;
-
     case 'texture-detail':
-      return selectedAsset && selectedAsset.category === 'texture' ? (
-        <TextureDetail
-          texture={selectedAsset}
-          onBack={handleBackToGlobalAssets}
-          onSave={handleSaveGlobalAsset}
-          onDeleteConcept={handleDeleteConcept}
-        />
-      ) : null;
-
     case 'background-detail':
-      return selectedAsset && selectedAsset.category === 'background' ? (
-        <BackgroundDetail
-          background={selectedAsset}
-          onBack={handleBackToGlobalAssets}
-          onSave={handleSaveGlobalAsset}
-          onDeleteConcept={handleDeleteConcept}
-        />
+    case 'vehicle-detail':
+      return selectedAsset ? (
+        (() => {
+          switch (selectedAsset.category) {
+            case 'character':
+              return (
+                <CharacterDetail
+                  character={selectedAsset as Character}
+                  onBack={handleBackToGlobalAssets}
+                  onSave={isPublicMode ? () => {} : handleSaveCharacter}
+                  onAddConcept={isPublicMode ? () => {} : handleAddConcept}
+                  onDeleteConcept={isPublicMode ? () => {} : handleDeleteConcept}
+                />
+              );
+            case 'location':
+              return (
+                <LocationDetail
+                  location={selectedAsset}
+                  onBack={handleBackToGlobalAssets}
+                  onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
+                  onDeleteConcept={isPublicMode ? () => {} : handleDeleteConcept}
+                />
+              );
+            case 'gadget':
+              return (
+                <GadgetDetail
+                  gadget={selectedAsset}
+                  onBack={handleBackToGlobalAssets}
+                  onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
+                  onDeleteConcept={isPublicMode ? () => {} : handleDeleteConcept}
+                />
+              );
+            case 'texture':
+              return (
+                <TextureDetail
+                  texture={selectedAsset}
+                  onBack={handleBackToGlobalAssets}
+                  onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
+                  onDeleteConcept={isPublicMode ? () => {} : handleDeleteConcept}
+                />
+              );
+            case 'background':
+              return (
+                <BackgroundDetail
+                  background={selectedAsset}
+                  onBack={handleBackToGlobalAssets}
+                  onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
+                  onDeleteConcept={isPublicMode ? () => {} : handleDeleteConcept}
+                />
+              );
+            case 'vehicle':
+              return (
+                <VehicleDetail
+                  vehicle={selectedAsset}
+                  onBack={handleBackToGlobalAssets}
+                  onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
+                  onDeleteConcept={isPublicMode ? () => {} : handleDeleteConcept}
+                />
+              );
+            default:
+              return null;
+          }
+        })()
       ) : null;
 
-    case 'vehicle-detail':
-      return selectedAsset && selectedAsset.category === 'vehicle' ? (
-        <VehicleDetail
-          vehicle={selectedAsset}
-          onBack={handleBackToGlobalAssets}
-          onSave={handleSaveGlobalAsset}
-          onDeleteConcept={handleDeleteConcept}
-        />
-      ) : null;
 
     case 'episodes':
       return selectedShow ? (
@@ -538,9 +598,9 @@ export function ConceptoApp() {
           episodes={episodes}
           onBack={handleBackToDashboard}
           onSelectEpisode={handleSelectEpisode}
-          onAddEpisode={handleAddEpisode}
-          onEditEpisode={handleEditEpisode}
-          onDeleteEpisode={handleDeleteEpisode}
+          onAddEpisode={isPublicMode ? () => {} : handleAddEpisode}
+          onEditEpisode={isPublicMode ? () => {} : handleEditEpisode}
+          onDeleteEpisode={isPublicMode ? () => {} : handleDeleteEpisode}
         />
       ) : null;
 
@@ -551,7 +611,7 @@ export function ConceptoApp() {
           episode={selectedEpisode}
           globalAssets={globalAssets}
           onBack={handleBackToEpisodes}
-          onSave={handleSaveEpisode}
+          onSave={isPublicMode ? () => {} : handleSaveEpisode}
         />
       ) : null;
 
@@ -561,9 +621,9 @@ export function ConceptoApp() {
           showId={selectedShow.id}
           ideas={episodeIdeas}
           onBack={handleBackToDashboard}
-          onSaveIdea={handleSaveEpisodeIdea}
-          onUpdateIdea={handleUpdateEpisodeIdea}
-          onDeleteIdea={handleDeleteEpisodeIdea}
+          onSaveIdea={isPublicMode ? async () => {} : handleSaveEpisodeIdea}
+          onUpdateIdea={isPublicMode ? async () => {} : handleUpdateEpisodeIdea}
+          onDeleteIdea={isPublicMode ? async () => {} : handleDeleteEpisodeIdea}
         />
       ) : null;
 
@@ -574,9 +634,9 @@ export function ConceptoApp() {
           ideas={generalIdeas}
           onBack={handleBackToDashboard}
           onSelectIdea={handleSelectGeneralIdea}
-          onAddIdea={handleAddGeneralIdea}
-          onEditIdea={handleEditGeneralIdea}
-          onDeleteIdea={handleDeleteGeneralIdea}
+          onAddIdea={isPublicMode ? () => {} : handleAddGeneralIdea}
+          onEditIdea={isPublicMode ? () => {} : handleEditGeneralIdea}
+          onDeleteIdea={isPublicMode ? () => {} : handleDeleteGeneralIdea}
         />
       ) : null;
 
@@ -585,7 +645,7 @@ export function ConceptoApp() {
         <GeneralIdeaDetail
           idea={selectedGeneralIdea}
           onBack={handleBackToGeneralIdeas}
-          onSave={handleSaveGeneralIdea}
+          onSave={isPublicMode ? () => {} : handleSaveGeneralIdea}
         />
       ) : null;
 
