@@ -1675,7 +1675,7 @@ export default function EpisodeDetail({
               avScript={localEpisode.avScript}
               onSave={(avScript) => {
                 setLocalEpisode(prev => ({ ...prev, avScript }));
-                onSave({ ...localEpisode, avScript });
+                onSave?.({ ...localEpisode, avScript });
               }}
             />
           </div>
