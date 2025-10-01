@@ -59,14 +59,15 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
     }));
   }, [script.segments]);
 
-  // Auto-save when script changes
+  // Auto-save when script changes (debounced)
   useEffect(() => {
     const timeoutId = setTimeout(() => {
+      console.log('Auto-saving AV Script:', script);
       onSave(script);
     }, 1000);
 
     return () => clearTimeout(timeoutId);
-  }, [script, onSave]);
+  }, [script.segments, script.title, script.version, onSave]);
 
   const handleAddSegment = () => {
     if (!newSegmentTitle.trim()) return;
@@ -83,10 +84,13 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
       updatedAt: new Date(),
     };
 
-    setScript(prev => ({
-      ...prev,
-      segments: [...prev.segments, newSegment],
-    }));
+    const updatedScript = {
+      ...script,
+      segments: [...script.segments, newSegment],
+    };
+    setScript(updatedScript);
+    // Immediate save for new segments
+    onSave(updatedScript);
 
     setNewSegmentTitle('');
     setShowAddSegment(false);
@@ -110,9 +114,9 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
       updatedAt: new Date(),
     };
 
-    setScript(prev => ({
-      ...prev,
-      segments: prev.segments.map(segment => 
+    const updatedScript = {
+      ...script,
+      segments: script.segments.map(segment => 
         segment.id === segmentId 
           ? { 
               ...segment, 
@@ -121,7 +125,10 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
             }
           : segment
       ),
-    }));
+    };
+    setScript(updatedScript);
+    // Immediate save for new shots
+    onSave(updatedScript);
   };
 
   const handleUpdateShot = (segmentId: string, shotId: string, updates: Partial<AVShot>) => {
@@ -150,17 +157,20 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
   };
 
   const handleDeleteSegment = (segmentId: string) => {
-    setScript(prev => ({
-      ...prev,
-      segments: prev.segments.filter(segment => segment.id !== segmentId),
-    }));
+    const updatedScript = {
+      ...script,
+      segments: script.segments.filter(segment => segment.id !== segmentId),
+    };
+    setScript(updatedScript);
     setDeleteConfirmation(null);
+    // Immediate save for deletions
+    onSave(updatedScript);
   };
 
   const handleDeleteShot = (segmentId: string, shotId: string) => {
-    setScript(prev => ({
-      ...prev,
-      segments: prev.segments.map(segment => 
+    const updatedScript = {
+      ...script,
+      segments: script.segments.map(segment => 
         segment.id === segmentId 
           ? {
               ...segment,
@@ -169,14 +179,17 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
             }
           : segment
       ),
-    }));
+    };
+    setScript(updatedScript);
     setDeleteConfirmation(null);
+    // Immediate save for deletions
+    onSave(updatedScript);
   };
 
   const handleDeleteImage = (segmentId: string, shotId: string) => {
-    setScript(prev => ({
-      ...prev,
-      segments: prev.segments.map(segment => 
+    const updatedScript = {
+      ...script,
+      segments: script.segments.map(segment => 
         segment.id === segmentId 
           ? {
               ...segment,
@@ -193,8 +206,11 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
             }
           : segment
       ),
-    }));
+    };
+    setScript(updatedScript);
     setDeleteConfirmation(null);
+    // Immediate save for deletions
+    onSave(updatedScript);
   };
 
 
@@ -219,9 +235,9 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
       updatedAt: new Date(),
     }));
 
-    setScript(prev => ({
-      ...prev,
-      segments: prev.segments.map(segment => 
+    const updatedScript = {
+      ...script,
+      segments: script.segments.map(segment => 
         segment.id === segmentId 
           ? {
               ...segment,
@@ -230,7 +246,10 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
             }
           : segment
       ),
-    }));
+    };
+    setScript(updatedScript);
+    // Immediate save for drag-and-drop
+    onSave(updatedScript);
   };
 
   const calculateWordCount = (text: string): number => {
@@ -337,7 +356,29 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
                               onImageUpload={async (file) => {
                                 const result = await uploadFile(file, `episodes/${episodeId}/av-script/storyboards/`);
                                 if (result) {
-                                  handleUpdateShot(segment.id, shot.id, { imageUrl: result.url });
+                                  const updatedScript = {
+                                    ...script,
+                                    segments: script.segments.map(seg => 
+                                      seg.id === segment.id 
+                                        ? {
+                                            ...seg,
+                                            shots: seg.shots.map(s => 
+                                              s.id === shot.id 
+                                                ? { 
+                                                    ...s, 
+                                                    imageUrl: result.url,
+                                                    updatedAt: new Date(),
+                                                  }
+                                                : s
+                                            ),
+                                            updatedAt: new Date(),
+                                          }
+                                        : seg
+                                    ),
+                                  };
+                                  setScript(updatedScript);
+                                  // Immediate save for image uploads
+                                  onSave(updatedScript);
                                 }
                               }}
                               onEnlargeImage={setEnlargedImage}
