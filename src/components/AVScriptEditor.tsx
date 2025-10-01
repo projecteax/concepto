@@ -7,7 +7,9 @@ import {
   Plus, 
   MessageCircle, 
   Image as ImageIcon,
-  GripVertical
+  GripVertical,
+  X,
+  ZoomIn
 } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
 
@@ -32,6 +34,7 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
 
   const [showAddSegment, setShowAddSegment] = useState(false);
   const [newSegmentTitle, setNewSegmentTitle] = useState('');
+  const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
 
   const { uploadFile } = useS3Upload();
 
@@ -267,6 +270,7 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
                                   handleUpdateShot(segment.id, shot.id, { imageUrl: result.url });
                                 }
                               }}
+                              onEnlargeImage={setEnlargedImage}
                               formatDuration={formatDuration}
                               formatShotNumber={formatShotNumber}
                               dragHandleProps={provided.dragHandleProps}
@@ -346,6 +350,26 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
         )}
         </div>
       </div>
+
+      {/* Image Enlargement Modal */}
+      {enlargedImage && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50" onClick={() => setEnlargedImage(null)}>
+          <div className="relative max-w-4xl max-h-[90vh] p-4">
+            <button
+              onClick={() => setEnlargedImage(null)}
+              className="absolute top-2 right-2 bg-black bg-opacity-50 text-white rounded-full p-2 hover:bg-opacity-75 z-10"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <img
+              src={enlargedImage}
+              alt="Enlarged storyboard"
+              className="max-w-full max-h-full object-contain rounded-lg"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        </div>
+      )}
     </DragDropContext>
   );
 }
@@ -357,6 +381,7 @@ interface ShotRowProps {
   shotIndex: number;
   onUpdate: (updates: Partial<AVShot>) => void;
   onImageUpload: (file: File) => Promise<void>;
+  onEnlargeImage: (imageUrl: string) => void;
   formatDuration: (seconds: number) => string;
   formatShotNumber: (segmentNumber: number, shotNumber: number) => string;
   dragHandleProps?: DraggableProvidedDragHandleProps | null;
@@ -368,6 +393,7 @@ function ShotRow({
   shotIndex, 
   onUpdate, 
   onImageUpload,
+  onEnlargeImage,
   formatDuration,
   formatShotNumber,
   dragHandleProps
@@ -426,13 +452,21 @@ function ShotRow({
               <img
                 src={shot.imageUrl}
                 alt="Storyboard"
-                className="w-full h-20 object-cover rounded border"
+                className="w-full h-20 object-cover rounded border cursor-pointer hover:opacity-90 transition-opacity"
+                onClick={() => onEnlargeImage(shot.imageUrl!)}
               />
               <button
                 onClick={() => onUpdate({ imageUrl: undefined })}
-                className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100"
+                className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 hover:bg-red-600"
               >
                 ×
+              </button>
+              <button
+                onClick={() => onEnlargeImage(shot.imageUrl!)}
+                className="absolute top-1 left-1 bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 hover:bg-blue-600"
+                title="Enlarge image"
+              >
+                <ZoomIn className="w-3 h-3" />
               </button>
             </div>
           ) : (
