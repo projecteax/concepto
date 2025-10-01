@@ -9,7 +9,9 @@ import {
   Image as ImageIcon,
   GripVertical,
   X,
-  ZoomIn
+  ZoomIn,
+  Trash2,
+  AlertTriangle
 } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
 
@@ -35,6 +37,12 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
   const [showAddSegment, setShowAddSegment] = useState(false);
   const [newSegmentTitle, setNewSegmentTitle] = useState('');
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    type: 'segment' | 'shot' | 'image';
+    id: string;
+    segmentId?: string;
+    title?: string;
+  } | null>(null);
 
   const { uploadFile } = useS3Upload();
 
@@ -141,6 +149,54 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
     }));
   };
 
+  const handleDeleteSegment = (segmentId: string) => {
+    setScript(prev => ({
+      ...prev,
+      segments: prev.segments.filter(segment => segment.id !== segmentId),
+    }));
+    setDeleteConfirmation(null);
+  };
+
+  const handleDeleteShot = (segmentId: string, shotId: string) => {
+    setScript(prev => ({
+      ...prev,
+      segments: prev.segments.map(segment => 
+        segment.id === segmentId 
+          ? {
+              ...segment,
+              shots: segment.shots.filter(shot => shot.id !== shotId),
+              updatedAt: new Date(),
+            }
+          : segment
+      ),
+    }));
+    setDeleteConfirmation(null);
+  };
+
+  const handleDeleteImage = (segmentId: string, shotId: string) => {
+    setScript(prev => ({
+      ...prev,
+      segments: prev.segments.map(segment => 
+        segment.id === segmentId 
+          ? {
+              ...segment,
+              shots: segment.shots.map(shot => 
+                shot.id === shotId 
+                  ? { 
+                      ...shot, 
+                      imageUrl: undefined,
+                      updatedAt: new Date(),
+                    }
+                  : shot
+              ),
+              updatedAt: new Date(),
+            }
+          : segment
+      ),
+    }));
+    setDeleteConfirmation(null);
+  };
+
 
   const handleDragEnd = (result: DropResult) => {
     if (!result.destination) return;
@@ -227,11 +283,25 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
         {script.segments.map((segment) => (
           <div key={segment.id} className="mb-8">
             {/* Segment Header */}
-            <div className="mb-4">
-              <h3 className="text-xl font-semibold text-gray-900">
-                Scene {segment.segmentNumber.toString().padStart(2, '0')}
-              </h3>
-              <p className="text-sm text-gray-600">{segment.title}</p>
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900">
+                  Scene {segment.segmentNumber.toString().padStart(2, '0')}
+                </h3>
+                <p className="text-sm text-gray-600">{segment.title}</p>
+              </div>
+              <button
+                onClick={() => setDeleteConfirmation({
+                  type: 'segment',
+                  id: segment.id,
+                  title: segment.title
+                })}
+                className="flex items-center space-x-1 px-3 py-1 text-sm text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md transition-colors"
+                title="Delete segment"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Delete Segment</span>
+              </button>
             </div>
 
             {/* Shots Table */}
@@ -271,6 +341,18 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
                                 }
                               }}
                               onEnlargeImage={setEnlargedImage}
+                              onDeleteShot={() => setDeleteConfirmation({
+                                type: 'shot',
+                                id: shot.id,
+                                segmentId: segment.id,
+                                title: `Shot ${formatShotNumber(segment.segmentNumber, shotIndex + 1)}`
+                              })}
+                              onDeleteImage={() => setDeleteConfirmation({
+                                type: 'image',
+                                id: shot.id,
+                                segmentId: segment.id,
+                                title: `Image for Shot ${formatShotNumber(segment.segmentNumber, shotIndex + 1)}`
+                              })}
                               formatDuration={formatDuration}
                               formatShotNumber={formatShotNumber}
                               dragHandleProps={provided.dragHandleProps}
@@ -370,6 +452,66 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmation && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="flex-shrink-0">
+                <AlertTriangle className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-medium text-gray-900">Confirm Deletion</h3>
+                <p className="text-sm text-gray-500">
+                  Are you sure you want to delete &quot;{deleteConfirmation.title}&quot;?
+                </p>
+              </div>
+            </div>
+            
+            <div className="mb-4">
+              {deleteConfirmation.type === 'segment' && (
+                <p className="text-sm text-red-600">
+                  This will delete the entire segment and all its shots. This action cannot be undone.
+                </p>
+              )}
+              {deleteConfirmation.type === 'shot' && (
+                <p className="text-sm text-red-600">
+                  This will delete the shot row. This action cannot be undone.
+                </p>
+              )}
+              {deleteConfirmation.type === 'image' && (
+                <p className="text-sm text-red-600">
+                  This will remove the image from the shot. This action cannot be undone.
+                </p>
+              )}
+            </div>
+
+            <div className="flex space-x-3">
+              <button
+                onClick={() => {
+                  if (deleteConfirmation.type === 'segment') {
+                    handleDeleteSegment(deleteConfirmation.id);
+                  } else if (deleteConfirmation.type === 'shot' && deleteConfirmation.segmentId) {
+                    handleDeleteShot(deleteConfirmation.segmentId, deleteConfirmation.id);
+                  } else if (deleteConfirmation.type === 'image' && deleteConfirmation.segmentId) {
+                    handleDeleteImage(deleteConfirmation.segmentId, deleteConfirmation.id);
+                  }
+                }}
+                className="flex-1 bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+              >
+                Delete
+              </button>
+              <button
+                onClick={() => setDeleteConfirmation(null)}
+                className="flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </DragDropContext>
   );
 }
@@ -382,6 +524,8 @@ interface ShotRowProps {
   onUpdate: (updates: Partial<AVShot>) => void;
   onImageUpload: (file: File) => Promise<void>;
   onEnlargeImage: (imageUrl: string) => void;
+  onDeleteShot: () => void;
+  onDeleteImage: () => void;
   formatDuration: (seconds: number) => string;
   formatShotNumber: (segmentNumber: number, shotNumber: number) => string;
   dragHandleProps?: DraggableProvidedDragHandleProps | null;
@@ -394,6 +538,8 @@ function ShotRow({
   onUpdate, 
   onImageUpload,
   onEnlargeImage,
+  onDeleteShot,
+  onDeleteImage,
   formatDuration,
   formatShotNumber,
   dragHandleProps
@@ -456,13 +602,20 @@ function ShotRow({
                 onClick={() => onEnlargeImage(shot.imageUrl!)}
               />
               <button
-                onClick={() => onUpdate({ imageUrl: undefined })}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteImage();
+                }}
                 className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 hover:bg-red-600"
+                title="Delete image"
               >
                 ×
               </button>
               <button
-                onClick={() => onEnlargeImage(shot.imageUrl!)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEnlargeImage(shot.imageUrl!);
+                }}
                 className="absolute top-1 left-1 bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 hover:bg-blue-600"
                 title="Enlarge image"
               >
@@ -486,26 +639,36 @@ function ShotRow({
 
       {/* Duration & Actions */}
       <div className="col-span-3 px-4 py-3">
-        <div className="flex items-center space-x-2">
-          <input
-            type="text"
-            value={formatDuration(shot.duration)}
-            onChange={(e) => {
-              // Parse MM:SS format to seconds
-              const [mins, secs] = e.target.value.split(':').map(Number);
-              if (!isNaN(mins) && !isNaN(secs)) {
-                onUpdate({ duration: mins * 60 + secs });
-              }
-            }}
-            className="w-16 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-            placeholder="00:00"
-          />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <input
+              type="text"
+              value={formatDuration(shot.duration)}
+              onChange={(e) => {
+                // Parse MM:SS format to seconds
+                const [mins, secs] = e.target.value.split(':').map(Number);
+                if (!isNaN(mins) && !isNaN(secs)) {
+                  onUpdate({ duration: mins * 60 + secs });
+                }
+              }}
+              className="w-16 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              placeholder="00:00"
+            />
+            <button
+              onClick={() => setCommentCount(prev => prev + 1)}
+              className="flex items-center space-x-1 text-gray-500 hover:text-gray-700"
+            >
+              <MessageCircle className="w-4 h-4" />
+              <span className="text-xs">{commentCount}</span>
+            </button>
+          </div>
           <button
-            onClick={() => setCommentCount(prev => prev + 1)}
-            className="flex items-center space-x-1 text-gray-500 hover:text-gray-700"
+            onClick={onDeleteShot}
+            className="flex items-center space-x-1 text-red-600 hover:text-red-800 hover:bg-red-50 px-2 py-1 rounded transition-colors"
+            title="Delete shot"
           >
-            <MessageCircle className="w-4 h-4" />
-            <span className="text-xs">{commentCount}</span>
+            <Trash2 className="w-4 h-4" />
+            <span className="text-xs">Delete</span>
           </button>
         </div>
       </div>
