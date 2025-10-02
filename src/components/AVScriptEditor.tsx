@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { DragDropContext, Droppable, Draggable, DropResult, DraggableProvidedDragHandleProps } from 'react-beautiful-dnd';
 import { AVScript, AVSegment, AVShot } from '@/types';
 import { 
   Plus, 
@@ -217,46 +216,52 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
   };
 
 
-  const handleDragStart = (start: { draggableId: string; source: { droppableId: string; index: number } }) => {
-    console.log('Drag started:', start);
+  const [draggedShot, setDraggedShot] = useState<{shot: AVShot, segmentId: string, index: number} | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  const handleDragStart = (e: React.DragEvent, shot: AVShot, segmentId: string, index: number) => {
+    setDraggedShot({ shot, segmentId, index });
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', shot.id);
   };
 
-  const handleDragEnd = (result: DropResult) => {
-    console.log('Drag ended:', result);
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverIndex(index);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverIndex(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetIndex: number, segmentId: string) => {
+    e.preventDefault();
     
-    if (!result.destination) {
-      console.log('No destination, cancelling drag');
+    if (!draggedShot || draggedShot.segmentId !== segmentId) {
+      setDraggedShot(null);
+      setDragOverIndex(null);
       return;
     }
-
-    const { source, destination } = result;
-    const segmentId = source.droppableId;
-
-    console.log('Source:', source, 'Destination:', destination, 'SegmentId:', segmentId);
 
     const segment = script.segments.find(s => s.id === segmentId);
     if (!segment) {
-      console.log('Segment not found:', segmentId);
+      setDraggedShot(null);
+      setDragOverIndex(null);
       return;
     }
 
-    console.log('Current shots:', segment.shots.length);
-
     const shots = Array.from(segment.shots);
-    const [reorderedShot] = shots.splice(source.index, 1);
-    shots.splice(destination.index, 0, reorderedShot);
-
-    console.log('Reordered shots:', shots.length);
+    const [movedShot] = shots.splice(draggedShot.index, 1);
+    shots.splice(targetIndex, 0, movedShot);
 
     // Update order and shot numbers
     const updatedShots = shots.map((shot, index) => ({
       ...shot,
       order: index,
-      shotNumber: segment.segmentNumber * 100 + (index + 1), // e.g., 101, 102, 103
+      shotNumber: segment.segmentNumber * 100 + (index + 1),
       updatedAt: new Date(),
     }));
-
-    console.log('Updated shots:', updatedShots.length);
 
     const updatedScript = {
       ...script,
@@ -271,10 +276,10 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
       ),
     };
     
-    console.log('Setting new script with segments:', updatedScript.segments.length);
     setScript(updatedScript);
-    // Immediate save for drag-and-drop
     onSave(updatedScript);
+    setDraggedShot(null);
+    setDragOverIndex(null);
   };
 
   const calculateWordCount = (text: string): number => {
@@ -298,8 +303,7 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
   };
 
   return (
-    <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
         {/* Header */}
         <div className="border-b border-gray-200 p-6">
           <div className="flex items-center justify-between">
@@ -365,87 +369,83 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
                 <div className="col-span-3 px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</div>
               </div>
 
-              <Droppable droppableId={segment.id}>
-                {(provided, snapshot) => (
+              <div className="min-h-[200px] bg-white">
+                {segment.shots.map((shot, shotIndex) => (
                   <div
-                    ref={provided.innerRef}
-                    {...provided.droppableProps}
-                    className={`min-h-[200px] ${snapshot.isDraggingOver ? 'bg-blue-50 border-2 border-blue-300 border-dashed' : 'bg-white'}`}
+                    key={shot.id}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, shot, segment.id, shotIndex)}
+                    onDragOver={(e) => handleDragOver(e, shotIndex)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, shotIndex, segment.id)}
+                    className={`transition-all duration-200 ${
+                      draggedShot?.shot.id === shot.id 
+                        ? 'opacity-50 bg-blue-100 shadow-lg transform scale-105' 
+                        : dragOverIndex === shotIndex 
+                          ? 'bg-blue-50 border-2 border-blue-300 border-dashed' 
+                          : 'hover:bg-gray-50'
+                    }`}
                   >
-                    {segment.shots.map((shot, shotIndex) => (
-                      <Draggable key={shot.id} draggableId={shot.id} index={shotIndex}>
-                        {(provided, snapshot) => (
-                          <div
-                            ref={provided.innerRef}
-                            {...provided.draggableProps}
-                            className={`transition-all duration-200 ${snapshot.isDragging ? 'bg-blue-100 shadow-lg transform rotate-2 scale-105 z-50' : 'hover:bg-gray-50'}`}
-                          >
-                            <ShotRow
-                              shot={shot}
-                              segmentNumber={segment.segmentNumber}
-                              shotIndex={shotIndex}
-                              onUpdate={(updates) => handleUpdateShot(segment.id, shot.id, updates)}
-                              onImageUpload={async (file) => {
-                                const result = await uploadFile(file, `episodes/${episodeId}/av-script/storyboards/`);
-                                if (result) {
-                                  const updatedScript = {
-                                    ...script,
-                                    segments: script.segments.map(seg => 
-                                      seg.id === segment.id 
-                                        ? {
-                                            ...seg,
-                                            shots: seg.shots.map(s => 
-                                              s.id === shot.id 
-                                                ? { 
-                                                    ...s, 
-                                                    imageUrl: result.url,
-                                                    updatedAt: new Date(),
-                                                  }
-                                                : s
-                                            ),
+                    <ShotRow
+                      shot={shot}
+                      segmentNumber={segment.segmentNumber}
+                      shotIndex={shotIndex}
+                      onUpdate={(updates) => handleUpdateShot(segment.id, shot.id, updates)}
+                      onImageUpload={async (file) => {
+                        const result = await uploadFile(file, `episodes/${episodeId}/av-script/storyboards/`);
+                        if (result) {
+                          const updatedScript = {
+                            ...script,
+                            segments: script.segments.map(seg => 
+                              seg.id === segment.id 
+                                ? {
+                                    ...seg,
+                                    shots: seg.shots.map(s => 
+                                      s.id === shot.id 
+                                        ? { 
+                                            ...s, 
+                                            imageUrl: result.url,
                                             updatedAt: new Date(),
                                           }
-                                        : seg
+                                        : s
                                     ),
-                                  };
-                                  setScript(updatedScript);
-                                  // Immediate save for image uploads
-                                  onSave(updatedScript);
-                                }
-                              }}
-                              onEnlargeImage={setEnlargedImage}
-                              onDeleteShot={() => setDeleteConfirmation({
-                                type: 'shot',
-                                id: shot.id,
-                                segmentId: segment.id,
-                                title: `Shot ${formatShotNumber(segment.segmentNumber, shotIndex + 1)}`
-                              })}
-                              onDeleteImage={() => setDeleteConfirmation({
-                                type: 'image',
-                                id: shot.id,
-                                segmentId: segment.id,
-                                title: `Image for Shot ${formatShotNumber(segment.segmentNumber, shotIndex + 1)}`
-                              })}
-                              formatDuration={formatDuration}
-                              formatShotNumber={formatShotNumber}
-                              dragHandleProps={provided.dragHandleProps}
-                            />
-                          </div>
-                        )}
-                      </Draggable>
-                    ))}
-                    {provided.placeholder}
-                    {snapshot.isDraggingOver && segment.shots.length === 0 && (
-                      <div className="flex items-center justify-center h-32 text-gray-500 border-2 border-dashed border-gray-300 rounded-lg">
-                        <div className="text-center">
-                          <div className="text-lg font-medium">Drop shot here</div>
-                          <div className="text-sm">Release to add to this segment</div>
-                        </div>
-                      </div>
-                    )}
+                                    updatedAt: new Date(),
+                                  }
+                                : seg
+                            ),
+                          };
+                          setScript(updatedScript);
+                          // Immediate save for image uploads
+                          onSave(updatedScript);
+                        }
+                      }}
+                      onEnlargeImage={setEnlargedImage}
+                      onDeleteShot={() => setDeleteConfirmation({
+                        type: 'shot',
+                        id: shot.id,
+                        segmentId: segment.id,
+                        title: `Shot ${formatShotNumber(segment.segmentNumber, shotIndex + 1)}`
+                      })}
+                      onDeleteImage={() => setDeleteConfirmation({
+                        type: 'image',
+                        id: shot.id,
+                        segmentId: segment.id,
+                        title: `Image for Shot ${formatShotNumber(segment.segmentNumber, shotIndex + 1)}`
+                      })}
+                      formatDuration={formatDuration}
+                      formatShotNumber={formatShotNumber}
+                    />
+                  </div>
+                ))}
+                {segment.shots.length === 0 && (
+                  <div className="flex items-center justify-center h-32 text-gray-500 border-2 border-dashed border-gray-300 rounded-lg">
+                    <div className="text-center">
+                      <div className="text-lg font-medium">No shots yet</div>
+                      <div className="text-sm">Add your first shot below</div>
+                    </div>
                   </div>
                 )}
-              </Droppable>
+              </div>
             </div>
 
             {/* Add Shot Button */}
@@ -512,7 +512,6 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
           </div>
         )}
         </div>
-      </div>
 
       {/* Image Enlargement Modal */}
       {enlargedImage && (
@@ -545,23 +544,23 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
               <div>
                 <h3 className="text-lg font-medium text-gray-900">Confirm Deletion</h3>
                 <p className="text-sm text-gray-500">
-                  Are you sure you want to delete &quot;{deleteConfirmation.title}&quot;?
+                  Are you sure you want to delete &quot;{deleteConfirmation?.title}&quot;?
                 </p>
               </div>
             </div>
             
             <div className="mb-4">
-              {deleteConfirmation.type === 'segment' && (
+              {deleteConfirmation?.type === 'segment' && (
                 <p className="text-sm text-red-600">
                   This will delete the entire segment and all its shots. This action cannot be undone.
                 </p>
               )}
-              {deleteConfirmation.type === 'shot' && (
+              {deleteConfirmation?.type === 'shot' && (
                 <p className="text-sm text-red-600">
                   This will delete the shot row. This action cannot be undone.
                 </p>
               )}
-              {deleteConfirmation.type === 'image' && (
+              {deleteConfirmation?.type === 'image' && (
                 <p className="text-sm text-red-600">
                   This will remove the image from the shot. This action cannot be undone.
                 </p>
@@ -571,11 +570,11 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
             <div className="flex space-x-3">
               <button
                 onClick={() => {
-                  if (deleteConfirmation.type === 'segment') {
+                  if (deleteConfirmation?.type === 'segment') {
                     handleDeleteSegment(deleteConfirmation.id);
-                  } else if (deleteConfirmation.type === 'shot' && deleteConfirmation.segmentId) {
+                  } else if (deleteConfirmation?.type === 'shot' && deleteConfirmation?.segmentId) {
                     handleDeleteShot(deleteConfirmation.segmentId, deleteConfirmation.id);
-                  } else if (deleteConfirmation.type === 'image' && deleteConfirmation.segmentId) {
+                  } else if (deleteConfirmation?.type === 'image' && deleteConfirmation?.segmentId) {
                     handleDeleteImage(deleteConfirmation.segmentId, deleteConfirmation.id);
                   }
                 }}
@@ -593,7 +592,7 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
           </div>
         </div>
       )}
-    </DragDropContext>
+    </div>
   );
 }
 
@@ -609,7 +608,6 @@ interface ShotRowProps {
   onDeleteImage: () => void;
   formatDuration: (seconds: number) => string;
   formatShotNumber: (segmentNumber: number, shotNumber: number) => string;
-  dragHandleProps?: DraggableProvidedDragHandleProps | null;
 }
 
 function ShotRow({ 
@@ -622,8 +620,7 @@ function ShotRow({
   onDeleteShot,
   onDeleteImage,
   formatDuration,
-  formatShotNumber,
-  dragHandleProps
+  formatShotNumber
 }: ShotRowProps) {
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -637,7 +634,7 @@ function ShotRow({
     <div className="grid grid-cols-12 border-b border-gray-200 hover:bg-gray-50">
       {/* Row Number */}
       <div className="col-span-1 px-4 py-3 flex items-center">
-        <div {...dragHandleProps}>
+        <div>
           <GripVertical className="w-4 h-4 text-gray-400 mr-2 cursor-grab hover:text-gray-600" />
         </div>
         <div className="flex flex-col">

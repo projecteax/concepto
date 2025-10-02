@@ -221,7 +221,7 @@ export default function CommentThread({ targetType, targetId, className = '' }: 
 
       {/* Comments panel */}
       {showComments && (
-        <div className="absolute left-0 top-full mt-2 w-96 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-96 overflow-y-auto">
+        <div className="absolute right-0 top-full mt-2 w-96 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-96 overflow-y-auto">
           <div className="p-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-medium text-gray-900">Comments</h3>
