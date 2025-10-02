@@ -365,12 +365,40 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
                 <div className="col-span-3 px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</div>
               </div>
 
-              <Droppable droppableId={segment.id}>
+              <Droppable droppableId={segment.id} renderClone={(provided, snapshot, rubric) => (
+                <div
+                  ref={provided.innerRef}
+                  {...provided.draggableProps}
+                  {...provided.dragHandleProps}
+                  className="bg-blue-100 shadow-lg transform rotate-2 scale-105 z-50 border-2 border-blue-400"
+                >
+                  <div className="grid grid-cols-12 border-b border-gray-200 bg-blue-100">
+                    <div className="col-span-1 px-4 py-3 flex items-center">
+                      <GripVertical className="w-4 h-4 text-blue-600 mr-2" />
+                      <div className="text-sm font-medium text-blue-800">
+                        {formatShotNumber(segment.segmentNumber, rubric.source.index + 1)}
+                      </div>
+                    </div>
+                    <div className="col-span-3 px-4 py-3">
+                      <div className="text-sm text-blue-600">Dragging...</div>
+                    </div>
+                    <div className="col-span-3 px-4 py-3">
+                      <div className="text-sm text-blue-600">Dragging...</div>
+                    </div>
+                    <div className="col-span-2 px-4 py-3">
+                      <div className="text-sm text-blue-600">Dragging...</div>
+                    </div>
+                    <div className="col-span-3 px-4 py-3">
+                      <div className="text-sm text-blue-600">Dragging...</div>
+                    </div>
+                  </div>
+                </div>
+              )}>
                 {(provided, snapshot) => (
                   <div
                     ref={provided.innerRef}
                     {...provided.droppableProps}
-                    className={`${snapshot.isDraggingOver ? 'bg-blue-50' : ''}`}
+                    className={`min-h-[200px] ${snapshot.isDraggingOver ? 'bg-blue-50 border-2 border-blue-300 border-dashed' : 'bg-white'}`}
                   >
                     {segment.shots.map((shot, shotIndex) => (
                       <Draggable key={shot.id} draggableId={shot.id} index={shotIndex}>
@@ -378,7 +406,7 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
                           <div
                             ref={provided.innerRef}
                             {...provided.draggableProps}
-                            className={`${snapshot.isDragging ? 'bg-blue-100 shadow-lg' : ''}`}
+                            className={`transition-all duration-200 ${snapshot.isDragging ? 'bg-blue-100 shadow-lg transform rotate-2 scale-105 z-50' : 'hover:bg-gray-50'}`}
                           >
                             <ShotRow
                               shot={shot}
@@ -435,6 +463,14 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
                       </Draggable>
                     ))}
                     {provided.placeholder}
+                    {snapshot.isDraggingOver && segment.shots.length === 0 && (
+                      <div className="flex items-center justify-center h-32 text-gray-500 border-2 border-dashed border-gray-300 rounded-lg">
+                        <div className="text-center">
+                          <div className="text-lg font-medium">Drop shot here</div>
+                          <div className="text-sm">Release to add to this segment</div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </Droppable>
