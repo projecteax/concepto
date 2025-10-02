@@ -217,18 +217,36 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
   };
 
 
+  const handleDragStart = (start: { draggableId: string; source: { droppableId: string; index: number } }) => {
+    console.log('Drag started:', start);
+  };
+
   const handleDragEnd = (result: DropResult) => {
-    if (!result.destination) return;
+    console.log('Drag ended:', result);
+    
+    if (!result.destination) {
+      console.log('No destination, cancelling drag');
+      return;
+    }
 
     const { source, destination } = result;
     const segmentId = source.droppableId;
 
+    console.log('Source:', source, 'Destination:', destination, 'SegmentId:', segmentId);
+
     const segment = script.segments.find(s => s.id === segmentId);
-    if (!segment) return;
+    if (!segment) {
+      console.log('Segment not found:', segmentId);
+      return;
+    }
+
+    console.log('Current shots:', segment.shots.length);
 
     const shots = Array.from(segment.shots);
     const [reorderedShot] = shots.splice(source.index, 1);
     shots.splice(destination.index, 0, reorderedShot);
+
+    console.log('Reordered shots:', shots.length);
 
     // Update order and shot numbers
     const updatedShots = shots.map((shot, index) => ({
@@ -237,6 +255,8 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
       shotNumber: segment.segmentNumber * 100 + (index + 1), // e.g., 101, 102, 103
       updatedAt: new Date(),
     }));
+
+    console.log('Updated shots:', updatedShots.length);
 
     const updatedScript = {
       ...script,
@@ -250,6 +270,8 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
           : segment
       ),
     };
+    
+    console.log('Setting new script with segments:', updatedScript.segments.length);
     setScript(updatedScript);
     // Immediate save for drag-and-drop
     onSave(updatedScript);
@@ -276,7 +298,7 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
   };
 
   return (
-    <DragDropContext onDragEnd={handleDragEnd}>
+    <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="bg-white rounded-lg shadow-sm border border-gray-200">
         {/* Header */}
         <div className="border-b border-gray-200 p-6">
