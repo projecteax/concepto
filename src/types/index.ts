@@ -22,7 +22,7 @@ export interface Comment {
 
 export interface CommentThread {
   id: string;
-  targetType: 'script' | 'storyboard' | 'scene' | 'shot' | 'character' | 'location' | 'general-idea' | 'av-shot';
+  targetType: 'script' | 'storyboard' | 'scene' | 'shot' | 'character' | 'location' | 'general-idea' | 'av-shot' | 'av-segment';
   targetId: string;
   comments: Comment[];
   createdAt: Date;

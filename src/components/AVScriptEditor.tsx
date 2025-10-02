@@ -5,7 +5,6 @@ import { DragDropContext, Droppable, Draggable, DropResult, DraggableProvidedDra
 import { AVScript, AVSegment, AVShot } from '@/types';
 import { 
   Plus, 
-  MessageCircle, 
   Image as ImageIcon,
   GripVertical,
   X,
@@ -14,6 +13,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
+import CommentThread from './CommentThread';
 
 interface AVScriptEditorProps {
   episodeId: string;
@@ -306,11 +306,18 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
           <div key={segment.id} className="mb-8">
             {/* Segment Header */}
             <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h3 className="text-xl font-semibold text-gray-900">
-                  Scene {segment.segmentNumber.toString().padStart(2, '0')}
-                </h3>
-                <p className="text-sm text-gray-600">{segment.title}</p>
+              <div className="flex items-center space-x-4">
+                <div>
+                  <h3 className="text-xl font-semibold text-gray-900">
+                    Scene {segment.segmentNumber.toString().padStart(2, '0')}
+                  </h3>
+                  <p className="text-sm text-gray-600">{segment.title}</p>
+                </div>
+                <CommentThread 
+                  targetType="av-segment" 
+                  targetId={segment.id}
+                  className="inline-block"
+                />
               </div>
               <button
                 onClick={() => setDeleteConfirmation({
@@ -588,7 +595,6 @@ function ShotRow({
   formatShotNumber,
   dragHandleProps
 }: ShotRowProps) {
-  const [commentCount, setCommentCount] = useState(0); // TODO: Get from comment system
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -698,13 +704,11 @@ function ShotRow({
               className="w-16 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               placeholder="00:00"
             />
-            <button
-              onClick={() => setCommentCount(prev => prev + 1)}
-              className="flex items-center space-x-1 text-gray-500 hover:text-gray-700"
-            >
-              <MessageCircle className="w-4 h-4" />
-              <span className="text-xs">{commentCount}</span>
-            </button>
+            <CommentThread 
+              targetType="av-shot" 
+              targetId={shot.id}
+              className="inline-block"
+            />
           </div>
           <button
             onClick={onDeleteShot}
