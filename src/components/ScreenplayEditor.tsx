@@ -53,6 +53,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const isFirstRenderRef = useRef(true);
   const autosaveTimerRef = useRef<number | null>(null);
+  const commentsPanelRef = useRef<HTMLDivElement | null>(null);
   // Upload hook (assumed available in client)
   const { uploadFile } = useS3Upload();
   const editorRef = useRef<HTMLDivElement>(null);
@@ -392,6 +393,12 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
       }
     };
   }, [localData]);
+
+  useEffect(() => {
+    if (activeCommentElementId && commentsPanelRef.current) {
+      commentsPanelRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+    }
+  }, [activeCommentElementId]);
 
   const addCommentToElement = async (elementId: string, files?: FileList | null) => {
     let imageUrls: string[] = [];
@@ -848,7 +855,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
       `}</style>
       <div className="h-full flex flex-col bg-white screenplay-editor" style={{ direction: 'ltr', unicodeBidi: 'embed' }} dir="ltr">
         {/* Editor with left sidebar */}
-        <div className="flex-1 overflow-auto bg-gray-100 p-6 flex">
+        <div className="flex-1 bg-gray-100 p-6 flex">
           {!isPreviewMode && (
             <div className="w-16 mr-6 sticky top-4 self-start">
               <div className="flex flex-col items-center gap-3">
@@ -904,7 +911,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
             </div>
           )}
 
-          <div className="flex-1">
+          <div className="flex-1 overflow-auto">
             <div className="max-w-4xl mx-auto">
           <div
             ref={editorRef}
@@ -965,7 +972,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
 
           {/* Right comments panel */}
           {!isPreviewMode && activeCommentElementId && (
-            <div className="w-80 ml-6 sticky top-4 self-start bg-white border border-gray-200 rounded-lg shadow-sm p-3 h-fit max-h-[80vh] overflow-auto">
+            <div ref={commentsPanelRef} className="w-80 ml-6 sticky top-4 self-start bg-white border border-gray-200 rounded-lg shadow-sm p-3 h-fit max-h-[80vh] overflow-auto">
               <div className="flex items-center justify-between mb-2">
                 <h4 className="font-medium text-gray-800 text-sm">Comments</h4>
                 <button
