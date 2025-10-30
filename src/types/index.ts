@@ -310,9 +310,18 @@ export interface ScreenplayElement {
   type: 'scene-setting' | 'character' | 'action' | 'parenthetical' | 'dialogue' | 'general';
   content: string;
   position: number;
+  comments?: ScreenplayComment[];
 }
 
 export interface ScreenplayData {
   title: string;
   elements: ScreenplayElement[];
+}
+
+export interface ScreenplayComment {
+  id: string;
+  createdAt: number;
+  author?: string;
+  text: string;
+  images?: string[]; // URLs of uploaded images
 }

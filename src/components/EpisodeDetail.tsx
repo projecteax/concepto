@@ -41,6 +41,7 @@ export default function EpisodeDetail({
   const [activeTab, setActiveTab] = useState<'overview' | 'script' | 'av-script' | 'screenwriting' | 'characters' | 'locations' | 'gadgets'>('overview');
   const [localEpisode, setLocalEpisode] = useState<Episode>(episode);
   const screenplayEditorRef = useRef<ScreenplayEditorHandle | null>(null);
+  const [screenplayLastSavedAt, setScreenplayLastSavedAt] = useState<number | null>(null);
   
   // Script editing states
   const [editingScripts, setEditingScripts] = useState<{[sceneId: string]: string}>({});
@@ -960,7 +961,7 @@ export default function EpisodeDetail({
             ))}
           </nav>
           {activeTab === 'screenwriting' && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <button
                 onClick={() => screenplayEditorRef.current?.togglePreview()}
                 className="px-3 py-1.5 rounded-md text-sm font-medium border bg-white hover:bg-gray-100 text-gray-800 flex items-center gap-2"
@@ -984,6 +985,9 @@ export default function EpisodeDetail({
               >
                 Save
               </button>
+              <span className="text-xs text-gray-500 whitespace-nowrap">
+                {screenplayLastSavedAt ? `Last saved: ${new Date(screenplayLastSavedAt).toLocaleString()}` : 'Not saved yet'}
+              </span>
             </div>
           )}
         </div>
@@ -1724,6 +1728,7 @@ export default function EpisodeDetail({
               }}
               onSave={(screenplayData) => {
                 setLocalEpisode(prev => ({ ...prev, screenplayData }));
+                setScreenplayLastSavedAt(Date.now());
                 onSave?.({ ...localEpisode, screenplayData });
               }}
             />

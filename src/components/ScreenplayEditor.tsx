@@ -17,7 +17,8 @@ import {
   EyeOff,
   Download
 } from 'lucide-react';
-import { ScreenplayElement, ScreenplayData } from '@/types';
+import { ScreenplayElement, ScreenplayData, ScreenplayComment } from '@/types';
+import { useS3Upload } from '@/hooks/useS3Upload';
 
 export interface ScreenplayEditorHandle {
   exportPDF: () => void;
@@ -42,6 +43,18 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   const [showToolbar, setShowToolbar] = useState(false);
   const [toolbarPosition, setToolbarPosition] = useState({ x: 0, y: 0 });
   const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [activeCommentElementId, setActiveCommentElementId] = useState<string | null>(null);
+  const [newCommentText, setNewCommentText] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const [confirmDeleteElementId, setConfirmDeleteElementId] = useState<string | null>(null);
+  const [confirmDeleteComment, setConfirmDeleteComment] = useState<{ elementId: string; commentId: string } | null>(null);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const isFirstRenderRef = useRef(true);
+  const autosaveTimerRef = useRef<number | null>(null);
+  // Upload hook (assumed available in client)
+  const { uploadFile } = useS3Upload();
   const editorRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const inputRefs = useRef<{ [key: string]: HTMLTextAreaElement | null }>({});
@@ -279,6 +292,18 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
     setSelectedElementId(null);
   };
 
+  const requestDeleteElement = (id: string) => {
+    setConfirmDeleteElementId(id);
+  };
+
+  const confirmDeleteElement = () => {
+    if (!confirmDeleteElementId) return;
+    deleteElement(confirmDeleteElementId);
+    setConfirmDeleteElementId(null);
+  };
+
+  const cancelDeleteElement = () => setConfirmDeleteElementId(null);
+
   const changeElementType = (id: string, newType: ScreenplayElement['type']) => {
     setLocalData(prev => ({
       ...prev,
@@ -327,7 +352,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
       const target = event.currentTarget as HTMLInputElement;
       if (target.value === '') {
         event.preventDefault();
-        deleteElement(elementId);
+        requestDeleteElement(elementId);
       }
     } else if (event.key === 'Escape') {
       setEditingElementId(null);
@@ -337,8 +362,83 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   };
 
   const handleSave = () => {
+    setIsSaving(true);
     onSave(localData);
+    setIsSaving(false);
+    setLastSavedAt(Date.now());
   };
+
+  // Autosave on changes with debounce
+  useEffect(() => {
+    if (isFirstRenderRef.current) {
+      isFirstRenderRef.current = false;
+      return;
+    }
+    if (autosaveTimerRef.current) {
+      window.clearTimeout(autosaveTimerRef.current);
+    }
+    autosaveTimerRef.current = window.setTimeout(() => {
+      handleSave();
+    }, 800);
+    return () => {
+      if (autosaveTimerRef.current) {
+        window.clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+    };
+  }, [localData]);
+
+  const addCommentToElement = async (elementId: string, files?: FileList | null) => {
+    let imageUrls: string[] = [];
+    try {
+      if (files && files.length > 0 && uploadFile) {
+        setIsUploading(true);
+        const uploads: string[] = [];
+        for (const file of Array.from(files)) {
+          const res = await uploadFile(file, 'screenplay-comments');
+          if (res?.url) uploads.push(res.url);
+        }
+        imageUrls = uploads;
+      }
+    } finally {
+      setIsUploading(false);
+    }
+
+    const comment: ScreenplayComment = {
+      id: `cmt-${Date.now()}`,
+      createdAt: Date.now(),
+      text: newCommentText.trim(),
+      images: imageUrls,
+    };
+
+    setLocalData(prev => ({
+      ...prev,
+      elements: prev.elements.map(e => e.id === elementId
+        ? { ...e, comments: [...(e.comments || []), comment] }
+        : e
+      )
+    }));
+    setNewCommentText('');
+  };
+
+  const requestDeleteComment = (elementId: string, commentId: string) => {
+    setConfirmDeleteComment({ elementId, commentId });
+  };
+
+  const confirmDeleteCommentAction = () => {
+    if (!confirmDeleteComment) return;
+    const { elementId, commentId } = confirmDeleteComment;
+    setLocalData(prev => ({
+      ...prev,
+      elements: prev.elements.map(e => e.id === elementId
+        ? { ...e, comments: (e.comments || []).filter(c => c.id !== commentId) }
+        : e
+      )
+    }));
+    setConfirmDeleteComment(null);
+  };
+
+  const cancelDeleteComment = () => setConfirmDeleteComment(null);
 
   const handleExportPDF = () => {
     // Create a new window for PDF generation
@@ -542,6 +642,16 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
           }`}
           onClick={(e) => !isPreviewMode && handleElementClick(element.id, e)}
         >
+        {/* Comment icon indicator - only when comments exist */}
+        {!isPreviewMode && (element.comments && element.comments.length > 0) && (
+          <button
+            className="absolute -right-8 top-0 w-6 h-6 rounded-full bg-yellow-100 border border-yellow-300 text-yellow-800 flex items-center justify-center shadow-sm hover:bg-yellow-200"
+            title={`${element.comments.length} comment${element.comments.length > 1 ? 's' : ''}`}
+            onClick={(e) => { e.stopPropagation(); setActiveCommentElementId(element.id); }}
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+          </button>
+        )}
         {/* Element Type Label - Much Clearer */}
         {!isPreviewMode && isEditing && (
           <div className="absolute -left-32 top-0 opacity-100 transition-opacity">
@@ -678,12 +788,24 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                 >
                   Parenthetical
                 </button>
+                {/* Add Comment button */}
                 <button
                   type="button"
                   onMouseDown={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    deleteElement(element.id);
+                    setActiveCommentElementId(element.id);
+                  }}
+                  className="px-3 py-1 bg-yellow-500 text-white rounded text-xs hover:bg-yellow-600"
+                >
+                  Add Comment
+                </button>
+                <button
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    requestDeleteElement(element.id);
                   }}
                   className="px-3 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600"
                 >
@@ -835,8 +957,111 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
               </div>
             </div>
           </div>
-        </div>
+
+          {/* Right comments panel */}
+          {!isPreviewMode && activeCommentElementId && (
+            <div className="w-80 ml-6 sticky top-4 self-start bg-white border border-gray-200 rounded-lg shadow-sm p-3 h-fit max-h-[80vh] overflow-auto">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="font-medium text-gray-800 text-sm">Comments</h4>
+                <button
+                  className="text-gray-500 hover:text-gray-700 text-xs"
+                  onClick={() => setActiveCommentElementId(null)}
+                >
+                  Close
+                </button>
+              </div>
+              <div className="space-y-3 mb-3">
+                {(localData.elements.find(e => e.id === activeCommentElementId)?.comments || []).map((c) => (
+                  <div key={c.id} className="border border-gray-200 rounded p-2">
+                    <div className="text-xs text-gray-500 mb-1">{new Date(c.createdAt).toLocaleString()}</div>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="text-sm text-gray-900 whitespace-pre-wrap flex-1">{c.text}</div>
+                      <button
+                        className="text-xs text-red-600 hover:text-red-700"
+                        onClick={() => requestDeleteComment(activeCommentElementId!, c.id)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                    {c.images && c.images.length > 0 && (
+                      <div className="mt-2 grid grid-cols-3 gap-2">
+                        {c.images.map((url, idx) => (
+                          <img
+                            key={idx}
+                            src={url}
+                            alt="comment attachment"
+                            className="w-full h-16 object-cover rounded border cursor-zoom-in"
+                            onClick={() => setPreviewImageUrl(url)}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Add comment */}
+              <div className="border-t pt-2">
+                <textarea
+                  value={newCommentText}
+                  onChange={(e) => setNewCommentText(e.target.value)}
+                  placeholder="Add a note..."
+                  rows={3}
+                  className="w-full text-sm border rounded p-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <div className="flex items-center justify-between mt-2">
+                  <label className="text-xs text-gray-600 cursor-pointer">
+                    <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => addCommentToElement(activeCommentElementId!, e.target.files)} />
+                    Attach images
+                  </label>
+                  <button
+                    disabled={isUploading || newCommentText.trim().length === 0}
+                    onClick={() => addCommentToElement(activeCommentElementId!)}
+                    className={`px-3 py-1.5 rounded text-xs font-medium ${isUploading || newCommentText.trim().length === 0 ? 'bg-gray-200 text-gray-500' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                  >
+                    {isUploading ? 'Uploading...' : 'Add Comment'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
       </div>
+    </div>
+      
+      {/* Confirm delete element modal */}
+      {confirmDeleteElementId && (
+        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center" onClick={cancelDeleteElement}>
+          <div className="bg-white rounded-lg shadow-xl p-5 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="text-base font-medium text-gray-900 mb-2">Delete section?</div>
+            <div className="text-sm text-gray-600 mb-4">This action cannot be undone.</div>
+            <div className="flex justify-end gap-2">
+              <button className="px-3 py-1.5 text-sm rounded border" onClick={cancelDeleteElement}>Cancel</button>
+              <button className="px-3 py-1.5 text-sm rounded bg-red-600 text-white hover:bg-red-700" onClick={confirmDeleteElement}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm delete comment modal */}
+      {confirmDeleteComment && (
+        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center" onClick={cancelDeleteComment}>
+          <div className="bg-white rounded-lg shadow-xl p-5 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="text-base font-medium text-gray-900 mb-2">Delete comment?</div>
+            <div className="text-sm text-gray-600 mb-4">This will remove the comment permanently.</div>
+            <div className="flex justify-end gap-2">
+              <button className="px-3 py-1.5 text-sm rounded border" onClick={cancelDeleteComment}>Cancel</button>
+              <button className="px-3 py-1.5 text-sm rounded bg-red-600 text-white hover:bg-red-700" onClick={confirmDeleteCommentAction}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image preview modal */}
+      {previewImageUrl && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center" onClick={() => setPreviewImageUrl(null)}>
+          <img src={previewImageUrl} alt="preview" className="max-w-[90vw] max-h-[90vh] object-contain" />
+        </div>
+      )}
     </>
   );
 });
