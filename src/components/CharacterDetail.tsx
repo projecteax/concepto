@@ -42,7 +42,7 @@ export function CharacterDetail({
   onAddConcept,
   onDeleteConcept
 }: CharacterDetailProps) {
-  const [activeTab, setActiveTab] = useState<'general' | 'clothing' | 'pose-concepts' | '3d-models' | 'production'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'clothing' | 'gallery' | 'pose-concepts' | '3d-models' | 'production'>('general');
   const [isGenerating, setIsGenerating] = useState(false);
   
   // Form states
@@ -164,7 +164,33 @@ export function CharacterDetail({
   };
 
   const handleRemoveGalleryImage = (index: number) => {
+    const confirmed = typeof window !== 'undefined' ? window.confirm('Delete this image from the gallery?') : true;
+    if (!confirmed) return;
     setCharacterGallery(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Paste-to-upload for gallery
+  const handleGalleryPaste = async (event: React.ClipboardEvent<HTMLDivElement>) => {
+    try {
+      const items = event.clipboardData?.items || [];
+      let handled = false;
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type && item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) {
+            handled = true;
+            await handleGalleryImageUpload(file);
+          }
+        }
+      }
+      if (handled) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    } catch (err) {
+      console.error('Failed to paste image to gallery:', err);
+    }
   };
 
   const handleModelUpload = async (file: File) => {
@@ -414,6 +440,7 @@ export function CharacterDetail({
   const tabs = [
     { id: 'general', label: 'General', icon: Users },
     { id: 'clothing', label: 'Clothing', icon: Shirt },
+    { id: 'gallery', label: 'Gallery', icon: ImageIcon },
     { id: 'pose-concepts', label: 'Concepts', icon: ImageIcon },
     { id: '3d-models', label: '3D Models', icon: Box },
     { id: 'production', label: 'Production', icon: Settings },
@@ -606,6 +633,75 @@ export function CharacterDetail({
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
                       rows={3}
                     />
+                  </div>
+                </div>
+              )}
+
+              {/* Gallery Tab */}
+              {activeTab === 'gallery' && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xl font-semibold text-gray-900">Character Gallery</h3>
+                    <div>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            await handleGalleryImageUpload(file);
+                          }
+                        })}
+                        className="hidden"
+                        id="gallery-upload"
+                      />
+                      <label
+                        htmlFor="gallery-upload"
+                        className="flex items-center space-x-1 px-3 py-1 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 cursor-pointer"
+                      >
+                        <Upload className="w-4 h-4" />
+                        <span>{uploadState.isUploading ? 'Uploading...' : 'Add Image'}</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div
+                    className="rounded-lg"
+                    onPaste={handleGalleryPaste}
+                    tabIndex={0}
+                  >
+                    <div className="text-xs text-gray-500 mb-3 flex items-center gap-2">
+                      <span className="px-2 py-0.5 border border-gray-300 rounded bg-gray-50">Ctrl</span>
+                      +
+                      <span className="px-2 py-0.5 border border-gray-300 rounded bg-gray-50">V</span>
+                      <span>Paste image from clipboard to upload</span>
+                    </div>
+
+                    {characterGallery.length > 0 ? (
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        {characterGallery.map((imageUrl, index) => (
+                          <div key={index} className="relative group">
+                            <img
+                              src={imageUrl}
+                              alt={`Character render ${index + 1}`}
+                              className="w-full h-32 object-cover rounded-lg border cursor-pointer"
+                              onClick={() => setSelectedImage({ url: imageUrl, alt: `Character render ${index + 1}` })}
+                            />
+                            <button
+                              onClick={() => handleRemoveGalleryImage(index)}
+                              className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-lg">
+                        <p className="text-gray-500">No images in the gallery yet.</p>
+                        <p className="text-sm text-gray-400 mt-1">Upload images or paste with Ctrl+V.</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -1455,58 +1551,7 @@ export function CharacterDetail({
                     </div>
                   </div>
 
-                  {/* Character Gallery */}
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-lg font-medium text-gray-800">Character Gallery</h4>
-                      <div>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(async (e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              await handleGalleryImageUpload(file);
-                            }
-                          })}
-                          className="hidden"
-                          id="gallery-upload"
-                        />
-                        <label
-                          htmlFor="gallery-upload"
-                          className="flex items-center space-x-1 px-3 py-1 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 cursor-pointer"
-                        >
-                          <Upload className="w-4 h-4" />
-                          <span>{uploadState.isUploading ? 'Uploading...' : 'Add Image'}</span>
-                        </label>
-                      </div>
-                    </div>
-                    
-                    {characterGallery.length > 0 ? (
-                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                        {characterGallery.map((imageUrl, index) => (
-                          <div key={index} className="relative group">
-                            <img
-                              src={imageUrl}
-                              alt={`Character render ${index + 1}`}
-                              className="w-full h-32 object-cover rounded-lg border"
-                            />
-                            <button
-                              onClick={() => handleRemoveGalleryImage(index)}
-                              className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-lg">
-                        <p className="text-gray-500">No character renders uploaded yet.</p>
-                        <p className="text-sm text-gray-400 mt-1">Upload images to create a character gallery.</p>
-                      </div>
-                    )}
-                  </div>
+                  {/* Character Gallery moved to its own tab */}
 
                   {/* 3D Model Viewer */}
                   {uploadedModels.length > 0 && (
