@@ -133,6 +133,7 @@ export interface Episode {
   description?: string;
   script?: string;
   avScript?: AVScript;
+  screenplayData?: ScreenplayData;
   characters: EpisodeCharacter[];
   locations: EpisodeLocation[];
   scenes?: EpisodeScene[];
@@ -301,4 +302,17 @@ export interface AVScript {
   totalWords: number; // Sum of all segments
   createdAt: Date;
   updatedAt: Date;
+}
+
+// Screenplay System
+export interface ScreenplayElement {
+  id: string;
+  type: 'scene-setting' | 'character' | 'action' | 'parenthetical' | 'dialogue' | 'general';
+  content: string;
+  position: number;
+}
+
+export interface ScreenplayData {
+  title: string;
+  elements: ScreenplayElement[];
 }

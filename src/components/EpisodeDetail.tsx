@@ -16,6 +16,7 @@ import {
 import StoryboardDrawer from './StoryboardDrawer';
 import CommentThread from './CommentThread';
 import { AVScriptEditor } from './AVScriptEditor';
+import ScreenplayEditor from './ScreenplayEditor';
 import { useS3Upload } from '@/hooks/useS3Upload';
 
 interface EpisodeDetailProps {
@@ -874,6 +875,7 @@ export default function EpisodeDetail({
     { id: 'overview', label: 'Overview' },
     { id: 'script', label: 'Script' },
     { id: 'av-script', label: 'AV Script' },
+    { id: 'screenwriting', label: 'Screenwriting' },
     { id: 'characters', label: 'Characters' },
     { id: 'locations', label: 'Locations' },
     { id: 'gadgets', label: 'Special Gadgets' },
@@ -943,7 +945,7 @@ export default function EpisodeDetail({
             {tabs.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as 'overview' | 'script' | 'av-script' | 'characters' | 'locations' | 'gadgets')}
+                onClick={() => setActiveTab(tab.id as 'overview' | 'script' | 'av-script' | 'screenwriting' | 'characters' | 'locations' | 'gadgets')}
                 className={`py-4 px-1 border-b-2 font-medium text-sm ${
                   activeTab === tab.id
                     ? 'border-indigo-500 text-indigo-600'
@@ -1676,6 +1678,22 @@ export default function EpisodeDetail({
               onSave={(avScript) => {
                 setLocalEpisode(prev => ({ ...prev, avScript }));
                 onSave?.({ ...localEpisode, avScript });
+              }}
+            />
+          </div>
+        )}
+
+        {activeTab === 'screenwriting' && (
+          <div className="bg-white rounded-lg shadow-sm h-[800px]">
+            <ScreenplayEditor
+              episodeId={episode.id}
+              screenplayData={localEpisode.screenplayData || {
+                title: localEpisode.title || 'Untitled Screenplay',
+                elements: []
+              }}
+              onSave={(screenplayData) => {
+                setLocalEpisode(prev => ({ ...prev, screenplayData }));
+                onSave?.({ ...localEpisode, screenplayData });
               }}
             />
           </div>
