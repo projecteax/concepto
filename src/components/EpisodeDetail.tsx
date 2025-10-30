@@ -38,7 +38,7 @@ export default function EpisodeDetail({
   onSave,
   isPublicMode = false,
 }: EpisodeDetailProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'script' | 'av-script' | 'characters' | 'locations' | 'gadgets'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'script' | 'av-script' | 'screenwriting' | 'characters' | 'locations' | 'gadgets'>('overview');
   const [localEpisode, setLocalEpisode] = useState<Episode>(episode);
   const screenplayEditorRef = useRef<ScreenplayEditorHandle | null>(null);
   

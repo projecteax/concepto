@@ -841,4 +841,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   );
 });
 
+// Provide a display name to satisfy react/display-name lint rule
+ScreenplayEditor.displayName = 'ScreenplayEditor';
+
 export default ScreenplayEditor;
