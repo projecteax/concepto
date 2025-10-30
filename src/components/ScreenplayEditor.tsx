@@ -524,18 +524,14 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
             position: relative;
             box-sizing: border-box;
           }
+          /* Ensure no extra top spacing on a new page beyond the 1in margin */
+          .page > *:first-child { margin-top: 0 !important; }
           
           .page:last-child {
             page-break-after: avoid;
           }
           
-          .page-number {
-            position: absolute;
-            top: 0.5in;
-            right: 0.5in;
-            font-size: 10pt;
-            color: #666;
-          }
+          /* Page numbers removed */
           
           .title {
             text-align: center;
@@ -598,10 +594,9 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
       <body>
     `;
 
-    // Add title page
+    // Add title page (without page number)
     htmlContent += `
       <div class="page">
-        <div class="page-number">${currentPage}</div>
         <div class="title">${localData.title || 'Untitled Screenplay'}</div>
       </div>
     `;
@@ -610,7 +605,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
     // Add screenplay elements with page breaks
     localData.elements.forEach((element, index) => {
       if (pageBreaks.includes(index)) {
-        htmlContent += `</div><div class="page"><div class="page-number">${currentPage}</div>`;
+        htmlContent += `</div><div class="page">`;
         currentPage++;
       }
 
