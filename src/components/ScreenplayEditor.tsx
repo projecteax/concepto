@@ -58,6 +58,11 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   const editorRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const inputRefs = useRef<{ [key: string]: HTMLTextAreaElement | null }>({});
+  const selectedElementIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    selectedElementIdRef.current = selectedElementId;
+  }, [selectedElementId]);
 
 
   // Auto-focus input when editing starts
@@ -848,7 +853,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
             <div className="w-16 mr-6 sticky top-4 self-start">
               <div className="flex flex-col items-center gap-3">
                 <button
-                  onClick={() => addElement('scene-setting')}
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); addElement('scene-setting', selectedElementIdRef.current || undefined); }}
                   className="w-12 h-12 rounded-md bg-red-600 hover:bg-red-700 shadow text-white flex items-center justify-center"
                   title="Scene Setting"
                   aria-label="Add scene setting"
@@ -856,7 +861,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                   <Type className="w-5 h-5" />
                 </button>
                 <button
-                  onClick={() => addElement('character')}
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); addElement('character', selectedElementIdRef.current || undefined); }}
                   className="w-12 h-12 rounded-md bg-blue-600 hover:bg-blue-700 shadow text-white flex items-center justify-center"
                   title="Character"
                   aria-label="Add character"
@@ -864,7 +869,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                   <Users className="w-5 h-5" />
                 </button>
                 <button
-                  onClick={() => addElement('action')}
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); addElement('action', selectedElementIdRef.current || undefined); }}
                   className="w-12 h-12 rounded-md bg-green-600 hover:bg-green-700 shadow text-white flex items-center justify-center"
                   title="Action"
                   aria-label="Add action"
@@ -872,7 +877,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                   <FileText className="w-5 h-5" />
                 </button>
                 <button
-                  onClick={() => addElement('dialogue')}
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); addElement('dialogue', selectedElementIdRef.current || undefined); }}
                   className="w-12 h-12 rounded-md bg-purple-600 hover:bg-purple-700 shadow text-white flex items-center justify-center"
                   title="Dialogue"
                   aria-label="Add dialogue"
@@ -880,7 +885,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                   <AlignLeft className="w-5 h-5" />
                 </button>
                 <button
-                  onClick={() => addElement('parenthetical')}
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); addElement('parenthetical', selectedElementIdRef.current || undefined); }}
                   className="w-12 h-12 rounded-md bg-orange-600 hover:bg-orange-700 shadow text-white flex items-center justify-center"
                   title="Parenthetical"
                   aria-label="Add parenthetical"
@@ -888,7 +893,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                   <MessageSquare className="w-5 h-5" />
                 </button>
                 <button
-                  onClick={() => addElement('general')}
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); addElement('general', selectedElementIdRef.current || undefined); }}
                   className="w-12 h-12 rounded-md bg-gray-600 hover:bg-gray-700 shadow text-white flex items-center justify-center"
                   title="General"
                   aria-label="Add general"
