@@ -1718,7 +1718,7 @@ export default function EpisodeDetail({
         )}
 
         {activeTab === 'screenwriting' && (
-          <div className="bg-white rounded-lg shadow-sm h-[800px]">
+          <div className="bg-white rounded-lg shadow-sm h-full">
             <ScreenplayEditor
               ref={screenplayEditorRef}
               episodeId={episode.id}
