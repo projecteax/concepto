@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { 
   Type, 
   Users, 
@@ -19,17 +19,23 @@ import {
 } from 'lucide-react';
 import { ScreenplayElement, ScreenplayData } from '@/types';
 
+export interface ScreenplayEditorHandle {
+  exportPDF: () => void;
+  togglePreview: () => void;
+  save: () => void;
+}
+
 interface ScreenplayEditorProps {
   screenplayData: ScreenplayData;
   onSave: (data: ScreenplayData) => void;
   episodeId: string;
 }
 
-const ScreenplayEditor: React.FC<ScreenplayEditorProps> = ({
+const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProps>(({ 
   screenplayData,
   onSave,
   episodeId
-}) => {
+}, ref) => {
   const [localData, setLocalData] = useState<ScreenplayData>(screenplayData);
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
   const [editingElementId, setEditingElementId] = useState<string | null>(null);
@@ -515,6 +521,13 @@ const ScreenplayEditor: React.FC<ScreenplayEditorProps> = ({
     }, 500);
   };
 
+  // expose handlers
+  useImperativeHandle(ref, () => ({
+    exportPDF: handleExportPDF,
+    togglePreview: () => setIsPreviewMode(prev => !prev),
+    save: handleSave
+  }));
+
   const renderElement = (element: ScreenplayElement, index: number) => {
     const isSelected = selectedElementId === element.id;
     const isEditing = editingElementId === element.id;
@@ -707,91 +720,65 @@ const ScreenplayEditor: React.FC<ScreenplayEditorProps> = ({
         }
       `}</style>
       <div className="h-full flex flex-col bg-white screenplay-editor" style={{ direction: 'ltr', unicodeBidi: 'embed' }} dir="ltr">
-        {/* Top Toolbar */}
-      <div className="bg-gray-800 text-white p-4 flex items-center justify-between">
-        <div className="flex items-center space-x-6">
-          <h2 className="text-xl font-bold">Screenplay Editor</h2>
-          <div className="flex items-center space-x-3">
-            <button
-              onClick={() => setIsPreviewMode(!isPreviewMode)}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                isPreviewMode 
-                  ? 'bg-gray-600 text-gray-200' 
-                  : 'bg-blue-600 text-white hover:bg-blue-700'
-              }`}
-            >
-              {isPreviewMode ? 'Switch to Edit' : 'Preview Mode'}
-            </button>
-          </div>
-        </div>
-
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={handleExportPDF}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center space-x-2"
-          >
-            <Download className="w-4 h-4" />
-            <span>Export PDF</span>
-          </button>
-          <button
-            onClick={handleSave}
-            className="px-6 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors"
-          >
-            Save Screenplay
-          </button>
-        </div>
-      </div>
-
-      {/* Element Type Buttons - Much Better Design */}
-      {!isPreviewMode && (
-        <div className="bg-gray-100 border-b-2 border-gray-300 p-4">
-          <div className="flex items-center space-x-4">
-            <span className="text-lg font-semibold text-gray-800">Add New Element:</span>
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={() => addElement('scene-setting')}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors shadow-md"
-              >
-                Scene Setting
-              </button>
-              <button
-                onClick={() => addElement('character')}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors shadow-md"
-              >
-                Character
-              </button>
-              <button
-                onClick={() => addElement('action')}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors shadow-md"
-              >
-                Action
-              </button>
-              <button
-                onClick={() => addElement('dialogue')}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors shadow-md"
-              >
-                Dialogue
-              </button>
-              <button
-                onClick={() => addElement('parenthetical')}
-                className="px-4 py-2 bg-orange-600 text-white rounded-lg font-medium hover:bg-orange-700 transition-colors shadow-md"
-              >
-                Parenthetical
-              </button>
-              <button
-                onClick={() => addElement('general')}
-                className="px-4 py-2 bg-gray-600 text-white rounded-lg font-medium hover:bg-gray-700 transition-colors shadow-md"
-              >
-                General
-              </button>
+        {/* Editor with left sidebar */}
+        <div className="flex-1 overflow-auto bg-gray-100 p-6 flex">
+          {!isPreviewMode && (
+            <div className="w-16 mr-6 sticky top-4 self-start">
+              <div className="flex flex-col items-center gap-3">
+                <button
+                  onClick={() => addElement('scene-setting')}
+                  className="w-12 h-12 rounded-md bg-red-600 hover:bg-red-700 shadow text-white flex items-center justify-center"
+                  title="Scene Setting"
+                  aria-label="Add scene setting"
+                >
+                  <Type className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() => addElement('character')}
+                  className="w-12 h-12 rounded-md bg-blue-600 hover:bg-blue-700 shadow text-white flex items-center justify-center"
+                  title="Character"
+                  aria-label="Add character"
+                >
+                  <Users className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() => addElement('action')}
+                  className="w-12 h-12 rounded-md bg-green-600 hover:bg-green-700 shadow text-white flex items-center justify-center"
+                  title="Action"
+                  aria-label="Add action"
+                >
+                  <FileText className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() => addElement('dialogue')}
+                  className="w-12 h-12 rounded-md bg-purple-600 hover:bg-purple-700 shadow text-white flex items-center justify-center"
+                  title="Dialogue"
+                  aria-label="Add dialogue"
+                >
+                  <AlignLeft className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() => addElement('parenthetical')}
+                  className="w-12 h-12 rounded-md bg-orange-600 hover:bg-orange-700 shadow text-white flex items-center justify-center"
+                  title="Parenthetical"
+                  aria-label="Add parenthetical"
+                >
+                  <MessageSquare className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() => addElement('general')}
+                  className="w-12 h-12 rounded-md bg-gray-600 hover:bg-gray-700 shadow text-white flex items-center justify-center"
+                  title="General"
+                  aria-label="Add general"
+                >
+                  <FileText className="w-5 h-5" />
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          )}
 
-      {/* Editor */}
-      <div className="flex-1 overflow-auto bg-gray-100 p-8">
-        <div className="max-w-4xl mx-auto">
+          <div className="flex-1">
+            <div className="max-w-4xl mx-auto">
           <div
             ref={editorRef}
             style={pageStyles}
@@ -845,12 +832,13 @@ const ScreenplayEditor: React.FC<ScreenplayEditorProps> = ({
                 </div>
               </div>
             )}
+              </div>
+            </div>
           </div>
         </div>
       </div>
-      </div>
     </>
   );
-};
+});
 
 export default ScreenplayEditor;

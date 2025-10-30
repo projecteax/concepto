@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Show, Episode, EpisodeScene, SceneShot, Character, GlobalAsset } from '@/types';
 import { 
   Plus, 
@@ -11,12 +11,14 @@ import {
   Edit3,
   Save,
   Trash2,
-  Upload
+  Upload,
+  Download,
+  Eye
 } from 'lucide-react';
 import StoryboardDrawer from './StoryboardDrawer';
 import CommentThread from './CommentThread';
 import { AVScriptEditor } from './AVScriptEditor';
-import ScreenplayEditor from './ScreenplayEditor';
+import ScreenplayEditor, { ScreenplayEditorHandle } from './ScreenplayEditor';
 import { useS3Upload } from '@/hooks/useS3Upload';
 
 interface EpisodeDetailProps {
@@ -38,6 +40,7 @@ export default function EpisodeDetail({
 }: EpisodeDetailProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'script' | 'av-script' | 'characters' | 'locations' | 'gadgets'>('overview');
   const [localEpisode, setLocalEpisode] = useState<Episode>(episode);
+  const screenplayEditorRef = useRef<ScreenplayEditorHandle | null>(null);
   
   // Script editing states
   const [editingScripts, setEditingScripts] = useState<{[sceneId: string]: string}>({});
@@ -940,7 +943,7 @@ export default function EpisodeDetail({
 
       {/* Tabs */}
       <div className="bg-white border-b border-gray-200">
-        <div className="px-6">
+        <div className="px-6 flex items-center justify-between">
           <nav className="flex space-x-8">
             {tabs.map((tab) => (
               <button
@@ -956,6 +959,33 @@ export default function EpisodeDetail({
               </button>
             ))}
           </nav>
+          {activeTab === 'screenwriting' && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => screenplayEditorRef.current?.togglePreview()}
+                className="px-3 py-1.5 rounded-md text-sm font-medium border bg-white hover:bg-gray-100 text-gray-800 flex items-center gap-2"
+                title="Preview"
+              >
+                <Eye className="w-4 h-4" />
+                <span>Preview</span>
+              </button>
+              <button
+                onClick={() => screenplayEditorRef.current?.exportPDF()}
+                className="px-3 py-1.5 rounded-md text-sm font-medium border bg-white hover:bg-gray-100 text-gray-800 flex items-center gap-2"
+                title="Export PDF"
+              >
+                <Download className="w-4 h-4" />
+                <span>Export</span>
+              </button>
+              <button
+                onClick={() => screenplayEditorRef.current?.save()}
+                className="px-3 py-1.5 rounded-md text-sm font-medium border bg-green-600 text-white hover:bg-green-700"
+                title="Save"
+              >
+                Save
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1686,6 +1716,7 @@ export default function EpisodeDetail({
         {activeTab === 'screenwriting' && (
           <div className="bg-white rounded-lg shadow-sm h-[800px]">
             <ScreenplayEditor
+              ref={screenplayEditorRef}
               episodeId={episode.id}
               screenplayData={localEpisode.screenplayData || {
                 title: localEpisode.title || 'Untitled Screenplay',
