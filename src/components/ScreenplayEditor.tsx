@@ -22,6 +22,7 @@ import { useS3Upload } from '@/hooks/useS3Upload';
 
 export interface ScreenplayEditorHandle {
   exportPDF: () => void;
+  exportVO: () => void;
   togglePreview: () => void;
   save: () => void;
 }
@@ -457,41 +458,6 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
-    // Calculate page breaks for PDF
-    const calculatePageBreaks = (elements: ScreenplayElement[]) => {
-      const linesPerPage = 55; // Industry standard for 12pt Courier font
-      const pageBreaks: number[] = [];
-      let currentLines = 0;
-
-      elements.forEach((element, index) => {
-        let elementLines = 1;
-        
-        if (element.content) {
-          const maxCharsPerLine = element.type === 'dialogue' ? 35 : 60;
-          const contentLines = Math.ceil(element.content.length / maxCharsPerLine);
-          elementLines = Math.max(1, contentLines);
-        }
-
-        const spacing = element.type === 'scene-setting' ? 2 : 
-                       element.type === 'character' ? 1 : 
-                       element.type === 'parenthetical' ? 0.5 : 1;
-
-        const totalElementLines = elementLines + spacing;
-
-        if (currentLines + totalElementLines > linesPerPage && index > 0) {
-          pageBreaks.push(index);
-          currentLines = totalElementLines;
-        } else {
-          currentLines += totalElementLines;
-        }
-      });
-
-      return pageBreaks;
-    };
-
-    const pageBreaks = calculatePageBreaks(localData.elements);
-    let currentPage = 1;
-
     // Generate HTML content for PDF
     let htmlContent = `
       <!DOCTYPE html>
@@ -501,8 +467,14 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
         <title>${localData.title || 'Untitled Screenplay'}</title>
         <style>
           @page {
-            size: 8.5in 11in;
+            size: letter;
             margin: 1in;
+          }
+          
+          * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
           }
           
           body {
@@ -512,26 +484,19 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
             margin: 0;
             padding: 0;
             color: #000;
-            width: 8.5in;
           }
           
           .page {
-            width: 8.5in;
-            min-height: 11in;
-            margin: 0;
-            padding: 1in;
+            width: 6.5in;
+            min-height: 9in;
+            margin: 0 auto;
             page-break-after: always;
             position: relative;
-            box-sizing: border-box;
           }
-          /* Ensure no extra top spacing on a new page beyond the 1in margin */
-          .page > *:first-child { margin-top: 0 !important; }
           
           .page:last-child {
             page-break-after: avoid;
           }
-          
-          /* Page numbers removed */
           
           .title {
             text-align: center;
@@ -594,21 +559,15 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
       <body>
     `;
 
-    // Add title page (without page number)
+    // Add title page
     htmlContent += `
       <div class="page">
         <div class="title">${localData.title || 'Untitled Screenplay'}</div>
       </div>
     `;
-    currentPage++;
 
-    // Add screenplay elements with page breaks
-    localData.elements.forEach((element, index) => {
-      if (pageBreaks.includes(index)) {
-        htmlContent += `</div><div class="page">`;
-        currentPage++;
-      }
-
+    // Add screenplay elements
+    localData.elements.forEach((element) => {
       const elementClass = element.type.replace('-', '-');
       htmlContent += `<div class="${elementClass}">${element.content || '&nbsp;'}</div>`;
     });
@@ -622,15 +581,143 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
     printWindow.document.write(htmlContent);
     printWindow.document.close();
 
-    // Trigger print dialog
+    // Trigger print dialog after a short delay
     setTimeout(() => {
       printWindow.print();
+      // Close the window after printing
+      printWindow.addEventListener('afterprint', () => {
+        printWindow.close();
+      });
+    }, 500);
+  };
+
+  const handleExportVO = () => {
+    // Create a new window for VO PDF generation
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    // Filter elements to only scene-setting, character, and dialogue
+    const voElements = localData.elements.filter(element => 
+      element.type === 'scene-setting' || 
+      element.type === 'character' || 
+      element.type === 'dialogue'
+    );
+
+    // Generate HTML content for PDF
+    let htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>${localData.title || 'Untitled Screenplay'} - VO</title>
+        <style>
+          @page {
+            size: letter;
+            margin: 1in;
+          }
+          
+          * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+          }
+          
+          body {
+            font-family: 'Courier New', monospace;
+            font-size: 12pt;
+            line-height: 1.2;
+            margin: 0;
+            padding: 0;
+            color: #000;
+          }
+          
+          .page {
+            width: 6.5in;
+            min-height: 9in;
+            margin: 0 auto;
+            page-break-after: always;
+            position: relative;
+          }
+          
+          .page:last-child {
+            page-break-after: avoid;
+          }
+          
+          .title {
+            text-align: center;
+            font-size: 24pt;
+            font-weight: bold;
+            margin-bottom: 2in;
+            text-transform: uppercase;
+          }
+          
+          .scene-setting {
+            text-transform: uppercase;
+            font-weight: bold;
+            margin: 1em 0 0.5em 0;
+            margin-left: 0.5in;
+            margin-right: 1.0in;
+            width: 5.5in;
+          }
+          
+          .character {
+            text-transform: uppercase;
+            font-weight: bold;
+            margin: 0.5em 0 0.25em 0;
+            text-align: center;
+            margin-left: 3.1in;
+            margin-right: 3.1in;
+            width: 1.3in;
+          }
+          
+          .dialogue {
+            margin: 0.25em 0 0.5em 0;
+            margin-left: 1.5in;
+            margin-right: 1.5in;
+            width: 3.5in;
+            text-align: left;
+          }
+        </style>
+      </head>
+      <body>
+    `;
+
+    // Add title page
+    htmlContent += `
+      <div class="page">
+        <div class="title">${localData.title || 'Untitled Screenplay'} - VO</div>
+      </div>
+    `;
+
+    // Add VO elements only
+    voElements.forEach((element) => {
+      const elementClass = element.type.replace('-', '-');
+      htmlContent += `<div class="${elementClass}">${element.content || '&nbsp;'}</div>`;
+    });
+
+    htmlContent += `
+      </body>
+      </html>
+    `;
+
+    // Write content to new window
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+
+    // Trigger print dialog after a short delay
+    setTimeout(() => {
+      printWindow.print();
+      // Close the window after printing
+      printWindow.addEventListener('afterprint', () => {
+        printWindow.close();
+      });
     }, 500);
   };
 
   // expose handlers
   useImperativeHandle(ref, () => ({
     exportPDF: handleExportPDF,
+    exportVO: handleExportVO,
     togglePreview: () => setIsPreviewMode(prev => !prev),
     save: handleSave
   }));

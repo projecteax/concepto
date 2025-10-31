@@ -979,6 +979,14 @@ export default function EpisodeDetail({
                 <span>Export</span>
               </button>
               <button
+                onClick={() => screenplayEditorRef.current?.exportVO()}
+                className="px-3 py-1.5 rounded-md text-sm font-medium border bg-white hover:bg-gray-100 text-gray-800 flex items-center gap-2"
+                title="Export VO"
+              >
+                <Download className="w-4 h-4" />
+                <span>Export VO</span>
+              </button>
+              <button
                 onClick={() => screenplayEditorRef.current?.save()}
                 className="px-3 py-1.5 rounded-md text-sm font-medium border bg-green-600 text-white hover:bg-green-700"
                 title="Save"
