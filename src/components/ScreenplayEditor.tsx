@@ -52,6 +52,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const [dropdownDirection, setDropdownDirection] = useState<{ [key: string]: 'up' | 'down' }>({});
   const isFirstRenderRef = useRef(true);
   const autosaveTimerRef = useRef<number | null>(null);
   const commentsPanelRef = useRef<HTMLDivElement | null>(null);
@@ -79,6 +80,18 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
           input.style.height = input.scrollHeight + 'px';
           input.focus();
           input.select(); // Select all text for easy replacement
+          
+          // Determine dropdown direction based on position in viewport
+          const rect = input.getBoundingClientRect();
+          const viewportHeight = window.innerHeight;
+          const spaceBelow = viewportHeight - rect.bottom;
+          const spaceAbove = rect.top;
+          const dropdownHeight = 250; // Approximate dropdown height
+          
+          setDropdownDirection(prev => ({
+            ...prev,
+            [editingElementId]: spaceBelow < dropdownHeight && spaceAbove > dropdownHeight ? 'up' : 'down'
+          }));
         }
       }, 10);
     }
@@ -813,7 +826,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
 
         {/* Action Buttons - Much Better Design */}
         {!isPreviewMode && isEditing && (
-          <div className="absolute -right-32 top-0 flex flex-col space-y-2">
+          <div className={`absolute -right-32 ${dropdownDirection[element.id] === 'up' ? 'bottom-0' : 'top-0'} flex flex-col space-y-2`}>
             <div className="bg-white border-2 border-gray-300 rounded-lg p-2 shadow-lg">
               <div className="text-xs font-semibold text-gray-700 mb-2">Change Type:</div>
               <div className="flex flex-col space-y-1">
@@ -882,6 +895,8 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                 >
                   Parenthetical
                 </button>
+                {/* Divider */}
+                <div className="border-t border-gray-300 my-1"></div>
                 {/* Add Comment button */}
                 <button
                   type="button"
