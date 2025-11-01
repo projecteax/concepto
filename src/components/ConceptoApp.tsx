@@ -310,6 +310,7 @@ export function ConceptoApp({
         general: character.general,
         clothing: character.clothing,
         pose: character.pose,
+        voice: character.voice,
         mainImage: character.mainImage,
         modelFiles: character.modelFiles,
         characterGallery: character.characterGallery,

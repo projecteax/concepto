@@ -275,7 +275,7 @@ export async function generatePresignedUploadUrl(
  * Validate file before upload
  */
 export function validateFile(file: File): { valid: boolean; error?: string } {
-  // Check file size (50MB limit for 3D models, 10MB for images)
+  // Check file size (50MB limit for 3D models and audio, 10MB for images)
   const maxSize = file.type.startsWith('image/') ? 10 * 1024 * 1024 : 50 * 1024 * 1024;
   if (file.size > maxSize) {
     return {
@@ -284,19 +284,22 @@ export function validateFile(file: File): { valid: boolean; error?: string } {
     };
   }
 
-  // Check file type - allow images and 3D model files
+  // Check file type - allow images, 3D model files, and audio files
   const allowedImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
   const allowed3DTypes = ['application/octet-stream', 'model/fbx', 'model/gltf-binary', 'application/x-blender'];
-  const allowedExtensions = ['.fbx', '.usdz', '.blend', '.glb', '.gltf'];
+  const allowedAudioTypes = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/webm', 'audio/mp3', 'audio/m4a', 'audio/aac'];
+  const allowed3DExtensions = ['.fbx', '.usdz', '.blend', '.glb', '.gltf'];
+  const allowedAudioExtensions = ['.mp3', '.wav', '.ogg', '.webm', '.m4a', '.aac'];
   
   const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
   const isImage = allowedImageTypes.includes(file.type);
-  const is3DModel = allowed3DTypes.includes(file.type) || allowedExtensions.includes(fileExtension);
+  const is3DModel = allowed3DTypes.includes(file.type) || allowed3DExtensions.includes(fileExtension);
+  const isAudio = allowedAudioTypes.includes(file.type) || allowedAudioExtensions.includes(fileExtension);
   
-  if (!isImage && !is3DModel) {
+  if (!isImage && !is3DModel && !isAudio) {
     return {
       valid: false,
-      error: 'Only image files (JPEG, PNG, GIF, WebP) and 3D model files (FBX, USDZ, Blend, GLB, GLTF) are allowed',
+      error: 'Only image files (JPEG, PNG, GIF, WebP), 3D model files (FBX, USDZ, Blend, GLB, GLTF), and audio files (MP3, WAV, OGG, WebM, M4A, AAC) are allowed',
     };
   }
 

@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Character, AssetConcept, CharacterGeneral, CharacterClothing, CharacterPose } from '@/types';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Character, AssetConcept, CharacterGeneral, CharacterClothing, CharacterPose, CharacterVoice } from '@/types';
 import { 
   ArrowLeft, 
   Save, 
@@ -21,7 +21,8 @@ import {
   List,
   Plus,
   X,
-  Download
+  Download,
+  Mic
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useS3Upload } from '@/hooks/useS3Upload';
@@ -42,13 +43,18 @@ export function CharacterDetail({
   onAddConcept,
   onDeleteConcept
 }: CharacterDetailProps) {
-  const [activeTab, setActiveTab] = useState<'general' | 'clothing' | 'gallery' | 'pose-concepts' | '3d-models' | 'production'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'clothing' | 'gallery' | 'pose-concepts' | '3d-models' | 'production' | 'voice'>('general');
   const [isGenerating, setIsGenerating] = useState(false);
+  
+  // Autosave ref
+  const isFirstRenderRef = useRef(true);
+  const autosaveTimerRef = useRef<number | null>(null);
   
   // Form states
   const [general, setGeneral] = useState<CharacterGeneral>(character.general || {});
   const [clothing, setClothing] = useState<CharacterClothing>(character.clothing || {});
   const [pose, setPose] = useState<CharacterPose>(character.pose || { defaultPose: 'T-pose' });
+  const [voice, setVoice] = useState<CharacterVoice>(character.voice || {});
   
   // Concept generation
   const [generationPrompt, setGenerationPrompt] = useState('');
@@ -88,12 +94,24 @@ export function CharacterDetail({
   // 3D model upload state
   const [uploadedModels, setUploadedModels] = useState<Array<{url: string, filename: string, size: number, uploadDate: Date}>>(character.uploadedModels || []);
   
+  // Voice upload states
+  const [uploadedVoiceFiles, setUploadedVoiceFiles] = useState<File[]>([]);
+  const [uploadingVoiceFiles, setUploadingVoiceFiles] = useState<Map<string, { progress: number; error?: string }>>(new Map());
+  const [voiceFormData, setVoiceFormData] = useState<Map<number, { description: string; language: string }>>(new Map());
+  
   // Update uploadedModels state when character data changes
   useEffect(() => {
     if (character.uploadedModels) {
       setUploadedModels(character.uploadedModels);
     }
   }, [character.uploadedModels]);
+
+  // Update voice state when character data changes
+  useEffect(() => {
+    if (character.voice) {
+      setVoice(character.voice);
+    }
+  }, [character.voice]);
 
   // Handle ESC key to close image modal
   useEffect(() => {
@@ -112,13 +130,14 @@ export function CharacterDetail({
   // S3 upload hook
   const { uploadFile, uploadState } = useS3Upload();
 
-  const handleSave = () => {
+  const handleSave = useCallback(() => {
     console.log('💾 Saving character with uploadedModels:', uploadedModels);
     const updatedCharacter: Character = {
       ...character,
       general,
       clothing,
       pose,
+      voice,
       mainImage: mainImageUrl || undefined,
       modelFiles,
       characterGallery,
@@ -127,7 +146,27 @@ export function CharacterDetail({
     console.log('💾 Updated character data:', updatedCharacter);
     console.log('💾 Uploaded models being saved:', updatedCharacter.uploadedModels);
     onSave(updatedCharacter);
-  };
+  }, [character, general, clothing, pose, voice, mainImageUrl, modelFiles, characterGallery, uploadedModels, onSave]);
+
+  // Autosave on voice changes with debounce
+  useEffect(() => {
+    if (isFirstRenderRef.current) {
+      isFirstRenderRef.current = false;
+      return;
+    }
+    if (autosaveTimerRef.current) {
+      window.clearTimeout(autosaveTimerRef.current);
+    }
+    autosaveTimerRef.current = window.setTimeout(() => {
+      handleSave();
+    }, 800);
+    return () => {
+      if (autosaveTimerRef.current) {
+        window.clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+    };
+  }, [voice, general, clothing, pose, modelFiles, characterGallery, uploadedModels, mainImageUrl, handleSave]);
 
   const handleAddExpression = () => {
     setModelFiles(prev => ({
@@ -400,6 +439,57 @@ export function CharacterDetail({
     });
   };
 
+  const handleVoiceUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    if (files.length > 0) {
+      setUploadedVoiceFiles(prev => [...prev, ...files]);
+      
+      // Upload each file to S3
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fileId = `${Date.now()}-${Math.random()}-${i}`;
+        
+        setUploadingVoiceFiles(prev => new Map(prev.set(fileId, { progress: 0 })));
+        
+        try {
+          const result = await uploadFile(file, `characters/${character.id}/voice`);
+          if (result && result.url) {
+            // Add uploaded file to voice samples
+            const newSample = {
+              url: result.url,
+              description: voiceFormData.get(i)?.description || '',
+              filename: file.name,
+              language: voiceFormData.get(i)?.language || ''
+            };
+            setVoice(prev => ({
+              ...prev,
+              samples: [...(prev.samples || []), newSample]
+            }));
+            
+            setUploadingVoiceFiles(prev => new Map(prev.set(fileId, { progress: 100 })));
+          } else {
+            setUploadingVoiceFiles(prev => new Map(prev.set(fileId, { progress: 0, error: 'Upload failed' })));
+          }
+        } catch (error) {
+          console.error('Error uploading voice file:', error);
+          setUploadingVoiceFiles(prev => new Map(prev.set(fileId, { progress: 0, error: 'Upload failed' })));
+        }
+      }
+      
+      // Clean up
+      setUploadedVoiceFiles([]);
+      setVoiceFormData(new Map());
+      event.target.value = '';
+    }
+  };
+
+  const handleRemoveVoiceSample = (index: number) => {
+    setVoice(prev => ({
+      ...prev,
+      samples: prev.samples?.filter((_, i) => i !== index) || []
+    }));
+  };
+
   // Sort and filter concepts based on selected criteria
   const getSortedConcepts = () => {
     let concepts = [...character.concepts];
@@ -444,6 +534,7 @@ export function CharacterDetail({
     { id: 'pose-concepts', label: 'Concepts', icon: ImageIcon },
     { id: '3d-models', label: '3D Models', icon: Box },
     { id: 'production', label: 'Production', icon: Settings },
+    { id: 'voice', label: 'Voice', icon: Mic },
   ] as const;
 
   return (
@@ -1314,6 +1405,101 @@ export function CharacterDetail({
                         </p>
                       </div>
                     )}
+                  </div>
+                </div>
+              )}
+
+              {/* Voice Tab */}
+              {activeTab === 'voice' && (
+                <div className="space-y-8">
+                  <h3 className="text-xl font-semibold text-gray-900">Voice</h3>
+
+                  {/* Voice Description */}
+                  <div className="border border-gray-200 rounded-lg p-6">
+                    <h4 className="text-lg font-medium text-gray-900 mb-4">Voice Description</h4>
+                    <textarea
+                      value={voice.description || ''}
+                      onChange={(e) => setVoice(prev => ({ ...prev, description: e.target.value }))}
+                      placeholder="Describe the character's voice (tone, pitch, accent, etc.)..."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                      rows={4}
+                    />
+                  </div>
+
+                  {/* Voice Samples */}
+                  <div className="border border-gray-200 rounded-lg p-6">
+                    <h4 className="text-lg font-medium text-gray-900 mb-4">Voice Samples</h4>
+                    <div className="space-y-4">
+                      <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                        <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                        <p className="text-sm text-gray-600 mb-2">Upload audio files</p>
+                        <input
+                          type="file"
+                          accept="audio/*"
+                          multiple
+                          onChange={handleVoiceUpload}
+                          className="hidden"
+                          id="voice-upload"
+                        />
+                        <label
+                          htmlFor="voice-upload"
+                          className="inline-block px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 cursor-pointer transition-colors"
+                        >
+                          Choose Files
+                        </label>
+                      </div>
+
+                      {/* Voice Samples List */}
+                      {voice.samples && voice.samples.length > 0 && (
+                        <div className="space-y-4">
+                          <h5 className="text-sm font-medium text-gray-700">Uploaded Voice Samples</h5>
+                          <div className="space-y-4">
+                            {voice.samples.map((sample, index) => (
+                              <div key={index} className="border border-gray-200 rounded-lg p-4">
+                                <div className="flex items-start space-x-4 mb-3">
+                                  <div className="flex-1">
+                                    <div className="flex items-center space-x-2 mb-2">
+                                      <audio controls className="w-full max-w-md">
+                                        <source src={sample.url} />
+                                      </audio>
+                                    </div>
+                                    <input
+                                      type="text"
+                                      value={sample.language || ''}
+                                      onChange={(e) => {
+                                        const updatedSamples = [...(voice.samples || [])];
+                                        updatedSamples[index] = { ...updatedSamples[index], language: e.target.value };
+                                        setVoice(prev => ({ ...prev, samples: updatedSamples }));
+                                      }}
+                                      placeholder="Language (e.g., English, Polish, etc.)"
+                                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-transparent"
+                                    />
+                                    <textarea
+                                      value={sample.description || ''}
+                                      onChange={(e) => {
+                                        const updatedSamples = [...(voice.samples || [])];
+                                        updatedSamples[index] = { ...updatedSamples[index], description: e.target.value };
+                                        setVoice(prev => ({ ...prev, samples: updatedSamples }));
+                                      }}
+                                      placeholder="Description..."
+                                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-transparent resize-none mt-2"
+                                      rows={2}
+                                    />
+                                    <p className="text-xs text-gray-500 mt-2">{sample.filename}</p>
+                                  </div>
+                                  <button
+                                    onClick={() => handleRemoveVoiceSample(index)}
+                                    className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-sm"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}

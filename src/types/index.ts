@@ -89,6 +89,7 @@ export interface Character extends GlobalAsset {
   general: CharacterGeneral;
   clothing: CharacterClothing;
   pose: CharacterPose;
+  voice?: CharacterVoice;
   modelFiles?: CharacterModelFiles;
   characterGallery?: string[]; // Array of character render image URLs
   uploadedModels?: Array<{url: string, filename: string, size: number, uploadDate: Date}>; // Array of uploaded 3D models
@@ -113,6 +114,11 @@ export interface CharacterPose {
   defaultPose: 'T-pose' | 'free-pose';
   poseDescription?: string;
   referenceImages?: string[];
+}
+
+export interface CharacterVoice {
+  description?: string;
+  samples?: Array<{url: string, description: string, filename: string, language: string}>;
 }
 
 export interface CharacterModelFiles {
