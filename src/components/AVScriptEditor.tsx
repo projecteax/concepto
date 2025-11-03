@@ -66,6 +66,7 @@ export function AVScriptEditor({ episodeId, avScript, onSave }: AVScriptEditorPr
     }, 1000);
 
     return () => clearTimeout(timeoutId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [script.segments, script.title, script.version, onSave]);
 
   const handleAddSegment = () => {

@@ -931,7 +931,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
     const closePage = () => {
       if (currentPageElements.length === 0) return;
       
-      let pageContent = currentPageElements.join('');
+      const pageContent = currentPageElements.join('');
       htmlContent += `<div class="page">${pageContent}</div>`;
       currentPageElements = [];
       elementCount = 0;
