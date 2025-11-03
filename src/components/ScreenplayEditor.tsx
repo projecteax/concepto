@@ -23,6 +23,7 @@ import { useS3Upload } from '@/hooks/useS3Upload';
 export interface ScreenplayEditorHandle {
   exportPDF: () => void;
   exportVO: () => void;
+  exportStoryboard: () => void;
   togglePreview: () => void;
   save: () => void;
 }
@@ -727,10 +728,270 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
     }, 500);
   };
 
+  const handleExportStoryboard = () => {
+    // Create a new window for Storyboard PDF generation
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    // Generate HTML content for Storyboard PDF
+    let htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>${localData.title || 'Untitled Screenplay'} - Storyboard</title>
+        <style>
+          @page {
+            size: letter;
+            margin: 0.5in;
+          }
+          
+          * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+          }
+          
+          body {
+            font-family: 'Courier New', monospace;
+            font-size: 10pt;
+            line-height: 1.3;
+            margin: 0;
+            padding: 0;
+            color: #000;
+          }
+          
+          .page {
+            width: 7.5in;
+            min-height: 10in;
+            margin: 0 auto;
+            page-break-after: always;
+            position: relative;
+            padding: 0.5in;
+            display: flex;
+            flex-direction: column;
+          }
+          
+          .page:last-child {
+            page-break-after: avoid;
+          }
+          
+          .title-page {
+            text-align: center;
+            padding-top: 3in;
+            justify-content: center;
+          }
+          
+          .title {
+            font-size: 28pt;
+            font-weight: bold;
+            margin-bottom: 0.5in;
+            text-transform: uppercase;
+          }
+          
+          .subtitle {
+            font-size: 14pt;
+            margin-bottom: 2in;
+            color: #666;
+          }
+          
+          .script-content {
+            flex: 1;
+            margin-bottom: 0.3in;
+            font-size: 10pt;
+            line-height: 1.4;
+          }
+          
+          .script-element {
+            margin-bottom: 0.15in;
+          }
+          
+          .script-element.scene-setting {
+            text-transform: uppercase;
+            font-weight: bold;
+            margin-top: 0.2in;
+            margin-left: 0;
+          }
+          
+          .script-element.character {
+            text-transform: uppercase;
+            font-weight: bold;
+            text-align: center;
+            margin: 0.15in 2in 0.05in 2in;
+          }
+          
+          .script-element.dialogue {
+            margin-left: 1in;
+            margin-right: 1in;
+          }
+          
+          .script-element.action {
+            margin-left: 0;
+          }
+          
+          .script-element.parenthetical {
+            margin-left: 1.5in;
+            margin-right: 1.5in;
+            font-style: italic;
+          }
+          
+          .storyboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: repeat(3, 1fr);
+            gap: 0.2in;
+            margin-top: 0.3in;
+            width: 100%;
+            flex-shrink: 0;
+          }
+          
+          .storyboard-panel {
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            border: 2px solid #000;
+            background-color: #fff;
+            position: relative;
+            page-break-inside: avoid;
+          }
+          
+          .panel-number {
+            position: absolute;
+            top: 0.05in;
+            left: 0.05in;
+            background-color: #fff;
+            padding: 0.03in 0.1in;
+            font-weight: bold;
+            font-size: 10pt;
+            border: 1px solid #000;
+            z-index: 10;
+          }
+          
+          .panel-notes {
+            margin-top: 0.1in;
+            width: 100%;
+            min-height: 0.5in;
+            border: 1px dashed #666;
+            padding: 0.1in;
+            font-size: 8pt;
+            font-family: 'Arial', sans-serif;
+            background-color: #fafafa;
+          }
+          
+          .panel-notes-label {
+            font-size: 7pt;
+            font-weight: bold;
+            color: #666;
+            margin-bottom: 0.05in;
+          }
+          
+          .panel-container {
+            display: flex;
+            flex-direction: column;
+          }
+        </style>
+      </head>
+      <body>
+    `;
+
+    // Add title page
+    htmlContent += `
+      <div class="page title-page">
+        <div class="title">${localData.title || 'Untitled Screenplay'}</div>
+        <div class="subtitle">Storyboard</div>
+      </div>
+    `;
+
+    // Generate script pages first (without storyboard panels)
+    const totalFrames = 62;
+    const framesPerPage = 6;
+    let frameCounter = 1;
+    let currentPageElements: string[] = [];
+    let elementCount = 0;
+
+    // Function to generate storyboard grid (6 panels in 2x3 grid)
+    const generateStoryboardGrid = (startFrame: number, endFrame: number) => {
+      let grid = '<div class="storyboard-grid">';
+      for (let i = startFrame; i <= endFrame && i <= totalFrames; i++) {
+        grid += `
+          <div class="panel-container">
+            <div class="storyboard-panel">
+              <div class="panel-number">${i}</div>
+            </div>
+            <div class="panel-notes">
+              <div class="panel-notes-label">Notes:</div>
+            </div>
+          </div>
+        `;
+      }
+      grid += '</div>';
+      return grid;
+    };
+
+    // Function to close a script page (no storyboard panels here)
+    const closePage = () => {
+      if (currentPageElements.length === 0) return;
+      
+      let pageContent = currentPageElements.join('');
+      htmlContent += `<div class="page">${pageContent}</div>`;
+      currentPageElements = [];
+      elementCount = 0;
+    };
+
+    // Add all script elements, creating new pages as needed
+    // Rough estimate: ~25-30 elements per page (adjust based on content length)
+    localData.elements.forEach((element) => {
+      const elementClass = element.type.replace('-', '-');
+      const content = element.content || '&nbsp;';
+      const elementHtml = `<div class="script-element ${elementClass}">${content}</div>`;
+      
+      // Estimate if adding this element would overflow the page
+      // Use element count as rough proxy (adjust threshold as needed)
+      if (elementCount > 25 && currentPageElements.length > 0) {
+        closePage();
+      }
+      
+      currentPageElements.push(elementHtml);
+      elementCount++;
+    });
+
+    // Close the last page with remaining elements
+    if (currentPageElements.length > 0) {
+      closePage();
+    }
+    
+    // Now add storyboard pages at the very end (62 frames total, 6 per page)
+    while (frameCounter <= totalFrames) {
+      const framesToAdd = Math.min(framesPerPage, totalFrames - frameCounter + 1);
+      if (framesToAdd > 0) {
+        htmlContent += `<div class="page">${generateStoryboardGrid(frameCounter, frameCounter + framesToAdd - 1)}</div>`;
+        frameCounter += framesToAdd;
+      }
+    }
+
+    htmlContent += `
+      </body>
+      </html>
+    `;
+
+    // Write content to new window
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+
+    // Trigger print dialog after a short delay
+    setTimeout(() => {
+      printWindow.print();
+      // Close the window after printing
+      printWindow.addEventListener('afterprint', () => {
+        printWindow.close();
+      });
+    }, 500);
+  };
+
   // expose handlers
   useImperativeHandle(ref, () => ({
     exportPDF: handleExportPDF,
     exportVO: handleExportVO,
+    exportStoryboard: handleExportStoryboard,
     togglePreview: () => setIsPreviewMode(prev => !prev),
     save: handleSave
   }));

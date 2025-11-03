@@ -675,7 +675,7 @@ function ShotRow({
               <img
                 src={shot.imageUrl}
                 alt="Storyboard"
-                className="w-full h-20 object-cover rounded border cursor-pointer hover:opacity-90 transition-opacity"
+                className="w-full aspect-video object-cover rounded border cursor-pointer hover:opacity-90 transition-opacity"
                 onClick={() => onEnlargeImage(shot.imageUrl!)}
               />
               <button
@@ -700,7 +700,7 @@ function ShotRow({
               </button>
             </div>
           ) : (
-            <label className="flex flex-col items-center justify-center w-full h-20 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+            <label className="flex flex-col items-center justify-center w-full aspect-video border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
               <ImageIcon className="w-6 h-6 text-gray-400 mb-1" />
               <span className="text-xs text-gray-500">Upload</span>
               <input
