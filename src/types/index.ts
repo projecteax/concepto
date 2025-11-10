@@ -335,3 +335,38 @@ export interface ScreenplayComment {
   text: string;
   images?: string[]; // URLs of uploaded images
 }
+
+// AV Editing System
+export interface AVEditingSlide {
+  id: string;
+  shotId?: string; // Reference to AVShot if from AV script
+  imageUrl: string;
+  duration: number; // Duration in seconds
+  startTime: number; // Start time in timeline (calculated)
+  order: number;
+  isFromAVScript: boolean; // Whether this slide comes from AV script
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AVEditingAudioTrack {
+  id: string;
+  name: string;
+  audioUrl: string;
+  startTime: number; // Start time in timeline (seconds)
+  duration: number; // Duration in seconds
+  volume: number; // 0-100
+  order: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AVEditingData {
+  id: string;
+  episodeId: string;
+  slides: AVEditingSlide[];
+  audioTracks: AVEditingAudioTrack[];
+  totalDuration: number; // Total duration in seconds
+  createdAt: Date;
+  updatedAt: Date;
+}
