@@ -338,11 +338,53 @@ export function CharacterDetail({
         // Mark as completed
         setUploadingVideos(prev => new Map(prev.set(fileId, { progress: 100, type })));
         
-        // Update the appropriate video array
+        // Update the appropriate video array and save immediately
         if (type === 'concept') {
-          setConceptVideos(prev => [...prev, result.url]);
+          setConceptVideos(prev => {
+            const updated = [...prev, result.url];
+            // Save immediately with updated video array
+            setTimeout(() => {
+              const updatedCharacter: Character = {
+                ...character,
+                general,
+                clothing,
+                pose,
+                voice,
+                mainImage: mainImageUrl || undefined,
+                modelFiles,
+                characterGallery,
+                characterVideoGallery,
+                conceptVideos: updated,
+                renderVideos,
+                uploadedModels,
+              };
+              onSave(updatedCharacter);
+            }, 100);
+            return updated;
+          });
         } else {
-          setRenderVideos(prev => [...prev, result.url]);
+          setRenderVideos(prev => {
+            const updated = [...prev, result.url];
+            // Save immediately with updated video array
+            setTimeout(() => {
+              const updatedCharacter: Character = {
+                ...character,
+                general,
+                clothing,
+                pose,
+                voice,
+                mainImage: mainImageUrl || undefined,
+                modelFiles,
+                characterGallery,
+                characterVideoGallery,
+                conceptVideos,
+                renderVideos: updated,
+                uploadedModels,
+              };
+              onSave(updatedCharacter);
+            }, 100);
+            return updated;
+          });
         }
         
         // Remove from uploading after a delay
