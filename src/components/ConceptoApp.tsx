@@ -314,6 +314,9 @@ export function ConceptoApp({
         mainImage: character.mainImage,
         modelFiles: character.modelFiles,
         characterGallery: character.characterGallery,
+        characterVideoGallery: character.characterVideoGallery,
+        conceptVideos: character.conceptVideos,
+        renderVideos: character.renderVideos,
         uploadedModels: character.uploadedModels,
         concepts: character.concepts,
       };

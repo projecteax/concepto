@@ -106,6 +106,30 @@ export function CharacterDetail({
   // Video upload state
   const [uploadingVideos, setUploadingVideos] = useState<Map<string, { progress: number; error?: string; type: 'concept' | 'render' }>>(new Map());
   
+  // Sync video arrays when character prop changes (e.g., after reload)
+  const prevConceptVideosRef = useRef<string[]>(character.conceptVideos || []);
+  const prevRenderVideosRef = useRef<string[]>(character.renderVideos || []);
+  
+  useEffect(() => {
+    const conceptVideosFromProp = character.conceptVideos || [];
+    const renderVideosFromProp = character.renderVideos || [];
+    
+    // Only update if arrays are different
+    const conceptChanged = conceptVideosFromProp.length !== prevConceptVideosRef.current.length ||
+      conceptVideosFromProp.some((url, idx) => url !== prevConceptVideosRef.current[idx]);
+    const renderChanged = renderVideosFromProp.length !== prevRenderVideosRef.current.length ||
+      renderVideosFromProp.some((url, idx) => url !== prevRenderVideosRef.current[idx]);
+    
+    if (conceptChanged) {
+      prevConceptVideosRef.current = conceptVideosFromProp;
+      setConceptVideos(conceptVideosFromProp);
+    }
+    if (renderChanged) {
+      prevRenderVideosRef.current = renderVideosFromProp;
+      setRenderVideos(renderVideosFromProp);
+    }
+  }, [character.conceptVideos, character.renderVideos]);
+  
   // 3D model upload state
   const [uploadedModels, setUploadedModels] = useState<Array<{url: string, filename: string, size: number, uploadDate: Date}>>(character.uploadedModels || []);
   
