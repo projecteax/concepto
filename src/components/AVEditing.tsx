@@ -83,15 +83,17 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
     }
     
     return () => {
-      // Cleanup audio elements
-      audioElementsRef.current.forEach(audio => {
+      // Cleanup audio elements - capture current ref value
+      const audioElements = audioElementsRef.current;
+      audioElements.forEach(audio => {
         audio.pause();
         audio.src = '';
       });
-      audioElementsRef.current.clear();
+      audioElements.clear();
       
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
+      const audioContext = audioContextRef.current;
+      if (audioContext) {
+        audioContext.close();
       }
     };
   }, []);
@@ -1119,10 +1121,6 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
     ...slides.map(s => s.startTime + s.duration),
     ...audioTracks.map(t => t.startTime + t.duration),
     0
-  );
-
-  const currentSlide = slides.find(s => 
-    currentTime >= s.startTime && currentTime < s.startTime + s.duration
   );
 
   return (
