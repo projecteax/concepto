@@ -184,7 +184,38 @@ export function CharacterDetail({
         autosaveTimerRef.current = null;
       }
     };
-  }, [voice, general, clothing, pose, modelFiles, characterGallery, uploadedModels, mainImageUrl, handleSave]);
+  }, [voice, general, clothing, pose, modelFiles, characterGallery, characterVideoGallery, conceptVideos, renderVideos, uploadedModels, mainImageUrl, handleSave]);
+
+  // Immediate save when videos are added (separate from autosave to ensure videos are saved)
+  const conceptVideosRef = useRef<string[]>(conceptVideos);
+  const renderVideosRef = useRef<string[]>(renderVideos);
+  const isInitialMountRef = useRef(true);
+  
+  useEffect(() => {
+    // Check if videos actually changed
+    const conceptChanged = conceptVideosRef.current.length !== conceptVideos.length || 
+      conceptVideosRef.current.some((url, idx) => url !== conceptVideos[idx]);
+    const renderChanged = renderVideosRef.current.length !== renderVideos.length || 
+      renderVideosRef.current.some((url, idx) => url !== renderVideos[idx]);
+    
+    if (conceptChanged || renderChanged) {
+      conceptVideosRef.current = conceptVideos;
+      renderVideosRef.current = renderVideos;
+      
+      // Skip save on initial mount
+      if (isInitialMountRef.current) {
+        isInitialMountRef.current = false;
+        return;
+      }
+      
+      // Save immediately when videos change
+      const saveTimer = setTimeout(() => {
+        handleSave();
+      }, 300);
+      
+      return () => clearTimeout(saveTimer);
+    }
+  }, [conceptVideos, renderVideos, handleSave]);
 
   const handleAddExpression = () => {
     setModelFiles(prev => ({
@@ -908,7 +939,7 @@ export function CharacterDetail({
                         {characterGallery.map((mediaUrl, index) => {
                           const isVideo = mediaUrl.match(/\.(mp4|webm|ogg|mov)$/i) || mediaUrl.includes('video');
                           return (
-                            <div key={index} className="relative group">
+                          <div key={index} className="relative group">
                               {isVideo ? (
                                 <video
                                   src={mediaUrl}
@@ -918,18 +949,18 @@ export function CharacterDetail({
                               ) : (
                                 <img
                                   src={mediaUrl}
-                                  alt={`Character render ${index + 1}`}
-                                  className="w-full h-32 object-cover rounded-lg border cursor-pointer"
+                              alt={`Character render ${index + 1}`}
+                              className="w-full h-32 object-cover rounded-lg border cursor-pointer"
                                   onClick={() => setSelectedImage({ url: mediaUrl, alt: `Character render ${index + 1}` })}
-                                />
+                            />
                               )}
-                              <button
-                                onClick={() => handleRemoveGalleryImage(index)}
-                                className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </div>
+                            <button
+                              onClick={() => handleRemoveGalleryImage(index)}
+                              className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
                           );
                         })}
                       </div>
@@ -1245,18 +1276,18 @@ export function CharacterDetail({
                       <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
                           <p className="text-sm text-gray-600 mb-2">Upload your own images or videos</p>
                       <div className="flex items-center justify-center space-x-2">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          multiple
-                              onChange={handleImageUpload}
-                          className="hidden"
-                              id="image-upload"
-                        />
-                        <label
-                              htmlFor="image-upload"
-                              className="inline-block px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 cursor-pointer transition-colors"
-                        >
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                            onChange={handleImageUpload}
+                        className="hidden"
+                            id="image-upload"
+                      />
+                      <label
+                            htmlFor="image-upload"
+                            className="inline-block px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 cursor-pointer transition-colors"
+                      >
                           Choose Images
                         </label>
                         <input
@@ -1295,7 +1326,7 @@ export function CharacterDetail({
                           className="inline-block px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 cursor-pointer transition-colors"
                         >
                           Choose Videos
-                        </label>
+                      </label>
                       </div>
                     </div>
 
@@ -1765,13 +1796,13 @@ export function CharacterDetail({
                                 "object-contain",
                                 viewMode === 'list' ? "w-full h-full" : "w-full h-full"
                               )}
-                              style={{ 
-                                minHeight: viewMode === 'list' ? '128px' : '192px',
-                                backgroundColor: '#f8f9fa'
-                              }}
-                            />
-                          </div>
-                        )}
+                            style={{ 
+                              minHeight: viewMode === 'list' ? '128px' : '192px',
+                              backgroundColor: '#f8f9fa'
+                            }}
+                          />
+                        </div>
+                              )}
                               
                               <div className={cn(
                                 "p-4",
