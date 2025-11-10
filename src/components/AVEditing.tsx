@@ -421,13 +421,25 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
 
   // Generate waveform data for audio track
   const generateWaveform = async (audioUrl: string, trackId: string): Promise<number[]> => {
+    // Return empty waveform if not in browser
+    if (typeof window === 'undefined') {
+      return [];
+    }
+
     if (waveformDataRef.current.has(trackId)) {
       return waveformDataRef.current.get(trackId)!;
     }
 
     try {
       if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+        if (typeof window === 'undefined') {
+          return [];
+        }
         const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        if (!AudioContextClass) {
+          console.warn('AudioContext not available');
+          return [];
+        }
         audioContextRef.current = new AudioContextClass();
       }
 
@@ -486,8 +498,12 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
     }
   };
 
-  // Load waveforms for all audio tracks
+  // Load waveforms for all audio tracks (only in browser)
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    
     audioTracks.forEach(track => {
       if (!waveformDataRef.current.has(track.id)) {
         generateWaveform(track.audioUrl, track.id).catch(err => {
@@ -497,8 +513,12 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
     });
   }, [audioTracks]);
 
-  // Initialize audio elements for all tracks
+  // Initialize audio elements for all tracks (only in browser)
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
     audioTracks.forEach(track => {
       if (!audioElementsRef.current.has(track.id)) {
         const audio = new Audio(track.audioUrl);
@@ -524,8 +544,12 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
     });
   }, [audioTracks]);
 
-  // Playback control with audio - optimized to reduce lag
+  // Playback control with audio - optimized to reduce lag (only in browser)
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
     if (!isPlaying) {
       // Pause all audio when not playing
       audioElementsRef.current.forEach(audio => {
@@ -548,13 +572,13 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
 
     // Use requestAnimationFrame for smoother playback at 1x speed
     let animationFrameId: number;
-    let lastFrameTimestamp = performance.now() / 1000; // Timestamp of last frame
+    let lastFrameTimestamp = typeof window !== 'undefined' ? performance.now() / 1000 : 0; // Timestamp of last frame
     let currentPlaybackTime = currentTimeRef.current; // Current timeline position
     let syncCounter = 0;
     let isActive = true;
     
     const updateTime = () => {
-      if (!isActive || !isPlayingRef.current) {
+      if (!isActive || !isPlayingRef.current || typeof window === 'undefined') {
         return;
       }
 
@@ -640,7 +664,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
     
     // Initialize playback state
     currentPlaybackTime = currentTimeRef.current;
-    lastFrameTimestamp = performance.now() / 1000;
+    lastFrameTimestamp = typeof window !== 'undefined' ? performance.now() / 1000 : 0;
     
     // Start initial audio tracks if needed
     audioTracksRef.current.forEach(track => {
