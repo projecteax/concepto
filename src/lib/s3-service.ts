@@ -275,8 +275,14 @@ export async function generatePresignedUploadUrl(
  * Validate file before upload
  */
 export function validateFile(file: File): { valid: boolean; error?: string } {
-  // Check file size (50MB limit for 3D models and audio, 10MB for images)
-  const maxSize = file.type.startsWith('image/') ? 10 * 1024 * 1024 : 50 * 1024 * 1024;
+  // Check file size (100MB limit for videos, 50MB for 3D models and audio, 10MB for images)
+  let maxSize = 50 * 1024 * 1024; // Default 50MB
+  if (file.type.startsWith('image/')) {
+    maxSize = 10 * 1024 * 1024; // 10MB for images
+  } else if (file.type.startsWith('video/')) {
+    maxSize = 100 * 1024 * 1024; // 100MB for videos
+  }
+  
   if (file.size > maxSize) {
     return {
       valid: false,
@@ -284,22 +290,25 @@ export function validateFile(file: File): { valid: boolean; error?: string } {
     };
   }
 
-  // Check file type - allow images, 3D model files, and audio files
+  // Check file type - allow images, videos, 3D model files, and audio files
   const allowedImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+  const allowedVideoTypes = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-msvideo'];
   const allowed3DTypes = ['application/octet-stream', 'model/fbx', 'model/gltf-binary', 'application/x-blender'];
   const allowedAudioTypes = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/webm', 'audio/mp3', 'audio/m4a', 'audio/aac'];
   const allowed3DExtensions = ['.fbx', '.usdz', '.blend', '.glb', '.gltf'];
   const allowedAudioExtensions = ['.mp3', '.wav', '.ogg', '.webm', '.m4a', '.aac'];
+  const allowedVideoExtensions = ['.mp4', '.webm', '.ogg', '.mov', '.avi'];
   
   const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
   const isImage = allowedImageTypes.includes(file.type);
+  const isVideo = allowedVideoTypes.includes(file.type) || allowedVideoExtensions.includes(fileExtension);
   const is3DModel = allowed3DTypes.includes(file.type) || allowed3DExtensions.includes(fileExtension);
   const isAudio = allowedAudioTypes.includes(file.type) || allowedAudioExtensions.includes(fileExtension);
   
-  if (!isImage && !is3DModel && !isAudio) {
+  if (!isImage && !isVideo && !is3DModel && !isAudio) {
     return {
       valid: false,
-      error: 'Only image files (JPEG, PNG, GIF, WebP), 3D model files (FBX, USDZ, Blend, GLB, GLTF), and audio files (MP3, WAV, OGG, WebM, M4A, AAC) are allowed',
+      error: 'Only image files (JPEG, PNG, GIF, WebP), video files (MP4, WebM, OGG, MOV, AVI), 3D model files (FBX, USDZ, Blend, GLB, GLTF), and audio files (MP3, WAV, OGG, WebM, M4A, AAC) are allowed',
     };
   }
 

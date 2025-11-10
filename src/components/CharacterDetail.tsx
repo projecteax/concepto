@@ -22,7 +22,8 @@ import {
   Plus,
   X,
   Download,
-  Mic
+  Mic,
+  Video
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useS3Upload } from '@/hooks/useS3Upload';
@@ -43,7 +44,7 @@ export function CharacterDetail({
   onAddConcept,
   onDeleteConcept
 }: CharacterDetailProps) {
-  const [activeTab, setActiveTab] = useState<'general' | 'clothing' | 'gallery' | 'pose-concepts' | '3d-models' | 'production' | 'voice'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'clothing' | 'gallery' | 'pose-concepts' | '3d-models' | 'production' | 'voice' | 'video-examples'>('general');
   const [isGenerating, setIsGenerating] = useState(false);
   
   // Autosave ref
@@ -66,6 +67,10 @@ export function CharacterDetail({
   const [uploadedImageUrls, setUploadedImageUrls] = useState<string[]>([]);
   const [uploadingFiles, setUploadingFiles] = useState<Map<string, { progress: number; error?: string }>>(new Map());
   const [imageFormData, setImageFormData] = useState<Map<number, { description: string; relevanceScale: number; conceptType?: 'pose' | 'clothing' | 'general' | 'expression' | 'action' }>>(new Map());
+  
+  // Video upload states for concepts
+  const [uploadedVideos, setUploadedVideos] = useState<File[]>([]);
+  const [uploadedVideoUrls, setUploadedVideoUrls] = useState<string[]>([]);
   
   // Gallery states
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'relevance' | 'name'>('newest');
@@ -90,6 +95,16 @@ export function CharacterDetail({
   
   // Character gallery state
   const [characterGallery, setCharacterGallery] = useState<string[]>(character.characterGallery || []);
+  
+  // Character video gallery state
+  const [characterVideoGallery, setCharacterVideoGallery] = useState<string[]>(character.characterVideoGallery || []);
+  
+  // Video Examples state - separate for concepts and renders
+  const [conceptVideos, setConceptVideos] = useState<string[]>(character.conceptVideos || []);
+  const [renderVideos, setRenderVideos] = useState<string[]>(character.renderVideos || []);
+  
+  // Video upload state
+  const [uploadingVideos, setUploadingVideos] = useState<Map<string, { progress: number; error?: string; type: 'concept' | 'render' }>>(new Map());
   
   // 3D model upload state
   const [uploadedModels, setUploadedModels] = useState<Array<{url: string, filename: string, size: number, uploadDate: Date}>>(character.uploadedModels || []);
@@ -141,12 +156,15 @@ export function CharacterDetail({
       mainImage: mainImageUrl || undefined,
       modelFiles,
       characterGallery,
+      characterVideoGallery,
+      conceptVideos,
+      renderVideos,
       uploadedModels,
     };
     console.log('💾 Updated character data:', updatedCharacter);
     console.log('💾 Uploaded models being saved:', updatedCharacter.uploadedModels);
     onSave(updatedCharacter);
-  }, [character, general, clothing, pose, voice, mainImageUrl, modelFiles, characterGallery, uploadedModels, onSave]);
+  }, [character, general, clothing, pose, voice, mainImageUrl, modelFiles, characterGallery, characterVideoGallery, conceptVideos, renderVideos, uploadedModels, onSave]);
 
   // Autosave on voice changes with debounce
   useEffect(() => {
@@ -206,6 +224,101 @@ export function CharacterDetail({
     const confirmed = typeof window !== 'undefined' ? window.confirm('Delete this image from the gallery?') : true;
     if (!confirmed) return;
     setCharacterGallery(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleGalleryVideoUpload = async (file: File) => {
+    try {
+      const result = await uploadFile(file, `characters/${character.id}/gallery/videos/`);
+      if (result && result.url) {
+        setCharacterGallery(prev => [...prev, result.url]);
+      }
+    } catch (error) {
+      console.error('Failed to upload gallery video:', error);
+    }
+  };
+
+  const handleVideoGalleryUpload = async (file: File) => {
+    try {
+      const result = await uploadFile(file, `characters/${character.id}/video-gallery/`);
+      if (result && result.url) {
+        setCharacterVideoGallery(prev => [...prev, result.url]);
+      }
+    } catch (error) {
+      console.error('Failed to upload video:', error);
+    }
+  };
+
+  const handleRemoveVideoGalleryItem = (index: number) => {
+    const confirmed = typeof window !== 'undefined' ? window.confirm('Delete this video from the gallery?') : true;
+    if (!confirmed) return;
+    setCharacterVideoGallery(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleVideoUpload = async (file: File, type: 'concept' | 'render') => {
+    const fileId = `${Date.now()}-${file.name}`;
+    
+    // Initialize upload state
+    setUploadingVideos(prev => new Map(prev.set(fileId, { progress: 0, type })));
+    
+    // Simulate progress updates
+    const progressInterval = setInterval(() => {
+      setUploadingVideos(prev => {
+        const current = prev.get(fileId);
+        if (current && current.progress < 90 && !current.error) {
+          // Increment progress gradually up to 90%
+          const newProgress = Math.min(current.progress + 10, 90);
+          return new Map(prev.set(fileId, { ...current, progress: newProgress }));
+        }
+        return prev;
+      });
+    }, 300);
+    
+    try {
+      const result = await uploadFile(file, `characters/${character.id}/video-examples/${type}/`);
+      
+      // Clear progress interval
+      clearInterval(progressInterval);
+      
+      if (result && result.url) {
+        // Mark as completed
+        setUploadingVideos(prev => new Map(prev.set(fileId, { progress: 100, type })));
+        
+        // Update the appropriate video array
+        if (type === 'concept') {
+          setConceptVideos(prev => [...prev, result.url]);
+        } else {
+          setRenderVideos(prev => [...prev, result.url]);
+        }
+        
+        // Remove from uploading after a delay
+        setTimeout(() => {
+          setUploadingVideos(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(fileId);
+            return newMap;
+          });
+        }, 1500);
+      } else {
+        // Mark as error
+        setUploadingVideos(prev => new Map(prev.set(fileId, { progress: 0, error: 'Upload failed', type })));
+      }
+    } catch (error) {
+      clearInterval(progressInterval);
+      console.error('Video upload error:', error);
+      setUploadingVideos(prev => new Map(prev.set(fileId, { progress: 0, error: 'Upload failed', type })));
+    }
+  };
+
+  const handleRemoveConceptVideo = (index: number) => {
+    const confirmed = typeof window !== 'undefined' ? window.confirm('Delete this concept video?') : true;
+    if (!confirmed) return;
+    setConceptVideos(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleRemoveRenderVideo = (index: number) => {
+    const confirmed = typeof window !== 'undefined' ? window.confirm('Delete this render video?') : true;
+    if (!confirmed) return;
+    setRenderVideos(prev => prev.filter((_, i) => i !== index));
   };
 
   // Paste-to-upload for gallery
@@ -347,9 +460,10 @@ export function CharacterDetail({
     }
   };
 
-  const handleSaveUploadedConcept = (imageUrl: string, description: string = '', relevanceScale: number = 3, conceptType: 'pose' | 'clothing' | 'general' | 'expression' | 'action' = 'general') => {
+  const handleSaveUploadedConcept = (imageUrl: string | null, videoUrl: string | null, description: string = '', relevanceScale: number = 3, conceptType: 'pose' | 'clothing' | 'general' | 'expression' | 'action' = 'general') => {
     // Generate a name based on the file or use a default
-    const fileName = uploadedImages[0]?.name || 'Uploaded Image';
+    const file = uploadedImages[0] || uploadedVideos[0];
+    const fileName = file?.name || 'Uploaded Media';
     const baseName = fileName.split('.')[0] || 'Concept';
     const timestamp = new Date().toISOString().slice(0, 10);
     const conceptName = `${baseName} - ${timestamp}`;
@@ -362,8 +476,9 @@ export function CharacterDetail({
       name: conceptName,
       description: description.trim() || undefined,
       relevanceScale: relevanceScale,
-      imageUrl: imageUrl,
-      prompt: 'User uploaded image',
+      imageUrl: imageUrl || undefined,
+      videoUrl: videoUrl || undefined,
+      prompt: 'User uploaded media',
     };
     
     onAddConcept(newConcept);
@@ -532,6 +647,7 @@ export function CharacterDetail({
     { id: 'clothing', label: 'Clothing', icon: Shirt },
     { id: 'gallery', label: 'Gallery', icon: ImageIcon },
     { id: 'pose-concepts', label: 'Concepts', icon: ImageIcon },
+    { id: 'video-examples', label: 'Video Examples', icon: Video },
     { id: '3d-models', label: '3D Models', icon: Box },
     { id: 'production', label: 'Production', icon: Settings },
     { id: 'voice', label: 'Voice', icon: Mic },
@@ -733,7 +849,7 @@ export function CharacterDetail({
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
                     <h3 className="text-xl font-semibold text-gray-900">Character Gallery</h3>
-                    <div>
+                    <div className="flex items-center space-x-2">
                       <input
                         type="file"
                         accept="image/*"
@@ -753,6 +869,25 @@ export function CharacterDetail({
                         <Upload className="w-4 h-4" />
                         <span>{uploadState.isUploading ? 'Uploading...' : 'Add Image'}</span>
                       </label>
+                      <input
+                        type="file"
+                        accept="video/*"
+                        onChange={(async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            await handleGalleryVideoUpload(file);
+                          }
+                        })}
+                        className="hidden"
+                        id="gallery-video-upload"
+                      />
+                      <label
+                        htmlFor="gallery-video-upload"
+                        className="flex items-center space-x-1 px-3 py-1 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 cursor-pointer"
+                      >
+                        <Video className="w-4 h-4" />
+                        <span>Add Video</span>
+                      </label>
                     </div>
                   </div>
 
@@ -770,16 +905,117 @@ export function CharacterDetail({
 
                     {characterGallery.length > 0 ? (
                       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                        {characterGallery.map((imageUrl, index) => (
+                        {characterGallery.map((mediaUrl, index) => {
+                          const isVideo = mediaUrl.match(/\.(mp4|webm|ogg|mov)$/i) || mediaUrl.includes('video');
+                          return (
+                            <div key={index} className="relative group">
+                              {isVideo ? (
+                                <video
+                                  src={mediaUrl}
+                                  controls
+                                  className="w-full h-32 object-cover rounded-lg border"
+                                />
+                              ) : (
+                                <img
+                                  src={mediaUrl}
+                                  alt={`Character render ${index + 1}`}
+                                  className="w-full h-32 object-cover rounded-lg border cursor-pointer"
+                                  onClick={() => setSelectedImage({ url: mediaUrl, alt: `Character render ${index + 1}` })}
+                                />
+                              )}
+                              <button
+                                onClick={() => handleRemoveGalleryImage(index)}
+                                className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-lg">
+                        <p className="text-gray-500">No images or videos in the gallery yet.</p>
+                        <p className="text-sm text-gray-400 mt-1">Upload images/videos or paste images with Ctrl+V.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Video Examples Tab */}
+              {activeTab === 'video-examples' && (
+                <div className="space-y-8">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xl font-semibold text-gray-900">Video Examples</h3>
+                  </div>
+
+                  {/* Concepts Section */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-lg font-medium text-gray-900">Concepts</h4>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="file"
+                          accept="video/*"
+                          onChange={(async (e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              await handleVideoUpload(file, 'concept');
+                            }
+                            // Reset input
+                            e.target.value = '';
+                          })}
+                          className="hidden"
+                          id="concept-video-upload"
+                        />
+                        <label
+                          htmlFor="concept-video-upload"
+                          className="flex items-center space-x-1 px-3 py-1 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 cursor-pointer"
+                        >
+                          <Upload className="w-4 h-4" />
+                          <span>Add Concept Video</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Uploading Videos Progress */}
+                    {Array.from(uploadingVideos.entries()).filter(([_, info]) => info.type === 'concept').length > 0 && (
+                      <div className="space-y-2">
+                        {Array.from(uploadingVideos.entries())
+                          .filter(([_, info]) => info.type === 'concept')
+                          .map(([fileId, info]) => (
+                            <div key={fileId} className="border border-gray-200 rounded-lg p-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm text-gray-700">Uploading concept video...</span>
+                                {info.error ? (
+                                  <span className="text-xs text-red-600">Error: {info.error}</span>
+                                ) : (
+                                  <span className="text-xs text-gray-500">{info.progress}%</span>
+                                )}
+                              </div>
+                              <div className="w-full bg-gray-200 rounded-full h-2">
+                                <div
+                                  className="bg-purple-600 h-2 rounded-full transition-all duration-300"
+                                  style={{ width: `${info.progress}%` }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    )}
+
+                    {conceptVideos.length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {conceptVideos.map((videoUrl, index) => (
                           <div key={index} className="relative group">
-                            <img
-                              src={imageUrl}
-                              alt={`Character render ${index + 1}`}
-                              className="w-full h-32 object-cover rounded-lg border cursor-pointer"
-                              onClick={() => setSelectedImage({ url: imageUrl, alt: `Character render ${index + 1}` })}
+                            <video
+                              src={videoUrl}
+                              controls
+                              className="w-full h-48 object-cover rounded-lg border"
                             />
                             <button
-                              onClick={() => handleRemoveGalleryImage(index)}
+                              onClick={() => handleRemoveConceptVideo(index)}
                               className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
                             >
                               <X className="w-3 h-3" />
@@ -788,9 +1024,90 @@ export function CharacterDetail({
                         ))}
                       </div>
                     ) : (
-                      <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-lg">
-                        <p className="text-gray-500">No images in the gallery yet.</p>
-                        <p className="text-sm text-gray-400 mt-1">Upload images or paste with Ctrl+V.</p>
+                      <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-lg">
+                        <Video className="w-10 h-10 text-gray-400 mx-auto mb-2" />
+                        <p className="text-sm text-gray-500">No concept videos yet.</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Renders Section */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-lg font-medium text-gray-900">Renders</h4>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="file"
+                          accept="video/*"
+                          onChange={(async (e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              await handleVideoUpload(file, 'render');
+                            }
+                            // Reset input
+                            e.target.value = '';
+                          })}
+                          className="hidden"
+                          id="render-video-upload"
+                        />
+                        <label
+                          htmlFor="render-video-upload"
+                          className="flex items-center space-x-1 px-3 py-1 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 cursor-pointer"
+                        >
+                          <Upload className="w-4 h-4" />
+                          <span>Add Render Video</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Uploading Videos Progress */}
+                    {Array.from(uploadingVideos.entries()).filter(([_, info]) => info.type === 'render').length > 0 && (
+                      <div className="space-y-2">
+                        {Array.from(uploadingVideos.entries())
+                          .filter(([_, info]) => info.type === 'render')
+                          .map(([fileId, info]) => (
+                            <div key={fileId} className="border border-gray-200 rounded-lg p-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm text-gray-700">Uploading render video...</span>
+                                {info.error ? (
+                                  <span className="text-xs text-red-600">Error: {info.error}</span>
+                                ) : (
+                                  <span className="text-xs text-gray-500">{info.progress}%</span>
+                                )}
+                              </div>
+                              <div className="w-full bg-gray-200 rounded-full h-2">
+                                <div
+                                  className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
+                                  style={{ width: `${info.progress}%` }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    )}
+
+                    {renderVideos.length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {renderVideos.map((videoUrl, index) => (
+                          <div key={index} className="relative group">
+                            <video
+                              src={videoUrl}
+                              controls
+                              className="w-full h-48 object-cover rounded-lg border"
+                            />
+                            <button
+                              onClick={() => handleRemoveRenderVideo(index)}
+                              className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-lg">
+                        <Video className="w-10 h-10 text-gray-400 mx-auto mb-2" />
+                        <p className="text-sm text-gray-500">No render videos yet.</p>
                       </div>
                     )}
                   </div>
@@ -922,26 +1239,185 @@ export function CharacterDetail({
 
                     {/* Upload Section */}
                     <div className="border border-gray-200 rounded-lg p-6">
-                      <h4 className="text-lg font-medium text-gray-900 mb-4">Upload Images</h4>
+                      <h4 className="text-lg font-medium text-gray-900 mb-4">Upload Images & Videos</h4>
                       <div className="space-y-4">
                     <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
                       <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                          <p className="text-sm text-gray-600 mb-2">Upload your own images</p>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        multiple
-                            onChange={handleImageUpload}
-                        className="hidden"
-                            id="image-upload"
-                      />
-                      <label
-                            htmlFor="image-upload"
-                            className="inline-block px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 cursor-pointer transition-colors"
-                      >
-                        Choose Files
-                      </label>
+                          <p className="text-sm text-gray-600 mb-2">Upload your own images or videos</p>
+                      <div className="flex items-center justify-center space-x-2">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                              onChange={handleImageUpload}
+                          className="hidden"
+                              id="image-upload"
+                        />
+                        <label
+                              htmlFor="image-upload"
+                              className="inline-block px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 cursor-pointer transition-colors"
+                        >
+                          Choose Images
+                        </label>
+                        <input
+                          type="file"
+                          accept="video/*"
+                          multiple
+                          onChange={async (e) => {
+                            const files = e.target.files;
+                            if (files && files.length > 0) {
+                              setUploadedVideos(Array.from(files));
+                              const videoFiles = Array.from(files);
+                              for (let i = 0; i < videoFiles.length; i++) {
+                                const file = videoFiles[i];
+                                const fileId = `${Date.now()}-video-${i}`;
+                                setUploadingFiles(prev => new Map(prev.set(fileId, { progress: 0 })));
+                                try {
+                                  const result = await uploadFile(file, `characters/${character.id}/concepts/videos`);
+                                  if (result && result.url) {
+                                    setUploadedVideoUrls(prev => [...prev, result.url]);
+                                    setUploadingFiles(prev => new Map(prev.set(fileId, { progress: 100 })));
+                                  } else {
+                                    setUploadingFiles(prev => new Map(prev.set(fileId, { progress: 0, error: 'Upload failed' })));
+                                  }
+                                } catch (error) {
+                                  console.error('Video upload error:', error);
+                                  setUploadingFiles(prev => new Map(prev.set(fileId, { progress: 0, error: 'Upload failed' })));
+                                }
+                              }
+                            }
+                          }}
+                          className="hidden"
+                          id="video-upload"
+                        />
+                        <label
+                          htmlFor="video-upload"
+                          className="inline-block px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 cursor-pointer transition-colors"
+                        >
+                          Choose Videos
+                        </label>
+                      </div>
                     </div>
+
+                        {/* Uploaded Videos Preview */}
+                        {uploadedVideoUrls.length > 0 && (
+                          <div className="space-y-4">
+                            <h5 className="text-sm font-medium text-gray-700">Uploaded Videos</h5>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                              {uploadedVideoUrls.map((url, index) => {
+                                const fileId = `${Date.now()}-video-${index}`;
+                                const uploadInfo = uploadingFiles.get(fileId);
+                                const isUploading = uploadInfo && uploadInfo.progress < 100;
+                                const hasError = uploadInfo?.error;
+                                
+                                return (
+                                  <div key={index} className="relative border border-gray-200 rounded-lg overflow-hidden">
+                                    <div className="relative">
+                                      <video
+                                        src={url}
+                                        controls
+                                        className="w-full h-32 object-cover"
+                                      />
+                                      
+                                      {/* Upload Progress Overlay */}
+                                      {isUploading && (
+                                        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+                                          <div className="text-center text-white">
+                                            <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" />
+                                            <div className="text-xs">
+                                              {uploadInfo?.progress || 0}%
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
+                                      
+                                      {/* Error Overlay */}
+                                      {hasError && (
+                                        <div className="absolute inset-0 bg-red-500 bg-opacity-75 flex items-center justify-center">
+                                          <div className="text-center text-white">
+                                            <AlertCircle className="w-6 h-6 mx-auto mb-2" />
+                                            <div className="text-xs">Upload Failed</div>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Success Indicator */}
+                                      {uploadInfo?.progress === 100 && !hasError && (
+                                        <div className="absolute top-2 right-2">
+                                          <CheckCircle className="w-5 h-5 text-green-500" />
+                                        </div>
+                                      )}
+                                    </div>
+                                    
+                                    <div className="p-3 space-y-2">
+                                      <textarea
+                                        placeholder="Description (optional)..."
+                                        value={imageFormData.get(index + 1000)?.description || ''}
+                                        onChange={(e) => {
+                                          const currentData = imageFormData.get(index + 1000) || { description: '', relevanceScale: 3 };
+                                          setImageFormData(new Map(imageFormData.set(index + 1000, { ...currentData, description: e.target.value })));
+                                        }}
+                                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-transparent resize-none"
+                                        rows={2}
+                                      />
+                                      
+                                      <div className="flex items-center space-x-2">
+                                        <label className="text-xs text-gray-600">Type:</label>
+                                        <select 
+                                          data-concept-type={index + 1000}
+                                          className="text-xs border border-gray-300 rounded px-1 py-1"
+                                          onChange={(e) => {
+                                            const currentData = imageFormData.get(index + 1000) || { description: '', relevanceScale: 3 };
+                                            setImageFormData(new Map(imageFormData.set(index + 1000, { ...currentData, conceptType: e.target.value as 'pose' | 'clothing' | 'general' | 'expression' | 'action' })));
+                                          }}
+                                        >
+                                          <option value="general">General</option>
+                                          <option value="pose">Pose</option>
+                                          <option value="clothing">Clothing</option>
+                                          <option value="expression">Expression</option>
+                                          <option value="action">Action</option>
+                                        </select>
+                                      </div>
+                                      
+                                      <div className="flex items-center justify-between">
+                                        <button
+                                          onClick={() => {
+                                            const formData = imageFormData.get(index + 1000);
+                                            const conceptTypeSelect = document.querySelector(`select[data-concept-type="${index + 1000}"]`) as HTMLSelectElement;
+                                            const conceptType = (conceptTypeSelect?.value as 'pose' | 'clothing' | 'general' | 'expression' | 'action') || 'general';
+                                            handleSaveUploadedConcept(null, url, formData?.description || '', formData?.relevanceScale || 3, conceptType);
+                                            setUploadedVideoUrls(prev => prev.filter((_, i) => i !== index));
+                                            setImageFormData(prev => {
+                                              const newMap = new Map(prev);
+                                              newMap.delete(index + 1000);
+                                              return newMap;
+                                            });
+                                          }}
+                                          className="px-3 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                                        >
+                                          Save as Concept
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            setUploadedVideoUrls(prev => prev.filter((_, i) => i !== index));
+                                            setImageFormData(prev => {
+                                              const newMap = new Map(prev);
+                                              newMap.delete(index + 1000);
+                                              return newMap;
+                                            });
+                                          }}
+                                          className="px-3 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600"
+                                        >
+                                          Remove
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
 
                         {/* Uploaded Images Preview */}
                         {uploadedImageUrls.length > 0 && (
@@ -1047,7 +1523,7 @@ export function CharacterDetail({
                                             const formData = imageFormData.get(index);
                                             const conceptTypeSelect = document.querySelector(`select[data-concept-type="${index}"]`) as HTMLSelectElement;
                                             const conceptType = (conceptTypeSelect?.value as 'pose' | 'clothing' | 'general' | 'expression' | 'action') || 'general';
-                                            handleSaveUploadedConcept(url, formData?.description || '', formData?.relevanceScale || 3, conceptType);
+                                            handleSaveUploadedConcept(url, null, formData?.description || '', formData?.relevanceScale || 3, conceptType);
                                             removeUploadedImage(index);
                                           }}
                                           disabled={isUploading || !!hasError}
@@ -1277,6 +1753,25 @@ export function CharacterDetail({
                           />
                         </div>
                               )}
+                        {concept.videoUrl && (
+                          <div className={cn(
+                            "relative group overflow-hidden",
+                            viewMode === 'list' ? "w-32 h-32 flex-shrink-0" : "w-full h-48"
+                          )}>
+                            <video
+                              src={concept.videoUrl}
+                              controls
+                              className={cn(
+                                "object-contain",
+                                viewMode === 'list' ? "w-full h-full" : "w-full h-full"
+                              )}
+                              style={{ 
+                                minHeight: viewMode === 'list' ? '128px' : '192px',
+                                backgroundColor: '#f8f9fa'
+                              }}
+                            />
+                          </div>
+                        )}
                               
                               <div className={cn(
                                 "p-4",

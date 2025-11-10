@@ -1783,7 +1783,11 @@ export default function EpisodeDetail({
                                        characterAsset?.galleryImages?.[0];
                   
                   return (
-                    <div key={char.characterId} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                    <div
+                      key={char.characterId}
+                      onClick={() => handleCharacterClick(char.characterId)}
+                      className="border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
+                    >
                       <div className="flex items-start space-x-3 mb-3">
                         <div className="flex-shrink-0">
                           {characterImage ? (
@@ -1816,6 +1820,7 @@ export default function EpisodeDetail({
                             <h3 className="font-medium text-gray-900 truncate">{characterAsset?.name || 'Unknown Character'}</h3>
                             <button
                               onClick={() => handleRemoveCharacterFromEpisode(char.characterId)}
+                              onClickCapture={(e) => e.stopPropagation()}
                               className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded flex-shrink-0"
                               title="Remove character from episode"
                             >
@@ -1834,6 +1839,7 @@ export default function EpisodeDetail({
                           <input
                             type="text"
                             value={char.role || ''}
+                            onClick={(e) => e.stopPropagation()}
                             onChange={(e) => {
                               const updatedEpisode: Episode = {
                                 ...localEpisode,

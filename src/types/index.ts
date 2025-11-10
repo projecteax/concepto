@@ -76,6 +76,7 @@ export interface AssetConcept {
   description?: string;
   relevanceScale?: number; // 1-5 scale for relevance
   imageUrl?: string;
+  videoUrl?: string; // Video file URL for concepts
   fbxUrl?: string;
   prompt?: string;
   createdAt: Date;
@@ -92,6 +93,9 @@ export interface Character extends GlobalAsset {
   voice?: CharacterVoice;
   modelFiles?: CharacterModelFiles;
   characterGallery?: string[]; // Array of character render image URLs
+  characterVideoGallery?: string[]; // Array of character video URLs for Video Examples (deprecated - use conceptVideos and renderVideos)
+  conceptVideos?: string[]; // Array of concept video URLs
+  renderVideos?: string[]; // Array of render video URLs
   uploadedModels?: Array<{url: string, filename: string, size: number, uploadDate: Date}>; // Array of uploaded 3D models
 }
 
