@@ -1290,8 +1290,6 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
   }, [slides, audioTracks, totalDuration, episodeId]);
 
   return (
-
-  return (
     <div className="flex flex-col h-full bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 p-4">
