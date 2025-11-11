@@ -246,12 +246,15 @@ export async function POST(request: NextRequest) {
     console.log('📦 Generating ZIP file...');
     const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
     
+    // Convert Buffer to Uint8Array for NextResponse
+    const uint8Array = new Uint8Array(zipBuffer);
+    
     // Return ZIP as download
-    return new NextResponse(zipBuffer, {
+    return new NextResponse(uint8Array, {
       headers: {
         'Content-Type': 'application/zip',
         'Content-Disposition': `attachment; filename="av-editing-export-${episodeId}-${Date.now()}.zip"`,
-      } as HeadersInit,
+      },
     });
   } catch (error) {
     console.error('❌ Error in export API:', error);
