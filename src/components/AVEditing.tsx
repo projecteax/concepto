@@ -10,7 +10,9 @@ import {
   Trash2,
   Volume2,
   Image as ImageIcon,
-  X
+  X,
+  ZoomIn,
+  ZoomOut
 } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { db } from '@/lib/firebase';
@@ -22,7 +24,10 @@ interface AVEditingProps {
   onSave: (avScript: AVScript) => void;
 }
 
-const PIXELS_PER_SECOND = 50; // Timeline scale: 50px = 1 second
+const MIN_PIXELS_PER_SECOND = 10; // Minimum zoom: 10px = 1 second
+const MAX_PIXELS_PER_SECOND = 500; // Maximum zoom: 500px = 1 second
+const DEFAULT_PIXELS_PER_SECOND = 50; // Default zoom: 50px = 1 second
+const ZOOM_STEP = 1.2; // Zoom increment/decrement factor
 const MIN_DURATION = 0.5; // Minimum slide duration in seconds
 
 export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
@@ -31,6 +36,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
   const [audioTracks, setAudioTracks] = useState<AVEditingAudioTrack[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [pixelsPerSecond, setPixelsPerSecond] = useState(DEFAULT_PIXELS_PER_SECOND); // Zoom level
   const [selectedSlide, setSelectedSlide] = useState<string | null>(null);
   const [selectedResizeHandle, setSelectedResizeHandle] = useState<'start' | 'end' | null>(null);
   const [isResizing, setIsResizing] = useState(false);
@@ -41,6 +47,8 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
   const [dragStartX, setDragStartX] = useState(0);
   const [dragStartTime, setDragStartTime] = useState(0);
   const [draggedSlideId, setDraggedSlideId] = useState<string | null>(null);
+  const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false);
+  const [timelineScrollLeft, setTimelineScrollLeft] = useState(0);
   
   const previewRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -1025,11 +1033,11 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
     if (!timelineRect) return;
 
     const deltaX = e.clientX - dragStartX;
-    const deltaSeconds = deltaX / PIXELS_PER_SECOND;
+    const deltaSeconds = deltaX / pixelsPerSecond;
     const newStartTime = Math.max(0, dragStartTime + deltaSeconds);
 
     handleSlideMove(draggedSlideId, newStartTime);
-  }, [isDragging, draggedSlideId, dragStartX, dragStartTime, handleSlideMove]);
+  }, [isDragging, draggedSlideId, dragStartX, dragStartTime, handleSlideMove, pixelsPerSecond]);
 
   const handleDragEnd = useCallback(() => {
     setIsDragging(false);
@@ -1067,7 +1075,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
     if (!timelineRect) return;
 
     const deltaX = e.clientX - resizeStartX;
-    const deltaSeconds = deltaX / PIXELS_PER_SECOND;
+    const deltaSeconds = deltaX / pixelsPerSecond;
 
     if (selectedResizeHandle === 'end') {
       const newDuration = Math.max(MIN_DURATION, resizeStartDuration + deltaSeconds);
@@ -1095,7 +1103,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
         });
       }
     }
-  }, [isResizing, selectedResizeHandle, selectedSlide, resizeStartX, resizeStartDuration, resizeStartTime, handleCollisions, handleSlideDurationChange]);
+  }, [isResizing, selectedResizeHandle, selectedSlide, resizeStartX, resizeStartDuration, resizeStartTime, handleCollisions, handleSlideDurationChange, pixelsPerSecond]);
 
   const handleResizeEnd = useCallback(() => {
     setIsResizing(false);
@@ -1141,11 +1149,100 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Calculate total duration
   const totalDuration = Math.max(
     ...slides.map(s => s.startTime + s.duration),
     ...audioTracks.map(t => t.startTime + t.duration),
     0
   );
+
+  // Zoom controls
+  const handleZoomIn = useCallback(() => {
+    setPixelsPerSecond(prev => Math.min(MAX_PIXELS_PER_SECOND, prev * ZOOM_STEP));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setPixelsPerSecond(prev => Math.max(MIN_PIXELS_PER_SECOND, prev / ZOOM_STEP));
+  }, []);
+
+  const handleZoomReset = useCallback(() => {
+    setPixelsPerSecond(DEFAULT_PIXELS_PER_SECOND);
+  }, []);
+
+  // Mouse wheel zoom
+  const handleTimelineWheel = useCallback((e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      if (e.deltaY < 0) {
+        handleZoomIn();
+      } else {
+        handleZoomOut();
+      }
+    }
+  }, [handleZoomIn, handleZoomOut]);
+
+  // Playhead dragging
+  const handlePlayheadMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingPlayhead(true);
+    setIsPlaying(false); // Pause when dragging playhead
+    
+    const timelineContainer = timelineRef.current?.parentElement;
+    if (timelineContainer) {
+      const containerRect = timelineContainer.getBoundingClientRect();
+      const scrollLeft = timelineContainer.scrollLeft;
+      const x = e.clientX - containerRect.left + scrollLeft;
+      const newTime = Math.max(0, Math.min(totalDuration, x / pixelsPerSecond));
+      setCurrentTime(newTime);
+      currentTimeRef.current = newTime;
+    }
+  }, [pixelsPerSecond, totalDuration]);
+
+  const handlePlayheadDrag = useCallback((e: MouseEvent) => {
+    if (!isDraggingPlayhead) return;
+
+    const timelineContainer = timelineRef.current?.parentElement;
+    if (!timelineContainer) return;
+
+    const containerRect = timelineContainer.getBoundingClientRect();
+    const scrollLeft = timelineContainer.scrollLeft;
+    const x = e.clientX - containerRect.left + scrollLeft;
+    const newTime = Math.max(0, Math.min(totalDuration, x / pixelsPerSecond));
+    setCurrentTime(newTime);
+    currentTimeRef.current = newTime;
+    
+    // Auto-scroll to keep playhead visible
+    const playheadX = newTime * pixelsPerSecond;
+    const containerWidth = containerRect.width;
+    const currentScroll = scrollLeft;
+    
+    if (playheadX < currentScroll + 50) {
+      timelineContainer.scrollLeft = Math.max(0, playheadX - 50);
+    } else if (playheadX > currentScroll + containerWidth - 50) {
+      timelineContainer.scrollLeft = playheadX - containerWidth + 50;
+    }
+  }, [isDraggingPlayhead, pixelsPerSecond, totalDuration]);
+
+  const handlePlayheadDragEnd = useCallback(() => {
+    setIsDraggingPlayhead(false);
+  }, []);
+
+  // Handle playhead drag events
+  useEffect(() => {
+    if (isDraggingPlayhead) {
+      window.addEventListener('mousemove', handlePlayheadDrag);
+      window.addEventListener('mouseup', handlePlayheadDragEnd);
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'col-resize';
+      return () => {
+        window.removeEventListener('mousemove', handlePlayheadDrag);
+        window.removeEventListener('mouseup', handlePlayheadDragEnd);
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+      };
+    }
+  }, [isDraggingPlayhead, handlePlayheadDrag, handlePlayheadDragEnd]);
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
@@ -1259,6 +1356,30 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-900">Timeline</h3>
               <div className="flex items-center space-x-2">
+                {/* Zoom Controls */}
+                <div className="flex items-center space-x-1 border border-gray-300 rounded-lg p-1">
+                  <button
+                    onClick={handleZoomOut}
+                    className="p-1.5 hover:bg-gray-100 rounded transition-colors"
+                    title="Zoom Out (Ctrl/Cmd + Scroll)"
+                  >
+                    <ZoomOut className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleZoomReset}
+                    className="px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                    title="Reset Zoom"
+                  >
+                    {Math.round(pixelsPerSecond)}px/s
+                  </button>
+                  <button
+                    onClick={handleZoomIn}
+                    className="p-1.5 hover:bg-gray-100 rounded transition-colors"
+                    title="Zoom In (Ctrl/Cmd + Scroll)"
+                  >
+                    <ZoomIn className="w-4 h-4" />
+                  </button>
+                </div>
                 <button
                   onClick={handleAddAudioTrack}
                   className="flex items-center space-x-2 px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
@@ -1269,20 +1390,46 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
               </div>
             </div>
 
-            {/* Timeline Ruler */}
-            <div className="relative mb-4" style={{ height: '30px' }}>
-              <div className="absolute inset-0 border-b border-gray-300">
+            {/* Timeline Ruler with Scrollable Container */}
+            <div 
+              className="relative mb-4 overflow-x-auto" 
+              style={{ height: '30px' }}
+              onWheel={handleTimelineWheel}
+              onClick={(e) => {
+                // Click on ruler to jump playhead
+                const container = e.currentTarget;
+                const containerRect = container.getBoundingClientRect();
+                const scrollLeft = container.scrollLeft;
+                const x = e.clientX - containerRect.left + scrollLeft;
+                const newTime = Math.max(0, Math.min(totalDuration, x / pixelsPerSecond));
+                setCurrentTime(newTime);
+                currentTimeRef.current = newTime;
+              }}
+            >
+              <div 
+                className="absolute inset-0 border-b border-gray-300 cursor-pointer"
+                style={{ width: `${totalDuration * pixelsPerSecond}px`, minWidth: '100%' }}
+              >
                 {Array.from({ length: Math.ceil(totalDuration) + 1 }).map((_, i) => (
                   <div
                     key={i}
                     className="absolute border-l border-gray-300"
-                    style={{ left: `${i * PIXELS_PER_SECOND}px` }}
+                    style={{ left: `${i * pixelsPerSecond}px` }}
                   >
-                    <div className="absolute top-0 text-xs text-gray-500 mt-1" style={{ transform: 'translateX(-50%)' }}>
+                    <div className="absolute top-0 text-xs text-gray-500 mt-1 whitespace-nowrap" style={{ transform: 'translateX(-50%)' }}>
                       {formatTime(i)}
                     </div>
                   </div>
                 ))}
+                {/* Playhead time indicator on ruler */}
+                <div
+                  className="absolute top-0 pointer-events-none z-20"
+                  style={{ left: `${currentTime * pixelsPerSecond}px`, transform: 'translateX(-50%)' }}
+                >
+                  <div className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-b whitespace-nowrap font-medium">
+                    {formatTime(currentTime)}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1290,13 +1437,18 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
             <div className="mb-6">
               <div className="text-sm font-medium text-gray-700 mb-2">Slides</div>
               <div
-                ref={timelineRef}
-                className="relative border border-gray-300 rounded-lg bg-gray-50"
+                className="relative border border-gray-300 rounded-lg bg-gray-50 overflow-x-auto"
                 style={{ minHeight: '120px', height: '120px' }}
+                onWheel={handleTimelineWheel}
               >
+                <div
+                  ref={timelineRef}
+                  className="relative"
+                  style={{ width: `${totalDuration * pixelsPerSecond}px`, minWidth: '100%', height: '100%' }}
+                >
                 {slides.map((slide) => {
-                  const left = slide.startTime * PIXELS_PER_SECOND;
-                  const width = slide.duration * PIXELS_PER_SECOND;
+                  const left = slide.startTime * pixelsPerSecond;
+                  const width = slide.duration * pixelsPerSecond;
                   const isDraggingThis = isDragging && draggedSlideId === slide.id;
                   
                   return (
@@ -1314,7 +1466,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
                       style={{
                         left: `${left}px`,
                         width: `${width}px`,
-                        minWidth: `${MIN_DURATION * PIXELS_PER_SECOND}px`,
+                        minWidth: `${MIN_DURATION * pixelsPerSecond}px`,
                         userSelect: 'none',
                         WebkitUserSelect: 'none',
                         MozUserSelect: 'none',
@@ -1425,44 +1577,57 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
                   );
                 })}
                 
-                {/* Playhead */}
+                {/* Playhead - Draggable */}
                 <div
-                  className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10 pointer-events-none"
-                  style={{ left: `${currentTime * PIXELS_PER_SECOND}px` }}
+                  className={`absolute top-0 bottom-0 w-0.5 bg-red-500 z-10 ${
+                    isDraggingPlayhead ? 'cursor-col-resize' : 'cursor-col-resize'
+                  }`}
+                  style={{ left: `${currentTime * pixelsPerSecond}px` }}
+                  onMouseDown={handlePlayheadMouseDown}
                 >
                   <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-8 border-t-red-500 border-l-transparent border-r-transparent" />
+                </div>
                 </div>
               </div>
             </div>
 
             {/* Audio Tracks */}
-            {audioTracks.map((track, trackIndex) => {
-              const waveform = waveformDataRef.current.get(track.id) || [];
-              const trackIsPlaying = isPlaying && currentTime >= track.startTime && currentTime < track.startTime + track.duration;
-              const playheadPosition = trackIsPlaying ? ((currentTime - track.startTime) / track.duration) * 100 : 0;
-              
-              return (
-                <div key={track.id} className="mb-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-sm font-medium text-gray-700 flex items-center space-x-2">
-                      <Volume2 className="w-4 h-4" />
-                      <span>Audio Track {trackIndex + 1}: {track.name}</span>
+            <div className="space-y-4">
+              {audioTracks.map((track, trackIndex) => {
+                const waveform = waveformDataRef.current.get(track.id) || [];
+                const trackIsPlaying = isPlaying && currentTime >= track.startTime && currentTime < track.startTime + track.duration;
+                const playheadPosition = trackIsPlaying ? ((currentTime - track.startTime) / track.duration) * 100 : 0;
+                
+                return (
+                  <div key={track.id} className="mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-sm font-medium text-gray-700 flex items-center space-x-2">
+                        <Volume2 className="w-4 h-4" />
+                        <span>Audio Track {trackIndex + 1}: {track.name}</span>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteAudioTrack(track.id)}
+                        className="text-red-600 hover:text-red-800 text-sm"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
-                    <button
-                      onClick={() => handleDeleteAudioTrack(track.id)}
-                      className="text-red-600 hover:text-red-800 text-sm"
+                    <div 
+                      className="relative border border-gray-300 rounded-lg bg-gray-50 overflow-x-auto"
+                      style={{ height: '80px' }}
+                      onWheel={handleTimelineWheel}
                     >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <div className="relative border border-gray-300 rounded-lg bg-gray-50 overflow-hidden" style={{ height: '80px' }}>
-                    <div
-                      className="absolute top-2 bottom-2 bg-green-500 bg-opacity-30 border border-green-600 rounded"
-                      style={{
-                        left: `${track.startTime * PIXELS_PER_SECOND}px`,
-                        width: `${track.duration * PIXELS_PER_SECOND}px`,
-                      }}
-                    >
+                      <div
+                        className="relative"
+                        style={{ width: `${totalDuration * pixelsPerSecond}px`, minWidth: '100%', height: '100%' }}
+                      >
+                        <div
+                          className="absolute top-2 bottom-2 bg-green-500 bg-opacity-30 border border-green-600 rounded"
+                          style={{
+                            left: `${track.startTime * pixelsPerSecond}px`,
+                            width: `${track.duration * pixelsPerSecond}px`,
+                          }}
+                        >
                       {/* Waveform visualization */}
                       {waveform.length > 0 ? (
                         <div className="relative h-full w-full">
@@ -1524,11 +1689,21 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
                       <div className="absolute bottom-1 right-1 bg-black bg-opacity-75 text-white text-xs px-1 py-0.5 rounded">
                         {formatTime(track.duration)}
                       </div>
+                        </div>
+                        
+                        {/* Playhead on audio track */}
+                        <div
+                          className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10 pointer-events-none"
+                          style={{ left: `${currentTime * pixelsPerSecond}px` }}
+                        >
+                          <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-8 border-t-red-500 border-l-transparent border-r-transparent" />
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
