@@ -166,16 +166,16 @@ export async function POST(request: NextRequest) {
     };
     
     // Collect unique URLs
-    const uniqueImageUrls = Array.from(new Set(slides.filter((s: { imageUrl?: string }) => s.imageUrl).map((s: { imageUrl: string }) => s.imageUrl)));
-    const uniqueAudioUrls = Array.from(new Set((audioTracks || []).filter((t: { audioUrl?: string }) => t.audioUrl).map((t: { audioUrl: string }) => t.audioUrl)));
+    const uniqueImageUrls: string[] = Array.from(new Set(slides.filter((s: { imageUrl?: string }) => s.imageUrl).map((s: { imageUrl: string }) => s.imageUrl)));
+    const uniqueAudioUrls: string[] = Array.from(new Set((audioTracks || []).filter((t: { audioUrl?: string }) => t.audioUrl).map((t: { audioUrl: string }) => t.audioUrl)));
     
     const imageFileNameMap = new Map<string, string>();
-    uniqueImageUrls.forEach((url: string, index: number) => {
+    uniqueImageUrls.forEach((url, index) => {
       imageFileNameMap.set(url, generateFileName(url, 'image', index));
     });
     
     const audioFileNameMap = new Map<string, string>();
-    uniqueAudioUrls.forEach((url: string, index: number) => {
+    uniqueAudioUrls.forEach((url, index) => {
       audioFileNameMap.set(url, generateFileName(url, 'audio', index));
     });
     
