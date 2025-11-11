@@ -251,7 +251,7 @@ export async function POST(request: NextRequest) {
       headers: {
         'Content-Type': 'application/zip',
         'Content-Disposition': `attachment; filename="av-editing-export-${episodeId}-${Date.now()}.zip"`,
-      },
+      } as HeadersInit,
     });
   } catch (error) {
     console.error('❌ Error in export API:', error);
