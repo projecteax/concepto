@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AVScript, AVEditingSlide, AVEditingAudioTrack, AVEditingData } from '@/types';
+import JSZip from 'jszip';
 import { 
   Play, 
   Pause, 
@@ -12,7 +13,8 @@ import {
   Image as ImageIcon,
   X,
   ZoomIn,
-  ZoomOut
+  ZoomOut,
+  Download
 } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { db } from '@/lib/firebase';
@@ -1244,6 +1246,313 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
     }
   }, [isDraggingPlayhead, handlePlayheadDrag, handlePlayheadDragEnd]);
 
+  // Export to FCP XML
+  const handleExportToFCPXML = useCallback(async () => {
+    try {
+      console.log('📦 Starting FCP XML export...');
+      const zip = new JSZip();
+      
+      // Generate filename mapping first (before XML generation)
+      const generateFileName = (url: string, type: 'image' | 'audio', index: number): string => {
+        const urlParts = url.split('/');
+        const originalFileName = urlParts[urlParts.length - 1].split('?')[0]; // Remove query params
+        const extension = originalFileName.includes('.') 
+          ? originalFileName.split('.').pop()?.toLowerCase() || (type === 'image' ? 'jpg' : 'mp3')
+          : (type === 'image' ? 'jpg' : 'mp3');
+        return `${type}-${index + 1}.${extension}`;
+      };
+      
+      // Collect unique URLs and generate filenames
+      const uniqueImageUrls = Array.from(new Set(slides.filter(s => s.imageUrl).map(s => s.imageUrl!)));
+      const uniqueAudioUrls = Array.from(new Set(audioTracks.filter(t => t.audioUrl).map(t => t.audioUrl!)));
+      
+      const imageFileNameMap = new Map<string, string>();
+      uniqueImageUrls.forEach((url, index) => {
+        imageFileNameMap.set(url, generateFileName(url, 'image', index));
+      });
+      
+      const audioFileNameMap = new Map<string, string>();
+      uniqueAudioUrls.forEach((url, index) => {
+        audioFileNameMap.set(url, generateFileName(url, 'audio', index));
+      });
+      
+      // Generate FCP XML
+      const generateFCPXML = (): string => {
+        const sortedSlides = [...slides].sort((a, b) => a.startTime - b.startTime);
+        const sortedAudioTracks = [...audioTracks].sort((a, b) => a.startTime - b.startTime);
+        
+        // Calculate timecode values (FCP uses timecode format: HH:MM:SS:FF where FF is frames)
+        const framesPerSecond = 30; // Standard for FCP
+        const timeToTimecode = (seconds: number): string => {
+          const totalFrames = Math.floor(seconds * framesPerSecond);
+          const hours = Math.floor(totalFrames / (framesPerSecond * 3600));
+          const minutes = Math.floor((totalFrames % (framesPerSecond * 3600)) / (framesPerSecond * 60));
+          const secs = Math.floor((totalFrames % (framesPerSecond * 60)) / framesPerSecond);
+          const frames = totalFrames % framesPerSecond;
+          return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
+        };
+        
+        const durationTimecode = timeToTimecode(totalDuration);
+        
+        // Generate asset IDs
+        let assetId = 1;
+        const assetMap = new Map<string, string>();
+        
+        // Map slides to assets
+        sortedSlides.forEach(slide => {
+          if (slide.imageUrl && !assetMap.has(slide.imageUrl)) {
+            assetMap.set(slide.imageUrl, `r${assetId++}`);
+          }
+        });
+        
+        // Map audio tracks to assets
+        sortedAudioTracks.forEach(track => {
+          if (track.audioUrl && !assetMap.has(track.audioUrl)) {
+            assetMap.set(track.audioUrl, `r${assetId++}`);
+          }
+        });
+        
+        // Generate assets section
+        let assetsXML = '';
+        
+        // Image assets (use unique URLs to avoid duplicates)
+        uniqueImageUrls.forEach((imageUrl) => {
+          const assetId = assetMap.get(imageUrl)!;
+          const fileName = imageFileNameMap.get(imageUrl)!;
+          
+          assetsXML += `
+        <asset id="${assetId}" name="${fileName}" uid=".../${assetId}" start="0s" duration="${durationTimecode}" hasVideo="1" hasAudio="0" audioSources="1" videoSources="1" format="r1" audioChannels="2" audioRate="48000">
+          <media-rep kind="original-media" src="media/${fileName}"/>
+          <metadata>
+            <md key="com.apple.proapps.studio.rawToLogConversion" value="0"/>
+            <md key="com.apple.proapps.mio.ingestDate" value="${new Date().toISOString()}"/>
+          </metadata>
+        </asset>`;
+        });
+        
+        // Audio assets (use unique URLs to avoid duplicates)
+        uniqueAudioUrls.forEach((audioUrl) => {
+          const assetId = assetMap.get(audioUrl)!;
+          const fileName = audioFileNameMap.get(audioUrl)!;
+          
+          // Find the track to get duration
+          const track = sortedAudioTracks.find(t => t.audioUrl === audioUrl);
+          const trackDuration = track ? track.duration : 0;
+          
+          assetsXML += `
+        <asset id="${assetId}" name="${fileName}" uid=".../${assetId}" start="0s" duration="${timeToTimecode(trackDuration)}" hasVideo="0" hasAudio="1" audioSources="1" videoSources="1" format="r1" audioChannels="2" audioRate="48000">
+          <media-rep kind="original-media" src="media/${fileName}"/>
+          <metadata>
+            <md key="com.apple.proapps.studio.rawToLogConversion" value="0"/>
+            <md key="com.apple.proapps.mio.ingestDate" value="${new Date().toISOString()}"/>
+          </metadata>
+        </asset>`;
+        });
+        
+        // Generate sequence with clips
+        let clipsXML = '';
+        
+        // Video clips (slides)
+        sortedSlides.forEach(slide => {
+          const assetId = assetMap.get(slide.imageUrl)!;
+          const startTimecode = timeToTimecode(slide.startTime);
+          const durationTimecode = timeToTimecode(slide.duration);
+          const offsetTimecode = timeToTimecode(0);
+          
+          clipsXML += `
+            <asset-clip ref="${assetId}" offset="${startTimecode}" name="${slide.id}" tcFormat="NDF" start="${offsetTimecode}" duration="${durationTimecode}">
+              <param name="Scale" value="1 1"/>
+              <param name="Anchor" value="0 0"/>
+              <param name="Position" value="0 0"/>
+            </asset-clip>`;
+        });
+        
+        // Audio clips
+        sortedAudioTracks.forEach(track => {
+          const assetId = assetMap.get(track.audioUrl)!;
+          const startTimecode = timeToTimecode(track.startTime);
+          const durationTimecode = timeToTimecode(track.duration);
+          const offsetTimecode = timeToTimecode(0);
+          const volume = track.volume / 100;
+          
+          clipsXML += `
+            <asset-clip ref="${assetId}" offset="${startTimecode}" name="${track.name}" tcFormat="NDF" start="${offsetTimecode}" duration="${durationTimecode}">
+              <param name="Volume" value="${volume}"/>
+            </asset-clip>`;
+        });
+        
+        const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE fcpxml>
+<fcpxml version="1.9">
+  <resources>
+    <format id="r1" name="FFVideoFormat1080p2997" frameDuration="1001/30000s" width="1920" height="1080" colorSpace="Rec. 709"/>
+    ${assetsXML}
+  </resources>
+  <library>
+    <event name="AV Editing Export">
+      <project name="Timeline" modDate="${new Date().toISOString()}">
+        <sequence format="r1" tcStart="0s" tcFormat="NDF" audioLayout="stereo" audioRate="48k">
+          <spine>
+            ${clipsXML}
+          </spine>
+        </sequence>
+      </project>
+    </event>
+  </library>
+</fcpxml>`;
+        
+        return xml;
+      };
+      
+      // Download and add images (collect unique images)
+      console.log('📥 Downloading images...');
+      const imagePromises = uniqueImageUrls.map(async (imageUrl, index) => {
+        try {
+          console.log(`📥 Downloading image ${index + 1}/${uniqueImageUrls.length}: ${imageUrl}`);
+          
+          // Try to fetch with CORS mode
+          const response = await fetch(imageUrl, {
+            mode: 'cors',
+            credentials: 'omit',
+          });
+          
+          if (!response.ok) {
+            // If CORS fails, try no-cors (but we won't be able to verify the response)
+            const noCorsResponse = await fetch(imageUrl, { mode: 'no-cors' });
+            if (noCorsResponse.type === 'opaque') {
+              // For no-cors, we can't read the blob, so we need a different approach
+              // Create a proxy request through a server endpoint or use img element
+              throw new Error('CORS blocked - trying alternative method');
+            }
+          }
+          
+          const blob = await response.blob();
+          
+          // Use the pre-generated filename
+          const fileName = imageFileNameMap.get(imageUrl)!;
+          
+          zip.file(`media/${fileName}`, blob);
+          console.log(`✅ Added image: ${fileName} (${(blob.size / 1024).toFixed(2)} KB)`);
+          
+          return { originalUrl: imageUrl, fileName };
+        } catch (error) {
+          console.error(`❌ Error downloading image ${imageUrl}:`, error);
+          
+          // Try alternative method: use img element to convert to blob
+          try {
+            return new Promise<{ originalUrl: string; fileName: string }>((resolve, reject) => {
+              const img = new Image();
+              img.crossOrigin = 'anonymous';
+              
+              img.onload = () => {
+                try {
+                  const canvas = document.createElement('canvas');
+                  canvas.width = img.width;
+                  canvas.height = img.height;
+                  const ctx = canvas.getContext('2d');
+                  if (!ctx) {
+                    reject(new Error('Could not get canvas context'));
+                    return;
+                  }
+                  ctx.drawImage(img, 0, 0);
+                  
+                  canvas.toBlob((blob) => {
+                    if (!blob) {
+                      reject(new Error('Could not convert canvas to blob'));
+                      return;
+                    }
+                    
+                    // Use the pre-generated filename
+                    const fileName = imageFileNameMap.get(imageUrl)!;
+                    
+                    zip.file(`media/${fileName}`, blob);
+                    console.log(`✅ Added image (via canvas): ${fileName} (${(blob.size / 1024).toFixed(2)} KB)`);
+                    resolve({ originalUrl: imageUrl, fileName });
+                  }, 'image/jpeg', 0.95);
+                } catch (err) {
+                  reject(err);
+                }
+              };
+              
+              img.onerror = () => {
+                reject(new Error('Failed to load image'));
+              };
+              
+              img.src = imageUrl;
+            });
+          } catch (altError) {
+            console.error(`❌ Alternative method also failed for ${imageUrl}:`, altError);
+            return null;
+          }
+        }
+      });
+      
+      // Download and add audio files
+      console.log('📥 Downloading audio files...');
+      const audioPromises = uniqueAudioUrls.map(async (audioUrl, index) => {
+        try {
+          console.log(`📥 Downloading audio ${index + 1}/${uniqueAudioUrls.length}: ${audioUrl}`);
+          
+          const response = await fetch(audioUrl, {
+            mode: 'cors',
+            credentials: 'omit',
+          });
+          
+          if (!response.ok) {
+            throw new Error(`Failed to fetch audio: ${audioUrl} (${response.status})`);
+          }
+          
+          const blob = await response.blob();
+          
+          // Use the pre-generated filename
+          const fileName = audioFileNameMap.get(audioUrl)!;
+          
+          zip.file(`media/${fileName}`, blob);
+          console.log(`✅ Added audio: ${fileName} (${(blob.size / 1024).toFixed(2)} KB)`);
+          
+          return { originalUrl: audioUrl, fileName };
+        } catch (error) {
+          console.error(`❌ Error downloading audio ${audioUrl}:`, error);
+          return null;
+        }
+      });
+      
+      const xmlContent = generateFCPXML();
+      zip.file('timeline.fcpxml', xmlContent);
+      
+      // Wait for all downloads and collect results
+      const imageResults = await Promise.all(imagePromises);
+      const audioResults = await Promise.all(audioPromises);
+      
+      // Filter out failed downloads
+      const successfulImages = imageResults.filter((r): r is { originalUrl: string; fileName: string } => r !== null);
+      const successfulAudios = audioResults.filter((r): r is { originalUrl: string; fileName: string } => r !== null);
+      
+      console.log(`✅ Successfully downloaded ${successfulImages.length} images and ${successfulAudios.length} audio files`);
+      
+      // Update XML with correct filenames if needed
+      // (The XML already uses the correct filenames from the asset map, so this should be fine)
+      
+      // Generate ZIP file
+      console.log('📦 Generating ZIP file...');
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      
+      // Download ZIP
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(zipBlob);
+      link.download = `av-editing-export-${episodeId}-${Date.now()}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
+      
+      console.log('✅ Export completed successfully!');
+    } catch (error) {
+      console.error('❌ Error exporting to FCP XML:', error);
+      alert('Failed to export. Please try again.');
+    }
+  }, [slides, audioTracks, totalDuration, episodeId]);
+
   return (
     <div className="flex flex-col h-full bg-gray-50">
       {/* Header */}
@@ -1268,6 +1577,14 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
               >
                 <Square className="w-4 h-4" />
                 <span>Stop</span>
+              </button>
+              <button
+                onClick={handleExportToFCPXML}
+                className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                title="Export to Final Cut Pro XML"
+              >
+                <Download className="w-4 h-4" />
+                <span>Export FCP XML</span>
               </button>
             </div>
           </div>
