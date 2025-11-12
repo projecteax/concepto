@@ -28,78 +28,72 @@ function generateFCPXML(
   audioFileNameMap: Map<string, string>
 ): string {
   const fps = 25;
-  const timecode = secondsToTimecode(0, fps);
-  const duration = secondsToDuration(totalDuration, fps);
   
   // Sort slides and audio by start time
   const sortedSlides = [...slides].sort((a, b) => a.startTime - b.startTime);
   const sortedAudio = [...audioTracks].sort((a, b) => a.startTime - b.startTime);
   
-  // Generate asset elements
+  // Generate unique IDs
+  const formatId = 'fmt1';
+  
+  // Generate asset elements with unique IDs and file:/// paths
   const imageAssets = sortedSlides.map((slide, index) => {
     const fileName = imageFileNameMap.get(slide.imageUrl) || `image-${index + 1}.jpg`;
-    return `
-      <asset id="r${index + 1}" name="${fileName}" uid="..." src="media/${fileName}" start="${secondsToTimecode(0, fps)}" duration="${secondsToDuration(slide.duration, fps)}" hasVideo="1" format="r1" hasAudio="0"/>
-    `;
-  }).join('');
+    const assetId = `a${index + 1}`;
+    const durationStr = secondsToDuration(slide.duration, fps);
+    // Use relative path in src (FCP will resolve it relative to XML location)
+    return `    <asset id="${assetId}" name="${fileName}" src="media/${fileName}" hasVideo="1" hasAudio="0" format="${formatId}" duration="${durationStr}"/>`;
+  }).join('\n');
   
   const audioAssets = sortedAudio.map((track, index) => {
     const fileName = audioFileNameMap.get(track.audioUrl) || `audio-${index + 1}.mp3`;
-    return `
-      <asset id="r${sortedSlides.length + index + 1}" name="${fileName}" uid="..." src="media/${fileName}" start="${secondsToTimecode(0, fps)}" duration="${secondsToDuration(track.duration, fps)}" hasVideo="0" format="r1" hasAudio="1"/>
-    `;
-  }).join('');
+    const assetId = `a${sortedSlides.length + index + 1}`;
+    const durationStr = secondsToDuration(track.duration, fps);
+    return `    <asset id="${assetId}" name="${fileName}" src="media/${fileName}" hasVideo="0" hasAudio="1" format="${formatId}" duration="${durationStr}"/>`;
+  }).join('\n');
   
-  // Generate clip elements for slides
+  // Generate asset-clip elements for slides in spine
+  // Each clip needs offset to position it on timeline sequentially
+  let cumulativeOffset = 0;
   const slideClips = sortedSlides.map((slide, index) => {
     const fileName = imageFileNameMap.get(slide.imageUrl) || `image-${index + 1}.jpg`;
-    const offset = secondsToTimecode(slide.startTime, fps);
-    const clipDuration = secondsToDuration(slide.duration, fps);
-    return `
-      <clip id="r${index + 1}" name="${fileName}">
-        <file id="r${index + 1}" name="${fileName}" uid="..." path="media/${fileName}" timecode="${timecode}" format="r1" tcStart="${timecode}" tcEnd="${secondsToTimecode(slide.duration, fps)}"/>
-        <sourcetrack>
-          <mediatype video="1" audio="0"/>
-        </sourcetrack>
-        <filter>
-          <effect id="r${index + 1}" name="Transform"/>
-        </filter>
-      </clip>
-    `;
-  }).join('');
+    const assetId = `a${index + 1}`;
+    const durationStr = secondsToDuration(slide.duration, fps);
+    const offsetStr = secondsToDuration(cumulativeOffset, fps);
+    
+    // Update cumulative offset for next clip
+    cumulativeOffset += slide.duration;
+    
+    return `            <asset-clip ref="${assetId}" name="${fileName}" start="0s" offset="${offsetStr}" duration="${durationStr}"/>`;
+  }).join('\n');
   
-  // Generate clip elements for audio
+  // Generate audio clips - positioned by their startTime
   const audioClips = sortedAudio.map((track, index) => {
     const fileName = audioFileNameMap.get(track.audioUrl) || `audio-${index + 1}.mp3`;
-    const offset = secondsToTimecode(track.startTime, fps);
-    const clipDuration = secondsToDuration(track.duration, fps);
-    return `
-      <clip id="r${sortedSlides.length + index + 1}" name="${fileName}" offset="${offset}" duration="${clipDuration}">
-        <file id="r${sortedSlides.length + index + 1}" name="${fileName}" uid="..." path="media/${fileName}" timecode="${timecode}" format="r1" tcStart="${timecode}" tcEnd="${secondsToTimecode(track.duration, fps)}"/>
-        <sourcetrack>
-          <mediatype video="0" audio="1"/>
-        </sourcetrack>
-      </clip>
-    `;
-  }).join('');
+    const assetId = `a${sortedSlides.length + index + 1}`;
+    const durationStr = secondsToDuration(track.duration, fps);
+    const offsetStr = secondsToDuration(track.startTime, fps);
+    
+    return `            <asset-clip ref="${assetId}" name="${fileName}" start="0s" offset="${offsetStr}" duration="${durationStr}"/>`;
+  }).join('\n');
   
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE fcpxml>
 <fcpxml version="1.9">
   <resources>
-    <format id="r1" name="FFVideoFormat1080p25" frameDuration="1/25s" width="1920" height="1080" colorSpace="1-1-1 (Rec. 709)"/>
-    ${imageAssets}
-    ${audioAssets}
+    <format id="${formatId}" name="FFVideoFormat1080p25" frameDuration="1/25s" width="1920" height="1080" colorSpace="1-1-1 (Rec. 709)"/>
+${imageAssets}
+${audioAssets}
   </resources>
   <library>
     <event name="Episode ${episodeId}">
       <project name="AV Editing Export">
-        <sequence format="r1" tcStart="${timecode}" tcFormat="NDF" audioLayout="stereo" audioRate="48k">
+        <sequence format="${formatId}" tcStart="0s" tcFormat="NDF" audioLayout="stereo" audioRate="48k">
           <spine>
-            ${slideClips}
+${slideClips}
           </spine>
           <audio>
-            ${audioClips}
+${audioClips}
           </audio>
         </sequence>
       </project>
