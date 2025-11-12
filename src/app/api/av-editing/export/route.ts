@@ -53,16 +53,13 @@ function generateFCPXML(
   }).join('\n');
   
   // Generate asset-clip elements for slides in spine
-  // Each clip needs offset to position it on timeline sequentially
-  let cumulativeOffset = 0;
+  // Use actual startTime from timeline (not cumulative)
   const slideClips = sortedSlides.map((slide, index) => {
     const fileName = imageFileNameMap.get(slide.imageUrl) || `image-${index + 1}.jpg`;
     const assetId = `a${index + 1}`;
     const durationStr = secondsToDuration(slide.duration, fps);
-    const offsetStr = secondsToDuration(cumulativeOffset, fps);
-    
-    // Update cumulative offset for next clip
-    cumulativeOffset += slide.duration;
+    // Use actual startTime from the slide (timeline position)
+    const offsetStr = secondsToDuration(slide.startTime, fps);
     
     return `            <asset-clip ref="${assetId}" name="${fileName}" start="0s" offset="${offsetStr}" duration="${durationStr}"/>`;
   }).join('\n');
@@ -77,24 +74,47 @@ function generateFCPXML(
     return `            <asset-clip ref="${assetId}" name="${fileName}" start="0s" offset="${offsetStr}" duration="${durationStr}"/>`;
   }).join('\n');
   
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+  // Build XML with proper structure
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE fcpxml>
 <fcpxml version="1.9">
   <resources>
     <format id="${formatId}" name="FFVideoFormat1080p25" frameDuration="1/25s" width="1920" height="1080" colorSpace="1-1-1 (Rec. 709)"/>
-${imageAssets}
-${audioAssets}
-  </resources>
+`;
+  
+  // Add image assets
+  if (imageAssets) {
+    xml += imageAssets + '\n';
+  }
+  
+  // Add audio assets
+  if (audioAssets) {
+    xml += audioAssets + '\n';
+  }
+  
+  xml += `  </resources>
   <library>
     <event name="Episode ${episodeId}">
       <project name="AV Editing Export">
         <sequence format="${formatId}" tcStart="0s" tcFormat="NDF" audioLayout="stereo" audioRate="48k">
           <spine>
-${slideClips}
-          </spine>
+`;
+  
+  // Add slide clips
+  if (slideClips) {
+    xml += slideClips + '\n';
+  }
+  
+  xml += `          </spine>
           <audio>
-${audioClips}
-          </audio>
+`;
+  
+  // Add audio clips
+  if (audioClips) {
+    xml += audioClips + '\n';
+  }
+  
+  xml += `          </audio>
         </sequence>
       </project>
     </event>
@@ -146,6 +166,22 @@ export async function POST(request: NextRequest) {
     }
     
     console.log(`📦 Server-side export: ${slides.length} slides, ${audioTracks?.length || 0} audio tracks`);
+    
+    // Debug: Log slide and audio data
+    console.log('📊 Slides data:', slides.map((s: { id: string; startTime: number; duration: number; imageUrl?: string }) => ({
+      id: s.id,
+      startTime: s.startTime,
+      duration: s.duration,
+      imageUrl: s.imageUrl?.substring(0, 50) + '...'
+    })));
+    if (audioTracks && Array.isArray(audioTracks)) {
+      console.log('📊 Audio tracks data:', audioTracks.map((t: { id: string; startTime: number; duration: number; audioUrl?: string }) => ({
+        id: t.id,
+        startTime: t.startTime,
+        duration: t.duration,
+        audioUrl: t.audioUrl?.substring(0, 50) + '...'
+      })));
+    }
     
     const zip = new JSZip();
     
