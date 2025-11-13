@@ -432,6 +432,7 @@ export interface AVEditingSlide {
   startTime: number; // Start time in timeline (calculated)
   order: number;
   isFromAVScript: boolean; // Whether this slide comes from AV script
+  isManuallyEdited?: boolean; // Whether user has manually edited this slide (duration or startTime)
   createdAt: Date;
   updatedAt: Date;
 }
@@ -446,6 +447,7 @@ export interface AVEditingAudioTrack {
   order: number;
   shotId?: string; // Reference to AVShot if from AV script
   voiceName?: string; // Character/voice name for grouping
+  isManuallyEdited?: boolean; // Whether user has manually edited this track (startTime)
   createdAt: Date;
   updatedAt: Date;
 }

@@ -161,10 +161,30 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
     }
   }, []);
 
+  // Helper function to recursively remove undefined values (Firestore doesn't allow undefined)
+  const removeUndefinedValues = useCallback((obj: unknown): unknown => {
+    if (obj === null || obj === undefined) {
+      return null;
+    }
+    if (Array.isArray(obj)) {
+      return obj.map(item => removeUndefinedValues(item));
+    }
+    if (typeof obj === 'object') {
+      const cleaned: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(obj)) {
+        if (value !== undefined) {
+          cleaned[key] = removeUndefinedValues(value);
+        }
+      }
+      return cleaned;
+    }
+    return obj;
+  }, []);
+
   // Helper function to convert AVEditingData to Firestore format
   const convertToFirestoreFormat = useCallback((data: AVEditingData): Record<string, unknown> => {
     try {
-      return {
+      const converted = {
         ...data,
         slides: data.slides.map(slide => ({
           ...slide,
@@ -179,11 +199,14 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
         createdAt: dateToTimestamp(data.createdAt),
         updatedAt: dateToTimestamp(data.updatedAt),
       };
+      
+      // Remove undefined values before saving to Firestore
+      return removeUndefinedValues(converted) as Record<string, unknown>;
     } catch (error) {
       console.error('Error converting to Firestore format:', error);
       throw error;
     }
-  }, [dateToTimestamp]);
+  }, [dateToTimestamp, removeUndefinedValues]);
 
   // Save editing data to Firebase with aggressive queue management to prevent write exhaustion
   const saveEditingData = useCallback(async (data: AVEditingData, immediate = false) => {
@@ -273,6 +296,15 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
         setEditingData(data);
         lastSavedDataRef.current = dataHash;
         setSaveStatus('saved');
+        
+        // CRITICAL: After saving, prevent sync from running for a short period to avoid overwriting saved changes
+        // This prevents sync from immediately overwriting user edits after save
+        preventSyncRef.current = true;
+        setTimeout(() => {
+          preventSyncRef.current = false;
+          console.log('✅ Sync protection disabled after save');
+        }, 10000); // Prevent sync for 10 seconds after save
+        
         console.log('✅ Saved AV editing data to Firebase');
         
         // Reset save status after 2 seconds
@@ -334,14 +366,14 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
     if (immediate) {
       await performSave();
     } else {
-      // CRITICAL: Increase debounce to 90 seconds (was 30) to drastically reduce writes
+      // Debounce saves to avoid too many writes to Firebase
       // Clear any existing timeout to reset the timer
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
       saveTimeoutRef.current = setTimeout(() => {
         performSave();
-      }, 90000); // 90 seconds - much less frequent saves
+      }, 5000); // 5 seconds - balance between responsiveness and Firebase write limits
     }
   }, [episodeId, convertToFirestoreFormat]);
 
@@ -454,6 +486,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
   const isSyncingRef = useRef(false);
   // CRITICAL: Add flag to skip auto-save during sync operations
   const skipAutoSaveRef = useRef(false);
+  const preventSyncRef = useRef(false); // Prevent sync from running immediately after save
   // CRITICAL: Track last sync time to prevent sync loops
   const lastSyncTimeRef = useRef<number>(0);
   const SYNC_COOLDOWN = 10000; // Minimum 10 seconds between syncs (increased from 5)
@@ -496,16 +529,32 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
           
           const processedData: AVEditingData = {
             ...data,
-            slides: (Array.isArray(data.slides) ? data.slides : []).map((slide: Record<string, unknown>) => ({
-              ...slide,
-              createdAt: timestampToDate(slide.createdAt),
-              updatedAt: timestampToDate(slide.updatedAt),
-            })) as AVEditingSlide[],
-            audioTracks: (Array.isArray(data.audioTracks) ? data.audioTracks : []).map((track: Record<string, unknown>) => ({
-              ...track,
-              createdAt: timestampToDate(track.createdAt),
-              updatedAt: timestampToDate(track.updatedAt),
-            })) as AVEditingAudioTrack[],
+            slides: (Array.isArray(data.slides) ? data.slides : []).map((slide: Record<string, unknown>) => {
+              // CRITICAL: Preserve isManuallyEdited flag - user edits must be preserved
+              // Firestore might store it differently, so handle boolean, string, and undefined
+              const isManuallyEdited = slide.isManuallyEdited === true || 
+                                      slide.isManuallyEdited === 'true' || 
+                                      (typeof slide.isManuallyEdited === 'boolean' && slide.isManuallyEdited);
+              return {
+                ...slide,
+                isManuallyEdited: isManuallyEdited || undefined, // Store as undefined if false (Firestore will skip it)
+                createdAt: timestampToDate(slide.createdAt),
+                updatedAt: timestampToDate(slide.updatedAt),
+              };
+            }) as AVEditingSlide[],
+            audioTracks: (Array.isArray(data.audioTracks) ? data.audioTracks : []).map((track: Record<string, unknown>) => {
+              // CRITICAL: Preserve isManuallyEdited flag - user edits must be preserved
+              // Firestore might store it differently, so handle boolean, string, and undefined
+              const isManuallyEdited = track.isManuallyEdited === true || 
+                                      track.isManuallyEdited === 'true' || 
+                                      (typeof track.isManuallyEdited === 'boolean' && track.isManuallyEdited);
+              return {
+                ...track,
+                isManuallyEdited: isManuallyEdited || undefined, // Store as undefined if false (Firestore will skip it)
+                createdAt: timestampToDate(track.createdAt),
+                updatedAt: timestampToDate(track.updatedAt),
+              };
+            }) as AVEditingAudioTrack[],
             createdAt: timestampToDate(data.createdAt),
             updatedAt: timestampToDate(data.updatedAt),
           } as AVEditingData;
@@ -513,12 +562,22 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
           console.log('📥 Processed AV editing data:', {
             slidesCount: processedData.slides.length,
             audioTracksCount: processedData.audioTracks.length,
+            manuallyEditedSlides: processedData.slides.filter(s => s.isManuallyEdited).length,
+            manuallyEditedAudioTracks: processedData.audioTracks.filter(t => t.isManuallyEdited).length,
+            slides: processedData.slides.map(s => ({
+              id: s.id,
+              shotId: s.shotId,
+              duration: s.duration,
+              startTime: s.startTime,
+              isManuallyEdited: s.isManuallyEdited,
+            })),
             audioTracks: processedData.audioTracks.map(t => ({
               id: t.id,
               name: t.name,
               audioUrl: t.audioUrl,
               startTime: t.startTime,
               duration: t.duration,
+              isManuallyEdited: t.isManuallyEdited,
             })),
           });
           
@@ -733,14 +792,6 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
     const existingSlideShotIds = new Set(currentSlides.filter(s => s.shotId).map(s => s.shotId!));
     const missingShotIds = Array.from(allShotIdsFromScript).filter(shotId => !existingSlideShotIds.has(shotId));
     
-    // CRITICAL: Prevent sync loops with cooldown period, BUT skip cooldown if slides are missing
-    const now = Date.now();
-    const timeSinceLastSync = now - lastSyncTimeRef.current;
-    if (isSyncingRef.current) {
-      console.log('⏸️ Sync skipped - sync already in progress');
-      return;
-    }
-    
     // Check if we have invalid slides (from deleted shots) - if so, force sync regardless of cooldown
     const slidesWithInvalidShots = currentSlides.filter(slide => {
       if (!slide.shotId || !slide.isFromAVScript) return false;
@@ -750,20 +801,22 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
     // Skip cooldown if we have invalid slides or missing slides
     const shouldSkipCooldown = missingShotIds.length > 0 || slidesWithInvalidShots.length > 0;
     
-    if (!shouldSkipCooldown && timeSinceLastSync < SYNC_COOLDOWN) {
-      console.log(`⏸️ Sync skipped - cooldown active (${Math.round((SYNC_COOLDOWN - timeSinceLastSync) / 1000)}s remaining)`);
+    // CRITICAL: Prevent sync loops with cooldown period, BUT allow sync if:
+    // 1. Slides are missing (shouldSkipCooldown = true)
+    // 2. AV Script has changed (new content generated)
+    // Even if we just saved, we still need to sync NEW content from AV Script
+    
+    // Check if sync is already in progress
+    if (isSyncingRef.current) {
+      console.log('⏸️ Sync skipped - sync already in progress');
       return;
     }
     
-    if (shouldSkipCooldown) {
-      console.log(`⚠️ Skipping cooldown - ${missingShotIds.length} missing slides, ${slidesWithInvalidShots.length} invalid slides`);
-    }
-
-    // Create a hash of the AV script to detect actual changes
-    // CRITICAL: Include segment ID in hash to detect when segments are deleted/recreated
+    // Create a hash of AV Script BEFORE checking cooldown
+    // This allows us to detect new content even during save protection period
     const avScriptHash = JSON.stringify({
       segments: avScript.segments.map(seg => ({
-        id: seg.id, // CRITICAL: Include segment ID to detect segment deletion/recreation
+        id: seg.id,
         segmentNumber: seg.segmentNumber,
         shots: seg.shots.map(shot => ({
           id: shot.id,
@@ -778,6 +831,35 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
         })),
       })),
     });
+    
+    const avScriptHasChanged = previousAVScriptRef.current !== avScriptHash && previousAVScriptRef.current !== '';
+    
+    // If AV Script has changed (new content generated), allow sync immediately
+    if (avScriptHasChanged) {
+      console.log('✅ AV Script has NEW content - forcing sync (ignoring save protection)');
+      // Clear save protection if AV Script has new content
+      preventSyncRef.current = false;
+    }
+    
+    // Respect save protection ONLY if AV Script hasn't changed
+    if (preventSyncRef.current && !avScriptHasChanged) {
+      console.log('⏸️ Sync skipped - save protection active (recent save, no new content)');
+      return;
+    }
+    
+    const now = Date.now();
+    const timeSinceLastSync = now - lastSyncTimeRef.current;
+    
+    if (!shouldSkipCooldown && !avScriptHasChanged && timeSinceLastSync < SYNC_COOLDOWN) {
+      console.log(`⏸️ Sync skipped - cooldown active (${Math.round((SYNC_COOLDOWN - timeSinceLastSync) / 1000)}s remaining)`);
+      return;
+    }
+    
+    if (shouldSkipCooldown) {
+      console.log(`⚠️ Skipping cooldown - ${missingShotIds.length} missing slides, ${slidesWithInvalidShots.length} invalid slides`);
+    }
+    
+    // avScriptHash already calculated above
 
     // Log current state for debugging
     console.log('🔍 Sync check:', {
@@ -788,6 +870,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
       missingShotIds: missingShotIds.slice(0, 10), // Show first 10
       previousHashExists: !!previousAVScriptRef.current,
       hashMatches: previousAVScriptRef.current === avScriptHash,
+      avScriptHasChanged: avScriptHasChanged,
       isInitializing: isInitializingRef.current,
       isSyncing: isSyncingRef.current,
     });
@@ -997,29 +1080,42 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
         }
         
         if (existingSlide) {
-          // Slide exists - update it if needed (image, duration, etc.)
-          const needsUpdate = 
-            existingSlide.imageUrl !== shot.imageUrl ||
-            existingSlide.duration !== slideDuration ||
-            existingSlide.startTime !== slideStartTime;
+          // Slide exists - preserve user's manual edits (duration and startTime)
+          // Only update imageUrl and other properties that come from AV Script
+          const isManuallyEdited = existingSlide.isManuallyEdited === true;
+          
+          // Check if we need to update (only imageUrl if manually edited, or all if not)
+          const needsUpdate = existingSlide.imageUrl !== shot.imageUrl || 
+            (!isManuallyEdited && (existingSlide.duration !== slideDuration || existingSlide.startTime !== slideStartTime));
           
           if (needsUpdate) {
-            console.log(`  🔄 Updating slide for shot ${shot.id} (Scene ${segment.segmentNumber}, Row ${shotIndex + 1})`);
-            // Update existing slide
+            if (isManuallyEdited) {
+              console.log(`  🔒 PRESERVING MANUAL EDITS for shot ${shot.id} (Scene ${segment.segmentNumber}, Row ${shotIndex + 1})`, {
+                currentDuration: existingSlide.duration,
+                scriptDuration: slideDuration,
+                currentStartTime: existingSlide.startTime,
+                scriptStartTime: slideStartTime,
+                isManuallyEdited: true,
+              });
+            } else {
+              console.log(`  🔄 Updating slide for shot ${shot.id} (Scene ${segment.segmentNumber}, Row ${shotIndex + 1})`);
+            }
+            // Update existing slide - preserve manual edits
             const updatedSlide: AVEditingSlide = {
               ...existingSlide,
               imageUrl: shot.imageUrl || undefined,
-              duration: slideDuration,
-              startTime: slideStartTime,
+              // Preserve user's manual edits - don't overwrite duration/startTime if manually edited
+              duration: isManuallyEdited ? existingSlide.duration : slideDuration,
+              startTime: isManuallyEdited ? existingSlide.startTime : slideStartTime,
               updatedAt: new Date(),
             };
             newSlides.push(updatedSlide);
             slidesById.set(slideId, updatedSlide);
           } else {
-            // Keep existing slide as-is, just update startTime to maintain segment timing
-            const slideWithUpdatedTime = {
+            // Keep existing slide as-is, but update startTime only if not manually edited
+            const slideWithUpdatedTime: AVEditingSlide = {
               ...existingSlide,
-              startTime: slideStartTime,
+              startTime: isManuallyEdited ? existingSlide.startTime : slideStartTime,
             };
             newSlides.push(slideWithUpdatedTime);
             slidesById.set(slideId, slideWithUpdatedTime);
@@ -1446,7 +1542,9 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
         const existingTrack = existingTracksMap.get(key) || existingTracksMap.get(keyByUrl);
         
         if (existingTrack) {
-          // Track exists - update duration if it's still the default 3s or if URL changed
+          // Track exists - preserve user's manual edits (startTime)
+          // Only update duration if it's still the default 3s or if URL changed
+          const isManuallyEdited = existingTrack.isManuallyEdited === true;
           const needsDurationUpdate = existingTrack.duration === 3 || existingTrack.audioUrl !== audioFile.audioUrl;
           const needsUpdate = 
             existingTrack.audioUrl !== audioFile.audioUrl ||
@@ -1462,6 +1560,16 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
               duration = await loadAudioDuration(audioFile.audioUrl);
             }
             
+            // Get the actual slide startTime if available (from manually edited slide if exists)
+            let actualStartTime = slideStartTime;
+            if (existingTrack.shotId) {
+              // Find the slide for this shot - use manually edited startTime if slide is manually edited
+              const slideForTrack = currentSlides.find(s => s.shotId === existingTrack.shotId);
+              if (slideForTrack && slideForTrack.isManuallyEdited) {
+                actualStartTime = slideForTrack.startTime;
+              }
+            }
+            
             return {
               type: 'keep' as const,
               track: {
@@ -1470,10 +1578,48 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
                 voiceName: voiceName,
                 shotId: shotId,
                 duration: duration,
+                // Preserve user's manual edits - don't overwrite startTime if manually edited
+                startTime: isManuallyEdited ? existingTrack.startTime : actualStartTime,
                 updatedAt: new Date(),
               },
             };
           } else {
+            // No updates needed - preserve track exactly as is, especially if manually edited
+            // CRITICAL: Never update startTime of manually edited tracks
+            if (isManuallyEdited) {
+              // Manually edited tracks are frozen - don't touch them at all
+              console.log(`  🔒 PRESERVING MANUAL AUDIO TRACK EDITS for ${existingTrack.name}`, {
+                currentStartTime: existingTrack.startTime,
+                scriptStartTime: slideStartTime,
+                isManuallyEdited: true,
+              });
+              return {
+                type: 'keep' as const,
+                track: existingTrack,
+              };
+            }
+            
+            // Only update startTime from slide if track is NOT manually edited
+            let actualStartTime = slideStartTime;
+            if (existingTrack.shotId) {
+              const slideForTrack = currentSlides.find(s => s.shotId === existingTrack.shotId);
+              if (slideForTrack) {
+                actualStartTime = slideForTrack.startTime;
+              }
+            }
+            
+            // Only update if startTime actually changed (avoid unnecessary updates)
+            if (Math.abs(existingTrack.startTime - actualStartTime) > 0.01) {
+              return {
+                type: 'keep' as const,
+                track: {
+                  ...existingTrack,
+                  startTime: actualStartTime,
+                  updatedAt: new Date(),
+                },
+              };
+            }
+            
             return {
               type: 'keep' as const,
               track: existingTrack,
@@ -1699,86 +1845,56 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
       clearTimeout(avScriptUpdateTimeoutRef.current);
     }
 
-    // CRITICAL: Increase debounce to 30 seconds (was 5) to reduce writes
-    // Debounce: wait 30 seconds before updating AV script
+    // Sync manually edited slides back to AV Script with 3-second debounce
     avScriptUpdateTimeoutRef.current = setTimeout(() => {
-      // Create a hash of slide changes that affect AV script
-      const slidesHash = JSON.stringify(slides
-        .filter(s => s.shotId) // Only slides with shotIds affect AV script
-        .map(s => ({ shotId: s.shotId, order: s.order, duration: s.duration }))
-        .sort((a, b) => a.order - b.order));
-
-      // Skip if nothing has changed
-      if (previousSlidesForAVScriptRef.current === slidesHash) {
+      // Skip if we don't have AV script
+      if (!avScript) {
         return;
       }
-      previousSlidesForAVScriptRef.current = slidesHash;
 
-      let hasChanges = false;
-      const updatedScript = {
-        ...avScript,
-        segments: avScript.segments.map(segment => {
-          // Get all slides from this segment (sorted by order)
-          const segmentSlides = slides
-            .filter(s => {
-              if (!s.shotId) return false;
-              const shot = segment.shots.find(sh => sh.id === s.shotId);
-              return shot !== undefined;
-            })
-            .sort((a, b) => a.order - b.order);
-
-          // Update shots based on slide order and duration
-          const updatedShots = segment.shots.map(shot => {
-            const slide = slides.find(s => s.shotId === shot.id);
-            if (slide) {
-              const newOrder = slide.order;
-              const newDuration = slide.duration;
-              
-              if (shot.order !== newOrder || shot.duration !== newDuration) {
-                hasChanges = true;
-                return {
-                  ...shot,
-                  order: newOrder,
-                  duration: newDuration,
-                  updatedAt: new Date(),
-                };
-              }
-            }
-            return shot;
-          });
-
-          // Reorder shots based on slide order
-          const reorderedShots = [...updatedShots].sort((a, b) => {
-            const slideA = slides.find(s => s.shotId === a.id);
-            const slideB = slides.find(s => s.shotId === b.id);
-            const orderA = slideA?.order ?? a.order;
-            const orderB = slideB?.order ?? b.order;
-            return orderA - orderB;
-          });
-
-          // Update shot numbers based on new order
-          const finalShots = reorderedShots.map((shot, index) => ({
-            ...shot,
-            shotNumber: segment.segmentNumber * 100 + (index + 1),
-          }));
-
-          return {
-            ...segment,
-            shots: finalShots,
-            updatedAt: new Date(),
-          };
-        }),
-        updatedAt: new Date(),
-      };
-
-      // Only save if there are actual changes
-      if (hasChanges) {
-        console.log('💾 Saving AV script changes to Firebase');
-        onSave(updatedScript);
-      } else {
-        console.log('⏸️ AV script update skipped - no changes');
+      // Find all manually edited slides that have shotIds (from AV Script)
+      const manuallyEditedSlides = slides.filter(s => s.shotId && s.isManuallyEdited);
+      
+      if (manuallyEditedSlides.length === 0) {
+        return; // No manual edits to sync
       }
-    }, 60000); // 60 second debounce - drastically reduced Firebase writes
+
+      console.log(`🔄 Syncing ${manuallyEditedSlides.length} manually edited slide(s) back to AV Script`);
+
+      // Update AV Script with manually edited slide durations
+      let hasChanges = false;
+      const updatedSegments = avScript.segments.map(segment => {
+        const updatedShots = segment.shots.map(shot => {
+          const editedSlide = manuallyEditedSlides.find(s => s.shotId === shot.id);
+          if (editedSlide && Math.abs(editedSlide.duration - shot.duration) > 0.01) {
+            hasChanges = true;
+            console.log(`  ✏️ Updating shot ${shot.id} duration in AV Script: ${shot.duration}s → ${editedSlide.duration}s`);
+            return {
+              ...shot,
+              duration: editedSlide.duration,
+              updatedAt: new Date(),
+            };
+          }
+          return shot;
+        });
+
+        return {
+          ...segment,
+          shots: updatedShots,
+        };
+      });
+
+      // If there were changes, update the AV script
+      if (hasChanges) {
+        const updatedScript: AVScript = {
+          ...avScript,
+          segments: updatedSegments,
+          updatedAt: new Date(),
+        };
+        console.log('💾 Saving updated AV Script with manual slide duration changes');
+        onSave(updatedScript);
+      }
+    }, 3000); // 3 second debounce - sync quickly after user stops editing
 
     // Cleanup
     return () => {
@@ -1914,27 +2030,56 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
         
         // Add error handler
         audio.addEventListener('error', (e) => {
-          // Safely extract error information
-          let errorInfo: { code?: number; message?: string; event?: string; target?: EventTarget | null } | null = null;
-          if (audio.error) {
-            errorInfo = {};
-            if (audio.error.code !== undefined) {
-              errorInfo.code = audio.error.code;
-            }
-            if (audio.error.message !== undefined) {
-              errorInfo.message = audio.error.message;
-            }
-            // If error object is empty or has no useful info, use the event
-            if (Object.keys(errorInfo).length === 0) {
-              errorInfo = { event: e.type, target: e.target };
-            }
+          // Check if there's a real MediaError with meaningful information
+          // Only log actual errors, not empty error events that browsers sometimes fire
+          if (!audio.error) {
+            // No error object at all - ignore completely
+            return;
           }
           
-          console.error(`❌ Audio error for track ${track.name}:`, {
-            audioUrl: track.audioUrl,
-            error: errorInfo,
-            errorType: e.type,
-          });
+          const mediaError = audio.error;
+          
+          // Check if error code is a valid error (1-4 are actual error codes)
+          const hasValidErrorCode = mediaError.code !== undefined && 
+                                   mediaError.code !== null && 
+                                   typeof mediaError.code === 'number' && 
+                                   mediaError.code >= 1 && 
+                                   mediaError.code <= 4;
+          
+          // Check if there's a meaningful error message
+          const hasValidMessage = mediaError.message !== undefined && 
+                                 mediaError.message !== null && 
+                                 typeof mediaError.message === 'string' && 
+                                 mediaError.message.trim() !== '';
+          
+          // Only log if we have a valid error code OR a valid message
+          if (hasValidErrorCode || hasValidMessage) {
+            const errorDetails: Record<string, unknown> = {
+              eventType: e.type,
+              audioUrl: track.audioUrl,
+              networkState: audio.networkState,
+              readyState: audio.readyState,
+            };
+            
+            if (hasValidErrorCode) {
+              errorDetails.errorCode = mediaError.code;
+              // Map error codes to readable messages
+              const errorMessages: Record<number, string> = {
+                1: 'MEDIA_ERR_ABORTED - The user aborted the media',
+                2: 'MEDIA_ERR_NETWORK - A network error occurred',
+                3: 'MEDIA_ERR_DECODE - An error occurred while decoding',
+                4: 'MEDIA_ERR_SRC_NOT_SUPPORTED - The media source is not supported',
+              };
+              errorDetails.errorMessage = errorMessages[mediaError.code] || `Unknown error code: ${mediaError.code}`;
+            }
+            
+            if (hasValidMessage) {
+              errorDetails.errorDetails = mediaError.message;
+            }
+            
+            console.error(`❌ Audio error for track ${track.name}:`, errorDetails);
+          }
+          // Otherwise, completely ignore - it's a false positive empty error event
         });
         
         // Add loaded handler
@@ -2729,11 +2874,17 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
       
       const updated = prev.map(slide => {
         if (slide.id === slideId) {
-          return {
+          const updatedSlide = {
             ...slide,
             duration: clampedDuration,
+            isManuallyEdited: true, // Mark as manually edited
             updatedAt: new Date(),
           };
+          
+          // Note: AV Script sync is handled by the useEffect that watches slides
+          // This marks the slide as manually edited, and the useEffect will sync it back
+          
+          return updatedSlide;
         }
         // Don't modify other slides
         return slide;
@@ -2744,7 +2895,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
       
       return updated;
     });
-  }, [findAdjacentSlides]);
+  }, [findAdjacentSlides, avScript, onSave]);
 
 
   // CRITICAL: Save current state to history before making changes
@@ -3002,6 +3153,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
       updatedSlides.push({
         ...slide,
         startTime: Math.max(0, newStartTimeForSlide),
+        isManuallyEdited: true, // Mark as manually edited when dragged
         updatedAt: new Date(),
       });
     });
@@ -3193,6 +3345,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
           updatedSelectedSlides.push({
             ...slide,
             startTime: Math.max(0, slideStartTime),
+            isManuallyEdited: true, // Mark as manually edited when dragged
             updatedAt: new Date(),
           });
         });
@@ -3203,7 +3356,11 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
         // Build the final updated slides array
         const updated = prev.map(s => {
           if (selectedSlides.has(s.id)) {
-            return updatedSelectedMap.get(s.id) || s;
+            const updatedSlide = updatedSelectedMap.get(s.id);
+            if (updatedSlide) {
+              return updatedSlide;
+            }
+            return s;
           }
           return s;
         });
@@ -3255,11 +3412,24 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
     const deltaSeconds = deltaX / pixelsPerSecond;
     const newStartTime = Math.max(0, audioTrackDragStartTime + deltaSeconds);
 
-    setAudioTracks(prev => prev.map(track => 
-      track.id === draggedAudioTrackId
-        ? { ...track, startTime: newStartTime, updatedAt: new Date() }
-        : track
-    ));
+    setAudioTracks(prev => prev.map(track => {
+      if (track.id === draggedAudioTrackId) {
+        const updatedTrack = {
+          ...track,
+          startTime: newStartTime,
+          isManuallyEdited: true, // Mark as manually edited
+          updatedAt: new Date(),
+        };
+        
+        // Update ref immediately
+        audioTracksRef.current = audioTracksRef.current.map(t => 
+          t.id === draggedAudioTrackId ? updatedTrack : t
+        );
+        
+        return updatedTrack;
+      }
+      return track;
+    }));
   }, [isDraggingAudioTrack, draggedAudioTrackId, dragStartX, audioTrackDragStartTime, pixelsPerSecond]);
 
   const handleAudioTrackDragEnd = useCallback(() => {
@@ -3370,17 +3540,23 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
           }
         }
         
-        const updated = prev.map(slide => {
-          if (slide.id === selectedSlide) {
-            return {
-              ...slide,
-              startTime: newStartTime,
-              duration: newDuration,
-              updatedAt: new Date(),
-            };
-          }
-          return slide;
-        });
+          const updated = prev.map(slide => {
+            if (slide.id === selectedSlide) {
+              const updatedSlide = {
+                ...slide,
+                startTime: newStartTime,
+                duration: newDuration,
+                isManuallyEdited: true, // Mark as manually edited
+                updatedAt: new Date(),
+              };
+              
+              // Note: AV Script sync is handled by the useEffect that watches slides
+              // This marks the slide as manually edited, and the useEffect will sync it back
+              
+              return updatedSlide;
+            }
+            return slide;
+          });
         
         // Update ref immediately
         slidesRef.current = updated;
@@ -3445,6 +3621,91 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
       };
     }
   }, [isResizing, handleResizeMove, handleResizeEnd, selectedResizeHandle]);
+
+  // CRITICAL: Auto-save when slides or audio tracks change (after user edits)
+  useEffect(() => {
+    // Skip if not initialized yet
+    if (isInitializingRef.current) {
+      console.log('⏸️ Skipping autosave - initialization in progress');
+      return;
+    }
+    
+    // Skip if we haven't loaded data yet
+    if (!hasLoadedDataRef.current && slides.length === 0) {
+      console.log('⏸️ Skipping autosave - no data loaded yet');
+      return;
+    }
+    
+    // Skip if we're syncing (to avoid saving while sync is updating data)
+    if (skipAutoSaveRef.current) {
+      console.log('⏸️ Skipping autosave - sync in progress');
+      return;
+    }
+    
+    // Only autosave if we have data
+    if (!editingDataRef.current || (slides.length === 0 && audioTracks.length === 0)) {
+      console.log('⏸️ Skipping autosave - no data to save');
+      return;
+    }
+    
+    // Check if data has actually changed since last save
+    const currentDataHash = JSON.stringify({
+      slides: slides.map(s => ({ 
+        id: s.id, 
+        startTime: s.startTime, 
+        duration: s.duration, 
+        order: s.order, 
+        shotId: s.shotId,
+        isManuallyEdited: s.isManuallyEdited,
+      })),
+      audioTracks: audioTracks.map(t => ({ 
+        id: t.id, 
+        startTime: t.startTime, 
+        duration: t.duration,
+        isManuallyEdited: t.isManuallyEdited,
+      })),
+    });
+    
+    if (currentDataHash === lastSavedDataRef.current) {
+      console.log('⏸️ Skipping autosave - no changes detected');
+      return;
+    }
+    
+    console.log('⏰ Scheduling autosave...');
+    
+    // Clear existing autosave timeout
+    if (autosaveDebounceRef.current) {
+      clearTimeout(autosaveDebounceRef.current);
+    }
+    
+    // Schedule autosave with 3-second debounce (was 90 seconds)
+    autosaveDebounceRef.current = setTimeout(() => {
+      console.log('💾 Auto-saving changes...');
+      const totalDuration = Math.max(
+        ...(slides.length > 0 ? slides.map(s => s.startTime + s.duration) : [0]),
+        ...(audioTracks.length > 0 ? audioTracks.map(t => t.startTime + t.duration) : [0]),
+        0
+      );
+      const updatedData: AVEditingData = {
+        id: editingDataRef.current!.id,
+        episodeId,
+        slides,
+        audioTracks,
+        totalDuration,
+        createdAt: editingDataRef.current!.createdAt,
+        updatedAt: new Date(),
+      };
+      saveEditingData(updatedData, false).catch(err => {
+        console.error('❌ Error auto-saving:', err);
+      });
+    }, 3000); // 3 seconds debounce - quick enough to catch changes before navigation
+    
+    return () => {
+      if (autosaveDebounceRef.current) {
+        clearTimeout(autosaveDebounceRef.current);
+      }
+    };
+  }, [slides, audioTracks, episodeId, saveEditingData]);
 
   // Format time as MM:SS:FF (minutes:seconds:frames) at 24 fps
   const formatTime = (seconds: number): string => {
@@ -4456,4 +4717,5 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
     </div>
   );
 }
+
 
