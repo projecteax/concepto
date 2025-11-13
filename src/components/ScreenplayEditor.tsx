@@ -15,10 +15,15 @@ import {
   Trash2,
   Eye,
   EyeOff,
-  Download
+  Download,
+  Wand2,
+  Check,
+  Sparkles
 } from 'lucide-react';
 import { ScreenplayElement, ScreenplayData, ScreenplayComment } from '@/types';
 import { useS3Upload } from '@/hooks/useS3Upload';
+import { TranslationDialog } from './TranslationDialog';
+import { EnhanceDialog } from './EnhanceDialog';
 
 export interface ScreenplayEditorHandle {
   exportPDF: () => void;
@@ -54,6 +59,25 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   const [isSaving, setIsSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [dropdownDirection, setDropdownDirection] = useState<{ [key: string]: 'up' | 'down' }>({});
+  // Load language from localStorage or default to PL
+  const [language, setLanguage] = useState<'PL' | 'EN'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('screenplay-language');
+      return (saved === 'PL' || saved === 'EN') ? saved : 'PL';
+    }
+    return 'PL';
+  });
+  const [showTranslationDialog, setShowTranslationDialog] = useState(false);
+  const [showEnhanceDialog, setShowEnhanceDialog] = useState(false);
+  const [enhanceElementId, setEnhanceElementId] = useState<string | null>(null);
+  const [originalContent, setOriginalContent] = useState<{ [key: string]: string }>({});
+
+  // Save language to localStorage when it changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('screenplay-language', language);
+    }
+  }, [language]);
   const isFirstRenderRef = useRef(true);
   const autosaveTimerRef = useRef<number | null>(null);
   const commentsPanelRef = useRef<HTMLDivElement | null>(null);
@@ -230,6 +254,81 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
     'general': 'General'
   };
 
+  // Initialize EN elements when switching to EN language
+  useEffect(() => {
+    if (language === 'EN' && (!localData.elementsEN || localData.elementsEN.length === 0)) {
+      const enElements = localData.elements.map(el => ({
+        ...el,
+        id: `en-${el.id}`,
+        content: ''
+      }));
+      setLocalData(prev => ({
+        ...prev,
+        elementsEN: enElements
+      }));
+    } else if (language === 'EN' && localData.elementsEN && localData.elementsEN.length !== localData.elements.length) {
+      // Sync EN elements with PL structure
+      const enElements = localData.elements.map((plEl, index) => {
+        const existingEn = localData.elementsEN?.[index];
+        return existingEn && existingEn.type === plEl.type
+          ? existingEn
+          : {
+              ...plEl,
+              id: `en-${plEl.id}`,
+              content: existingEn?.content || ''
+            };
+      });
+      setLocalData(prev => ({
+        ...prev,
+        elementsEN: enElements
+      }));
+    }
+  }, [language, localData.elements.length]);
+
+  // Helper functions to get current language data
+  const getCurrentElements = (): ScreenplayElement[] => {
+    if (language === 'EN') {
+      // If EN elements don't exist yet, return empty ones (will be initialized by useEffect)
+      if (!localData.elementsEN || localData.elementsEN.length === 0) {
+        return localData.elements.map(el => ({
+          ...el,
+          id: `en-${el.id}`,
+          content: ''
+        }));
+      }
+      return localData.elementsEN;
+    }
+    return localData.elements;
+  };
+
+  const getCurrentTitle = (): string => {
+    if (language === 'EN') {
+      return localData.titleEN || localData.title;
+    }
+    return localData.title;
+  };
+
+  const setCurrentTitle = (title: string) => {
+    if (language === 'EN') {
+      setLocalData(prev => ({ ...prev, titleEN: title }));
+    } else {
+      setLocalData(prev => ({ ...prev, title: title }));
+    }
+  };
+
+  const updateCurrentElement = (id: string, content: string) => {
+    if (language === 'EN') {
+      setLocalData(prev => ({
+        ...prev,
+        elementsEN: (prev.elementsEN || []).map(el => 
+          el.id === id ? { ...el, content } : el
+        )
+      }));
+    } else {
+      updateElement(id, content);
+    }
+  };
+
   // Element type colors for highlighting
   const elementColors = {
     'scene-setting': {
@@ -265,52 +364,178 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   };
 
   const addElement = (type: ScreenplayElement['type'], afterId?: string) => {
+    const currentElements = getCurrentElements();
+    const insertIndex = afterId 
+      ? currentElements.findIndex(e => e.id === afterId) + 1
+      : currentElements.length;
+    
     const newElement: ScreenplayElement = {
       id: `element-${Date.now()}`,
       type,
       content: '',
-      position: afterId ? 
-        localData.elements.findIndex(e => e.id === afterId) + 1 : 
-        localData.elements.length
+      position: insertIndex
     };
 
-    const newElements = [...localData.elements];
-    if (afterId) {
-      newElements.splice(newElement.position, 0, newElement);
-    } else {
-      newElements.push(newElement);
-    }
+    // Sync to both PL and EN by position
+    setLocalData(prev => {
+      const plElements = [...prev.elements];
+      const enElements = prev.elementsEN ? [...prev.elementsEN] : [];
+      
+      // Create corresponding elements
+      const plNewElement: ScreenplayElement = {
+        ...newElement,
+        id: `pl-${newElement.id}`,
+        content: ''
+      };
+      const enNewElement: ScreenplayElement = {
+        ...newElement,
+        id: `en-${newElement.id}`,
+        content: ''
+      };
+      
+      // Insert at the same position in both arrays
+      plElements.splice(insertIndex, 0, plNewElement);
+      enElements.splice(insertIndex, 0, enNewElement);
+      
+      // Reorder positions
+      const reorderedPL = plElements.map((el, idx) => ({ ...el, position: idx }));
+      const reorderedEN = enElements.map((el, idx) => ({ ...el, position: idx }));
+      
+      return {
+        ...prev,
+        elements: reorderedPL,
+        elementsEN: reorderedEN
+      };
+    });
 
-    // Reorder positions
-    const reorderedElements = newElements.map((element, index) => ({
-      ...element,
-      position: index
-    }));
-
-    setLocalData(prev => ({
-      ...prev,
-      elements: reorderedElements
-    }));
-
-    setEditingElementId(newElement.id);
+    // Set editing to the element in current language
+    const elementId = language === 'EN' ? `en-${newElement.id}` : `pl-${newElement.id}`;
+    setEditingElementId(elementId);
   };
 
   const updateElement = (id: string, content: string) => {
-    setLocalData(prev => ({
-      ...prev,
-      elements: prev.elements.map(el => 
-        el.id === id ? { ...el, content } : el
-      )
-    }));
+    const isEN = id.startsWith('en-') || (language === 'EN' && !id.startsWith('pl-'));
+    const baseId = id.replace(/^(en-|pl-)/, '');
+    
+    setLocalData(prev => {
+      if (isEN || language === 'EN') {
+        // Update EN element and mark as edited
+        return {
+          ...prev,
+          elementsEN: (prev.elementsEN || []).map(el => {
+            if (el.id === id || (baseId && el.id === `en-${baseId}`)) {
+              const original = originalContent[id] || el.content;
+              const isEdited = content !== original;
+              return { 
+                ...el, 
+                content,
+                editedInEN: isEdited && !el.reviewed
+              };
+            }
+            return el;
+          })
+        };
+      } else {
+        // Update PL element and mark as edited
+        return {
+          ...prev,
+          elements: prev.elements.map(el => {
+            if (el.id === id || (baseId && el.id === `pl-${baseId}`)) {
+              const original = originalContent[id] || el.content;
+              const isEdited = content !== original;
+              return { 
+                ...el, 
+                content,
+                editedInPL: isEdited && !el.reviewed
+              };
+            }
+            return el;
+          })
+        };
+      }
+    });
   };
 
   const deleteElement = (id: string) => {
-    setLocalData(prev => ({
-      ...prev,
-      elements: prev.elements.filter(el => el.id !== id)
-    }));
+    const currentElements = getCurrentElements();
+    const elementIndex = currentElements.findIndex(el => el.id === id);
+    
+    if (elementIndex === -1) return;
+    
+    setLocalData(prev => {
+      if (language === 'EN') {
+        // Delete from EN and corresponding PL element by position
+        const newEN = (prev.elementsEN || []).filter((_, idx) => idx !== elementIndex);
+        const newPL = prev.elements.filter((_, idx) => idx !== elementIndex);
+        
+        // Reorder positions
+        const reorderedEN = newEN.map((el, idx) => ({ ...el, position: idx }));
+        const reorderedPL = newPL.map((el, idx) => ({ ...el, position: idx }));
+        
+        return {
+          ...prev,
+          elementsEN: reorderedEN,
+          elements: reorderedPL
+        };
+      } else {
+        // Delete from PL and corresponding EN element by position
+        const newPL = prev.elements.filter((_, idx) => idx !== elementIndex);
+        const newEN = (prev.elementsEN || []).filter((_, idx) => idx !== elementIndex);
+        
+        // Reorder positions
+        const reorderedPL = newPL.map((el, idx) => ({ ...el, position: idx }));
+        const reorderedEN = newEN.map((el, idx) => ({ ...el, position: idx }));
+        
+        return {
+          ...prev,
+          elements: reorderedPL,
+          elementsEN: reorderedEN
+        };
+      }
+    });
+    
     setEditingElementId(null);
     setSelectedElementId(null);
+  };
+
+  const markElementAsReviewed = (id: string) => {
+    const currentElements = getCurrentElements();
+    const elementIndex = currentElements.findIndex(el => el.id === id);
+    
+    if (elementIndex === -1) return;
+    
+    // Reset original content so future edits will be detected
+    setOriginalContent(prev => {
+      const newContent = { ...prev };
+      delete newContent[id];
+      return newContent;
+    });
+    
+    setLocalData(prev => {
+      if (language === 'EN') {
+        // Mark EN and corresponding PL element as reviewed
+        return {
+          ...prev,
+          elementsEN: (prev.elementsEN || []).map((el, idx) => 
+            idx === elementIndex ? { ...el, reviewed: true, editedInEN: false } : el
+          ),
+          elements: prev.elements.map((el, idx) => 
+            idx === elementIndex ? { ...el, reviewed: true, editedInEN: false } : el
+          )
+        };
+      } else {
+        // Mark PL and corresponding EN element as reviewed
+        return {
+          ...prev,
+          elements: prev.elements.map((el, idx) => 
+            idx === elementIndex ? { ...el, reviewed: true, editedInPL: false } : el
+          ),
+          elementsEN: (prev.elementsEN || []).map((el, idx) => 
+            idx === elementIndex ? { ...el, reviewed: true, editedInPL: false } : el
+          )
+        };
+      }
+    });
   };
 
   const requestDeleteElement = (id: string) => {
@@ -326,12 +551,23 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   const cancelDeleteElement = () => setConfirmDeleteElementId(null);
 
   const changeElementType = (id: string, newType: ScreenplayElement['type']) => {
-    setLocalData(prev => ({
-      ...prev,
-      elements: prev.elements.map(el => 
-        el.id === id ? { ...el, type: newType } : el
-      )
-    }));
+    const currentElements = getCurrentElements();
+    const elementIndex = currentElements.findIndex(el => el.id === id);
+    
+    if (elementIndex === -1) return;
+    
+    setLocalData(prev => {
+      // Update both PL and EN elements at the same position
+      return {
+        ...prev,
+        elements: prev.elements.map((el, idx) => 
+          idx === elementIndex ? { ...el, type: newType } : el
+        ),
+        elementsEN: (prev.elementsEN || []).map((el, idx) => 
+          idx === elementIndex ? { ...el, type: newType } : el
+        )
+      };
+    });
     // Keep the element selected and in editing mode
     setSelectedElementId(id);
     setEditingElementId(id);
@@ -341,9 +577,59 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
     event.preventDefault();
     setSelectedElementId(id);
     setEditingElementId(id);
+    
+    // Always update original content when starting to edit (even if it exists)
+    // This ensures that if content was reviewed and then edited again, we track the new baseline
+    const currentElements = getCurrentElements();
+    const element = currentElements.find(el => el.id === id);
+    if (element) {
+      setOriginalContent(prev => ({
+        ...prev,
+        [id]: element.content
+      }));
+    }
   };
 
-  const handleElementBlur = () => {
+  const handleElementBlur = (id: string) => {
+    // Check if content changed
+    const currentElements = getCurrentElements();
+    const element = currentElements.find(el => el.id === id);
+    const original = originalContent[id];
+    
+    if (element && original !== undefined && element.content !== original) {
+      // Content changed - mark as edited in CURRENT language
+      // This will highlight the corresponding element in the OTHER language
+      const currentIndex = currentElements.findIndex(el => el.id === id);
+      
+      setLocalData(prev => {
+        if (language === 'EN') {
+          // Edited EN - mark EN as edited, so PL will be highlighted
+          return {
+            ...prev,
+            elementsEN: (prev.elementsEN || []).map((el, idx) =>
+              idx === currentIndex ? { ...el, editedInEN: true, reviewed: false } : el
+            ),
+            // Also mark corresponding PL element
+            elements: prev.elements.map((el, idx) =>
+              idx === currentIndex ? { ...el, editedInEN: true, reviewed: false } : el
+            )
+          };
+        } else {
+          // Edited PL - mark PL as edited, so EN will be highlighted
+          return {
+            ...prev,
+            elements: prev.elements.map((el, idx) =>
+              idx === currentIndex ? { ...el, editedInPL: true, reviewed: false } : el
+            ),
+            // Also mark corresponding EN element
+            elementsEN: (prev.elementsEN || []).map((el, idx) =>
+              idx === currentIndex ? { ...el, editedInPL: true, reviewed: false } : el
+            )
+          };
+        }
+      });
+    }
+    
     setEditingElementId(null);
     setSelectedElementId(null);
     setShowToolbar(false);
@@ -996,22 +1282,122 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
     save: handleSave
   }));
 
+  const handleTranslationComplete = (translatedText: string) => {
+    // Parse the translated text and update EN elements
+    // The translated text should maintain the same structure as PL with [TYPE] markers
+    const plElements = localData.elements;
+    
+    // Parse translated text by element type markers
+    const lines = translatedText.split('\n');
+    const parsedElements: Array<{ type: string; content: string }> = [];
+    let currentType: string | null = null;
+    let currentContent: string[] = [];
+    
+    for (const line of lines) {
+      // Check if line is a type marker like [SCENE-SETTING], [CHARACTER], etc.
+      const typeMatch = line.match(/^\[([A-Z-]+)\]$/);
+      if (typeMatch) {
+        // Save previous element if exists
+        if (currentType && currentContent.length > 0) {
+          parsedElements.push({
+            type: currentType.toLowerCase(),
+            content: currentContent.join('\n').trim()
+          });
+        }
+        // Start new element
+        currentType = typeMatch[1].toLowerCase();
+        currentContent = [];
+      } else if (currentType && line.trim()) {
+        // Add content to current element
+        currentContent.push(line);
+      }
+    }
+    
+    // Save last element
+    if (currentType && currentContent.length > 0) {
+      parsedElements.push({
+        type: currentType.toLowerCase(),
+        content: currentContent.join('\n').trim()
+      });
+    }
+    
+    // Match parsed elements to PL structure
+    const enElements: ScreenplayElement[] = plElements.map((plEl, index) => {
+      // Try to find matching translated element by type and position
+      const translatedEl = parsedElements[index];
+      
+      // If we found a matching element with the same type, use it
+      if (translatedEl && translatedEl.type === plEl.type) {
+        return {
+          ...plEl,
+          id: `en-${plEl.id}`,
+          content: translatedEl.content
+        };
+      }
+      
+      // Otherwise, try to find by type only
+      const matchingByType = parsedElements.find(el => el.type === plEl.type);
+      if (matchingByType) {
+        return {
+          ...plEl,
+          id: `en-${plEl.id}`,
+          content: matchingByType.content
+        };
+      }
+      
+      // Fallback: use empty content
+      return {
+        ...plEl,
+        id: `en-${plEl.id}`,
+        content: ''
+      };
+    });
+
+    setLocalData(prev => ({
+      ...prev,
+      elementsEN: enElements,
+      titleEN: prev.titleEN || prev.title
+    }));
+  };
+
   const renderElement = (element: ScreenplayElement, index: number) => {
     const isSelected = selectedElementId === element.id;
     const isEditing = editingElementId === element.id;
     const styles = elementStyles[element.type];
+    
+    // Check if element is edited in the OTHER language
+    // If viewing EN, highlight if PL was edited (need to review in EN)
+    // If viewing PL, highlight if EN was edited (need to review in PL)
+    const isEdited = language === 'EN' 
+      ? element.editedInPL && !element.reviewed
+      : element.editedInEN && !element.reviewed;
 
     return (
       <div key={element.id}>
         
         <div
           className={`relative group mb-2 ${isEditing ? 'ring-2 ring-blue-500 rounded-lg' : ''} ${
+            isEdited ? 'ring-2 ring-yellow-400 bg-yellow-50 rounded-lg' : ''
+          } ${
             isPreviewMode ? 'cursor-default' : 'cursor-pointer hover:bg-gray-50'
           }`}
           onClick={(e) => !isPreviewMode && handleElementClick(element.id, e)}
         >
+        {/* Edited indicator and review button */}
+        {!isPreviewMode && isEdited && (
+          <button
+            className="absolute -right-8 top-0 w-6 h-6 rounded-full bg-yellow-500 border border-yellow-600 text-white flex items-center justify-center shadow-sm hover:bg-yellow-600 z-10"
+            title="Mark as reviewed"
+            onClick={(e) => { 
+              e.stopPropagation(); 
+              markElementAsReviewed(element.id);
+            }}
+          >
+            <Check className="w-4 h-4" />
+          </button>
+        )}
         {/* Comment icon indicator - only when comments exist */}
-        {!isPreviewMode && (element.comments && element.comments.length > 0) && (
+        {!isPreviewMode && (element.comments && element.comments.length > 0) && !isEdited && (
           <button
             className="absolute -right-8 top-0 w-6 h-6 rounded-full bg-yellow-100 border border-yellow-300 text-yellow-800 flex items-center justify-center shadow-sm hover:bg-yellow-200"
             title={`${element.comments.length} comment${element.comments.length > 1 ? 's' : ''}`}
@@ -1043,9 +1429,15 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
               }
             }}
             value={element.content}
-            onChange={(e) => updateElement(element.id, e.target.value)}
+            onChange={(e) => {
+              if (language === 'EN') {
+                updateCurrentElement(element.id, e.target.value);
+              } else {
+                updateElement(element.id, e.target.value);
+              }
+            }}
             onKeyDown={(e) => handleKeyDown(e, element.id)}
-            onBlur={handleElementBlur}
+            onBlur={() => handleElementBlur(element.id)}
             className={`w-full outline-none min-h-[1.5em] rounded px-2 py-1 border-2 resize-none ${elementColors[element.type].bg} ${elementColors[element.type].border} ${elementColors[element.type].text}`}
             style={{
               ...styles,
@@ -1158,6 +1550,20 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                 </button>
                 {/* Divider */}
                 <div className="border-t border-gray-300 my-1"></div>
+                {/* Enhance button */}
+                <button
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setEnhanceElementId(element.id);
+                    setShowEnhanceDialog(true);
+                  }}
+                  className="px-3 py-1 bg-purple-500 text-white rounded text-xs hover:bg-purple-600 flex items-center gap-1"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  Enhance
+                </button>
                 {/* Add Comment button */}
                 <button
                   type="button"
@@ -1217,6 +1623,45 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
           {!isPreviewMode && (
             <div className="w-16 mr-6 sticky top-4 self-start">
               <div className="flex flex-col items-center gap-3">
+                {/* Language Toggle */}
+                <div className="flex flex-col gap-1 mb-2">
+                  <button
+                    onClick={() => setLanguage('PL')}
+                    className={`w-12 h-8 rounded-md font-medium text-xs transition-colors ${
+                      language === 'PL'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                    title="Polish"
+                  >
+                    PL
+                  </button>
+                  <button
+                    onClick={() => setLanguage('EN')}
+                    className={`w-12 h-8 rounded-md font-medium text-xs transition-colors ${
+                      language === 'EN'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                    title="English"
+                  >
+                    EN
+                  </button>
+                </div>
+                
+                {/* AI Generate Button for EN */}
+                {language === 'EN' && (
+                  <button
+                    onClick={() => setShowTranslationDialog(true)}
+                    className="w-12 h-12 rounded-md bg-purple-600 hover:bg-purple-700 shadow text-white flex items-center justify-center"
+                    title="Generate English translation"
+                  >
+                    <Wand2 className="w-5 h-5" />
+                  </button>
+                )}
+                
+                <div className="w-full border-t border-gray-300 my-2"></div>
+                
                 <button
                   onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); addElement('scene-setting', selectedElementIdRef.current || undefined); }}
                   className="w-12 h-12 rounded-md bg-red-600 hover:bg-red-700 shadow text-white flex items-center justify-center"
@@ -1282,8 +1727,8 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
               {!isPreviewMode ? (
                 <input
                   type="text"
-                  value={localData.title}
-                  onChange={(e) => setLocalData(prev => ({ ...prev, title: e.target.value }))}
+                  value={getCurrentTitle()}
+                  onChange={(e) => setCurrentTitle(e.target.value)}
                   className="text-3xl font-bold text-black text-center bg-transparent border-none outline-none w-full"
                   placeholder="Untitled Screenplay"
                   style={{ direction: 'ltr', color: '#000000' }}
@@ -1291,18 +1736,18 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                 />
               ) : (
                 <div className="text-3xl font-bold text-black" style={{ direction: 'ltr', color: '#000000' }} dir="ltr">
-                  {localData.title || 'Untitled Screenplay'}
+                  {getCurrentTitle() || 'Untitled Screenplay'}
                 </div>
               )}
             </div>
 
             {/* Elements */}
             <div className="space-y-3">
-              {localData.elements.map((element, index) => renderElement(element, index))}
+              {getCurrentElements().map((element, index) => renderElement(element, index))}
             </div>
 
             {/* Add First Element Button */}
-            {localData.elements.length === 0 && !isPreviewMode && (
+            {getCurrentElements().length === 0 && !isPreviewMode && (
               <div className="text-center py-16">
                 <div className="mb-6">
                   <h3 className="text-2xl font-bold text-gray-700 mb-2">Ready to Write?</h3>
@@ -1341,7 +1786,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                 </button>
               </div>
               <div className="space-y-3 mb-3">
-                {(localData.elements.find(e => e.id === activeCommentElementId)?.comments || []).map((c) => (
+                {(getCurrentElements().find(e => e.id === activeCommentElementId)?.comments || []).map((c) => (
                   <div key={c.id} className="border border-gray-200 rounded p-2">
                     <div className="text-xs text-gray-500 mb-1">{new Date(c.createdAt).toLocaleString()}</div>
                     <div className="flex items-start justify-between gap-2">
@@ -1432,6 +1877,107 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
           <img src={previewImageUrl} alt="preview" className="max-w-[90vw] max-h-[90vh] object-contain" />
         </div>
       )}
+
+      {/* Translation Dialog */}
+      <TranslationDialog
+        isOpen={showTranslationDialog}
+        onClose={() => setShowTranslationDialog(false)}
+        onTranslationComplete={handleTranslationComplete}
+        screenplayData={localData}
+      />
+
+      {/* Enhance Dialog */}
+      {showEnhanceDialog && enhanceElementId && (() => {
+        const currentElements = getCurrentElements();
+        const element = currentElements.find(el => el.id === enhanceElementId);
+        if (!element) return null;
+        
+        return (
+          <EnhanceDialog
+            isOpen={showEnhanceDialog}
+            onClose={() => {
+              setShowEnhanceDialog(false);
+              setEnhanceElementId(null);
+            }}
+            onEnhancementComplete={(selectedText, thread) => {
+              // Update the element with enhanced text and thread
+              const elementIndex = currentElements.findIndex(el => el.id === enhanceElementId);
+              if (elementIndex === -1) return;
+              
+              // Get the original content to detect changes
+              const currentElement = currentElements[elementIndex];
+              const originalContent = currentElement.content;
+              
+              setLocalData(prev => {
+                if (language === 'EN') {
+                  // Enhanced EN - mark EN as edited, so PL will be highlighted
+                  return {
+                    ...prev,
+                    elementsEN: (prev.elementsEN || []).map((el, idx) =>
+                      idx === elementIndex
+                        ? { 
+                            ...el, 
+                            content: selectedText, 
+                            enhancementThread: thread,
+                            editedInEN: selectedText !== originalContent,
+                            reviewed: false
+                          }
+                        : el
+                    ),
+                    elements: prev.elements.map((el, idx) =>
+                      idx === elementIndex
+                        ? { 
+                            ...el, 
+                            enhancementThread: thread,
+                            editedInEN: selectedText !== originalContent,
+                            reviewed: false
+                          }
+                        : el
+                    )
+                  };
+                } else {
+                  // Enhanced PL - mark PL as edited, so EN will be highlighted
+                  return {
+                    ...prev,
+                    elements: prev.elements.map((el, idx) =>
+                      idx === elementIndex
+                        ? { 
+                            ...el, 
+                            content: selectedText, 
+                            enhancementThread: thread,
+                            editedInPL: selectedText !== originalContent,
+                            reviewed: false
+                          }
+                        : el
+                    ),
+                    elementsEN: (prev.elementsEN || []).map((el, idx) =>
+                      idx === elementIndex
+                        ? { 
+                            ...el, 
+                            enhancementThread: thread,
+                            editedInPL: selectedText !== originalContent,
+                            reviewed: false
+                          }
+                        : el
+                    )
+                  };
+                }
+              });
+              
+              // Reset original content tracking for this element
+              setOriginalContent(prev => {
+                const newContent = { ...prev };
+                delete newContent[enhanceElementId];
+                return newContent;
+              });
+              
+              setShowEnhanceDialog(false);
+              setEnhanceElementId(null);
+            }}
+            element={element}
+          />
+        );
+      })()}
     </>
   );
 });

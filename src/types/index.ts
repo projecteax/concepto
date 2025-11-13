@@ -53,8 +53,27 @@ export interface GlobalAsset {
   timeOfDay?: string;
   weather?: string;
   season?: string;
+  // AI Reference galleries
+  aiRefImages?: AIRefImages;
   createdAt: Date;
   updatedAt: Date;
+}
+
+// AI Reference Images structure
+export interface AIRefImages {
+  // For characters
+  fullBody?: string[]; // Full body reference images
+  multipleAngles?: string[]; // Multiple angles reference images
+  head?: string[]; // Head reference images
+  expressions?: string[]; // Expressions reference images
+  // For locations
+  ref01?: string[]; // Reference 1#
+  ref02?: string[]; // Reference 2#
+  ref03?: string[]; // Reference 3#
+  ref04?: string[]; // Reference 4#
+  // For gadgets
+  fullGadget?: string[]; // Full gadget reference images
+  multipleAnglesGadget?: string[]; // Multiple angles for gadgets
 }
 
 export type AssetCategory = 
@@ -275,13 +294,56 @@ export interface GeneralIdea {
 }
 
 // AV Script System
+export interface AVShotAudioFile {
+  id: string;
+  audioUrl: string;
+  voiceId?: string; // ElevenLabs voice ID
+  voiceName?: string; // Character/voice name
+  uploadedAt: Date;
+}
+
+export interface AVShotImageGeneration {
+  id: string;
+  imageUrl: string;
+  prompt: string;
+  style: 'storyboard' | '3d-render';
+  createdAt: Date;
+}
+
+export interface AVShotImageGenerationMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  imageUrl?: string;
+  createdAt: Date;
+}
+
+export interface AVShotImageGenerationThread {
+  id: string;
+  selectedAssets: Array<{
+    id: string;
+    type: 'gadget' | 'location' | 'character';
+    name: string;
+  }>;
+  sketchImage?: string;
+  messages: AVShotImageGenerationMessage[];
+  generatedImages: AVShotImageGeneration[];
+  selectedImageId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface AVShot {
   id: string;
   segmentId: string;
   shotNumber: number; // 1.1, 1.2, etc. - auto-calculated based on order
+  take: string; // Unique take identifier: SC{segmentNumber}T{takeNumber}_image (e.g., SC01T01_image)
   audio: string;
   visual: string;
   imageUrl?: string; // Storyboard image
+  audioFiles?: AVShotAudioFile[]; // Array of audio files for this shot
+  imageGenerationThread?: AVShotImageGenerationThread; // Conversation thread for image generation
+  enhancementThread?: EnhancementThread; // Conversation thread for text enhancement
   duration: number; // Duration in seconds
   wordCount: number; // Auto-calculated from audio text
   runtime: number; // Auto-calculated from audio text (seconds)
@@ -295,6 +357,10 @@ export interface AVSegment {
   episodeId: string;
   segmentNumber: number; // 1, 2, 3, etc.
   title: string;
+  sceneSetting?: string; // Scene setting name from screenplay
+  locationId?: string; // Reference to location asset
+  locationName?: string; // Location name
+  actionDescription?: string; // Action description from screenplay
   shots: AVShot[];
   totalRuntime: number; // Sum of all shots in segment
   totalWords: number; // Sum of all shots in segment
@@ -315,17 +381,38 @@ export interface AVScript {
 }
 
 // Screenplay System
+export interface EnhancementMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: Date;
+}
+
+export interface EnhancementThread {
+  messages: EnhancementMessage[];
+  alternatives: string[]; // Store all generated alternatives
+  originalText: string; // Store original text when enhancement started
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface ScreenplayElement {
   id: string;
   type: 'scene-setting' | 'character' | 'action' | 'parenthetical' | 'dialogue' | 'general';
   content: string;
   position: number;
   comments?: ScreenplayComment[];
+  editedInPL?: boolean; // Track if edited in Polish
+  editedInEN?: boolean; // Track if edited in English
+  reviewed?: boolean; // Track if changes have been reviewed
+  enhancementThread?: EnhancementThread; // Conversation thread for text enhancement
 }
 
 export interface ScreenplayData {
   title: string;
+  titleEN?: string;
   elements: ScreenplayElement[];
+  elementsEN?: ScreenplayElement[];
 }
 
 export interface ScreenplayComment {
@@ -340,7 +427,7 @@ export interface ScreenplayComment {
 export interface AVEditingSlide {
   id: string;
   shotId?: string; // Reference to AVShot if from AV script
-  imageUrl: string;
+  imageUrl?: string; // Optional - may be undefined for placeholder slides
   duration: number; // Duration in seconds
   startTime: number; // Start time in timeline (calculated)
   order: number;
@@ -357,6 +444,8 @@ export interface AVEditingAudioTrack {
   duration: number; // Duration in seconds
   volume: number; // 0-100
   order: number;
+  shotId?: string; // Reference to AVShot if from AV script
+  voiceName?: string; // Character/voice name for grouping
   createdAt: Date;
   updatedAt: Date;
 }

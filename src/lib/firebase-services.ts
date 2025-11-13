@@ -77,6 +77,10 @@ export const showService = {
   }
 };
 
+// Simple cache to prevent repeated queries
+const queryCache = new Map<string, { data: unknown; timestamp: number }>();
+const CACHE_TTL = 5000; // 5 seconds cache
+
 // Global Assets
 export const globalAssetService = {
   async create(asset: Omit<GlobalAsset, 'id' | 'createdAt' | 'updatedAt'>): Promise<GlobalAsset> {
@@ -92,10 +96,20 @@ export const globalAssetService = {
     });
     
     const docSnap = await getDoc(docRef);
+    // Invalidate cache for this show
+    const cacheKey = `globalAssets-${asset.showId}`;
+    queryCache.delete(cacheKey);
     return { id: docRef.id, ...docSnap.data() } as GlobalAsset;
   },
 
   async getByShow(showId: string): Promise<GlobalAsset[]> {
+    // Check cache first
+    const cacheKey = `globalAssets-${showId}`;
+    const cached = queryCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+      return cached.data as GlobalAsset[];
+    }
+
     const q = query(
       collection(db, 'globalAssets'),
       where('showId', '==', showId)
@@ -140,11 +154,15 @@ export const globalAssetService = {
     });
     
     // Sort assets by creation date on the client side
-    return assets.sort((a, b) => {
+    const sortedAssets = assets.sort((a, b) => {
       const aTime = a.createdAt instanceof Date ? a.createdAt.getTime() : new Date(a.createdAt).getTime();
       const bTime = b.createdAt instanceof Date ? b.createdAt.getTime() : new Date(b.createdAt).getTime();
       return bTime - aTime;
     });
+    
+    // Cache the result
+    queryCache.set(cacheKey, { data: sortedAssets, timestamp: Date.now() });
+    return sortedAssets;
   },
 
   async update(id: string, updates: Partial<GlobalAsset>): Promise<void> {
@@ -174,6 +192,11 @@ export const globalAssetService = {
       ...cleanUpdates,
       updatedAt: Timestamp.now(),
     });
+    
+    // Invalidate cache for this asset's show
+    // Note: We'd need showId from the asset, but we don't have it here
+    // Clear all caches for now (better than stale data)
+    queryCache.clear();
   },
 
   async delete(id: string): Promise<void> {
@@ -201,6 +224,13 @@ export const episodeService = {
 
   async getByShow(showId: string): Promise<Episode[]> {
     try {
+      // Check cache first
+      const cacheKey = `episodes-${showId}`;
+      const cached = queryCache.get(cacheKey);
+      if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+        return cached.data as Episode[];
+      }
+
       const q = query(
         collection(db, 'episodes'),
         where('showId', '==', showId)
@@ -256,7 +286,11 @@ export const episodeService = {
       });
       
       // Sort episodes by episode number on the client side
-      return episodes.sort((a, b) => a.episodeNumber - b.episodeNumber);
+      const sortedEpisodes = episodes.sort((a, b) => a.episodeNumber - b.episodeNumber);
+      
+      // Cache the result
+      queryCache.set(cacheKey, { data: sortedEpisodes, timestamp: Date.now() });
+      return sortedEpisodes;
     } catch (error) {
       console.error('Error fetching episodes:', error);
       return []; // Return empty array on error
@@ -287,6 +321,14 @@ export const episodeService = {
     await updateDoc(doc(db, 'episodes', id), {
       ...(cleanedUpdates as Record<string, unknown>),
       updatedAt: Timestamp.now(),
+    });
+    
+    // Invalidate cache for episodes (we don't know showId here, so clear all episode caches)
+    // This is safe because updates are infrequent
+    Array.from(queryCache.keys()).forEach(key => {
+      if (key.startsWith('episodes-')) {
+        queryCache.delete(key);
+      }
     });
   },
 
@@ -366,6 +408,13 @@ export const episodeIdeaService = {
 
   async getByShow(showId: string): Promise<EpisodeIdea[]> {
     try {
+      // Check cache first
+      const cacheKey = `episodeIdeas-${showId}`;
+      const cached = queryCache.get(cacheKey);
+      if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+        return cached.data as EpisodeIdea[];
+      }
+
       const q = query(
         collection(db, 'episodeIdeas'),
         where('showId', '==', showId)
@@ -402,6 +451,10 @@ export const episodeIdeaService = {
         const bTime = b.createdAt instanceof Date ? b.createdAt.getTime() : new Date(b.createdAt).getTime();
         return bTime - aTime;
       });
+      
+      // Cache the result
+      queryCache.set(cacheKey, { data: ideas, timestamp: Date.now() });
+      return ideas;
     } catch (error) {
       console.error('Error fetching episode ideas:', error);
       return [];
@@ -443,6 +496,13 @@ export const generalIdeaService = {
 
   async getByShow(showId: string): Promise<GeneralIdea[]> {
     try {
+      // Check cache first
+      const cacheKey = `generalIdeas-${showId}`;
+      const cached = queryCache.get(cacheKey);
+      if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+        return cached.data as GeneralIdea[];
+      }
+
       const q = query(
         collection(db, 'generalIdeas'),
         where('showId', '==', showId)
@@ -476,11 +536,15 @@ export const generalIdeaService = {
       });
       
       // Sort ideas by creation date on the client side
-      return ideas.sort((a, b) => {
+      const sortedIdeas = ideas.sort((a, b) => {
         const aTime = a.createdAt instanceof Date ? a.createdAt.getTime() : new Date(a.createdAt).getTime();
         const bTime = b.createdAt instanceof Date ? b.createdAt.getTime() : new Date(b.createdAt).getTime();
         return bTime - aTime;
       });
+      
+      // Cache the result
+      queryCache.set(cacheKey, { data: sortedIdeas, timestamp: Date.now() });
+      return sortedIdeas;
     } catch (error) {
       console.error('Error fetching general ideas:', error);
       return [];

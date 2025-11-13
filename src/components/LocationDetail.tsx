@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { GlobalAsset, AssetConcept } from '@/types';
+import { GlobalAsset, AssetConcept, AIRefImages } from '@/types';
 import { 
   ArrowLeft, 
   MapPin, 
@@ -11,7 +11,9 @@ import {
   Save,
   X,
   Image as ImageIcon,
-  Palette
+  Palette,
+  Sparkles,
+  RefreshCw
 } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
 
@@ -28,7 +30,7 @@ export function LocationDetail({
   onSave,
   onDeleteConcept
 }: LocationDetailProps) {
-  const [activeTab, setActiveTab] = useState<'general' | 'concepts' | 'production'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'concepts' | 'production' | 'ai-ref'>('general');
   const [isEditing, setIsEditing] = useState(false);
   
   // Form states
@@ -52,6 +54,12 @@ export function LocationDetail({
   const [galleryImages, setGalleryImages] = useState<string[]>(location.galleryImages || []);
   const [mainRender, setMainRender] = useState<string>(location.mainRender || '');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  
+  // AI Reference Images state
+  const [aiRefImages, setAiRefImages] = useState<AIRefImages>(location.aiRefImages || {});
+  
+  // AI Ref upload progress tracking
+  const [uploadingAIRefImages, setUploadingAIRefImages] = useState<Map<string, { progress: number; category: 'ref01' | 'ref02' | 'ref03' | 'ref04'; file: File }>>(new Map());
   
   // Concept gallery states
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'relevance' | 'name'>('newest');
@@ -96,6 +104,15 @@ export function LocationDetail({
     }
   }, [location.id]); // Only run when location changes
 
+  // Update AI ref images state when location data changes
+  useEffect(() => {
+    if (location.aiRefImages) {
+      setAiRefImages(location.aiRefImages);
+    } else {
+      setAiRefImages({});
+    }
+  }, [location.aiRefImages]);
+
   const handleSave = () => {
     // Prevent saving data URLs which cause size limit issues
     const safeMainRender = mainRender?.startsWith('data:') ? undefined : mainRender;
@@ -110,6 +127,7 @@ export function LocationDetail({
       timeOfDay: timeOfDay || undefined,
       weather: weather || undefined,
       season: season || undefined,
+      aiRefImages,
     };
     onSave(updatedLocation);
     setIsEditing(false);
@@ -250,6 +268,86 @@ export function LocationDetail({
     }
   };
 
+  // AI Ref Image upload handlers
+  const handleAIRefImageUpload = async (file: File, category: 'ref01' | 'ref02' | 'ref03' | 'ref04') => {
+    const uploadId = `${category}-${Date.now()}-${Math.random()}`;
+    const previewUrl = URL.createObjectURL(file);
+    
+    setUploadingAIRefImages(prev => new Map(prev).set(uploadId, { progress: 0, category, file }));
+    
+    try {
+      const extension = file.name.split('.').pop() || 'jpg';
+      const customFileName = `${name}_${category}`;
+      
+      const progressInterval = setInterval(() => {
+        setUploadingAIRefImages(prev => {
+          const current = prev.get(uploadId);
+          if (current && current.progress < 90) {
+            const newMap = new Map(prev);
+            newMap.set(uploadId, { ...current, progress: current.progress + 10 });
+            return newMap;
+          }
+          return prev;
+        });
+      }, 200);
+      
+      const result = await uploadFile(file, `locations/${location.id}/ai-ref`, customFileName);
+      
+      clearInterval(progressInterval);
+      
+      setUploadingAIRefImages(prev => {
+        const newMap = new Map(prev);
+        const current = newMap.get(uploadId);
+        if (current) {
+          newMap.set(uploadId, { ...current, progress: 100 });
+        }
+        return newMap;
+      });
+      
+      if (result && result.url) {
+        // Update state immediately
+        const updatedAiRefImages = {
+          ...aiRefImages,
+          [category]: [...(aiRefImages[category] || []), result.url]
+        };
+        setAiRefImages(updatedAiRefImages);
+        
+        // Save to database immediately
+        const updatedLocation: GlobalAsset = {
+          ...location,
+          aiRefImages: updatedAiRefImages,
+        };
+        onSave(updatedLocation);
+        
+        // Small delay to show 100% progress before removing
+        setTimeout(() => {
+          setUploadingAIRefImages(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(uploadId);
+            return newMap;
+          });
+          URL.revokeObjectURL(previewUrl);
+        }, 300);
+      }
+    } catch (error) {
+      clearInterval(progressInterval);
+      console.error('Failed to upload AI ref image:', error);
+      setUploadingAIRefImages(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(uploadId);
+        return newMap;
+      });
+      URL.revokeObjectURL(previewUrl);
+    }
+  };
+
+  const handleRemoveAIRefImage = (category: 'ref01' | 'ref02' | 'ref03' | 'ref04', index: number) => {
+    setAiRefImages(prev => ({
+      ...prev,
+      [category]: (prev[category] || []).filter((_, i) => i !== index)
+    }));
+  };
+
   const handleUpdateConcept = async (conceptId: string, updates: { name?: string; description?: string; relevanceScale?: number }) => {
     try {
       const updatedConcepts = (location.concepts || []).map(concept => 
@@ -352,10 +450,11 @@ export function LocationDetail({
               { id: 'general', label: 'General', icon: MapPin },
               { id: 'concepts', label: 'Concepts', icon: ImageIcon },
               { id: 'production', label: 'Production', icon: Palette },
+              { id: 'ai-ref', label: 'AI ref', icon: Sparkles },
             ].map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as 'general' | 'concepts' | 'production')}
+                onClick={() => setActiveTab(tab.id as 'general' | 'concepts' | 'production' | 'ai-ref')}
                 className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm ${
                   activeTab === tab.id
                     ? 'border-indigo-500 text-indigo-600'
@@ -873,6 +972,285 @@ export function LocationDetail({
                     placeholder="Links to reference materials, inspiration, etc..."
                   />
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'ai-ref' && (
+          <div className="space-y-6">
+            <h3 className="text-xl font-semibold text-gray-900">AI Reference Gallery</h3>
+            <p className="text-sm text-gray-600">Upload reference images organized by category for AI generation tools.</p>
+            
+            {/* Ref 1# Gallery */}
+            <div className="bg-gray-50 rounded-lg border border-gray-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="text-lg font-medium text-gray-900">Ref 1#</h4>
+                <label className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer text-sm">
+                  <Upload className="w-4 h-4 inline mr-2" />
+                  Upload
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleAIRefImageUpload(file, 'ref01');
+                    }}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {(aiRefImages.ref01 || []).map((url, index) => (
+                  <div key={index} className="relative group bg-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                    <img
+                      src={url}
+                      alt={`Ref 1# ${index + 1}`}
+                      className="w-full h-48 object-contain cursor-pointer hover:opacity-90"
+                      onClick={() => setSelectedImage({ url, alt: `Ref 1# ${index + 1}` })}
+                    />
+                    <button
+                      onClick={() => handleRemoveAIRefImage('ref01', index)}
+                      className="absolute top-2 right-2 p-1 bg-red-600 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                {Array.from(uploadingAIRefImages.entries())
+                  .filter(([_, data]) => data.category === 'ref01')
+                  .map(([uploadId, data]) => (
+                    <div key={uploadId} className="relative bg-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                      <img
+                        src={URL.createObjectURL(data.file)}
+                        alt="Uploading..."
+                        className="w-full h-48 object-contain opacity-50"
+                      />
+                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-black bg-opacity-30">
+                        <RefreshCw className="w-6 h-6 text-white animate-spin mb-2" />
+                        <div className="w-full px-2">
+                          <div className="bg-gray-700 rounded-full h-2">
+                            <div
+                              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                              style={{ width: `${data.progress}%` }}
+                            />
+                          </div>
+                          <p className="text-white text-xs mt-1 text-center">{data.progress}%</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                {(!aiRefImages.ref01 || aiRefImages.ref01.length === 0) && 
+                 Array.from(uploadingAIRefImages.values()).filter(d => d.category === 'ref01').length === 0 && (
+                  <div className="col-span-full text-center py-8 text-gray-500">
+                    <ImageIcon className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                    <p>No Ref 1# images uploaded</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Ref 2# Gallery */}
+            <div className="bg-gray-50 rounded-lg border border-gray-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="text-lg font-medium text-gray-900">Ref 2#</h4>
+                <label className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer text-sm">
+                  <Upload className="w-4 h-4 inline mr-2" />
+                  Upload
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleAIRefImageUpload(file, 'ref02');
+                    }}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {(aiRefImages.ref02 || []).map((url, index) => (
+                  <div key={index} className="relative group bg-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                    <img
+                      src={url}
+                      alt={`Ref 2# ${index + 1}`}
+                      className="w-full h-48 object-contain cursor-pointer hover:opacity-90"
+                      onClick={() => setSelectedImage({ url, alt: `Ref 2# ${index + 1}` })}
+                    />
+                    <button
+                      onClick={() => handleRemoveAIRefImage('ref02', index)}
+                      className="absolute top-2 right-2 p-1 bg-red-600 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                {Array.from(uploadingAIRefImages.entries())
+                  .filter(([_, data]) => data.category === 'ref02')
+                  .map(([uploadId, data]) => (
+                    <div key={uploadId} className="relative bg-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                      <img
+                        src={URL.createObjectURL(data.file)}
+                        alt="Uploading..."
+                        className="w-full h-48 object-contain opacity-50"
+                      />
+                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-black bg-opacity-30">
+                        <RefreshCw className="w-6 h-6 text-white animate-spin mb-2" />
+                        <div className="w-full px-2">
+                          <div className="bg-gray-700 rounded-full h-2">
+                            <div
+                              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                              style={{ width: `${data.progress}%` }}
+                            />
+                          </div>
+                          <p className="text-white text-xs mt-1 text-center">{data.progress}%</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                {(!aiRefImages.ref02 || aiRefImages.ref02.length === 0) && 
+                 Array.from(uploadingAIRefImages.values()).filter(d => d.category === 'ref02').length === 0 && (
+                  <div className="col-span-full text-center py-8 text-gray-500">
+                    <ImageIcon className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                    <p>No Ref 2# images uploaded</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Ref 3# Gallery */}
+            <div className="bg-gray-50 rounded-lg border border-gray-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="text-lg font-medium text-gray-900">Ref 3#</h4>
+                <label className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer text-sm">
+                  <Upload className="w-4 h-4 inline mr-2" />
+                  Upload
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleAIRefImageUpload(file, 'ref03');
+                    }}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {(aiRefImages.ref03 || []).map((url, index) => (
+                  <div key={index} className="relative group bg-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                    <img
+                      src={url}
+                      alt={`Ref 3# ${index + 1}`}
+                      className="w-full h-48 object-contain cursor-pointer hover:opacity-90"
+                      onClick={() => setSelectedImage({ url, alt: `Ref 3# ${index + 1}` })}
+                    />
+                    <button
+                      onClick={() => handleRemoveAIRefImage('ref03', index)}
+                      className="absolute top-2 right-2 p-1 bg-red-600 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                {Array.from(uploadingAIRefImages.entries())
+                  .filter(([_, data]) => data.category === 'ref03')
+                  .map(([uploadId, data]) => (
+                    <div key={uploadId} className="relative bg-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                      <img
+                        src={URL.createObjectURL(data.file)}
+                        alt="Uploading..."
+                        className="w-full h-48 object-contain opacity-50"
+                      />
+                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-black bg-opacity-30">
+                        <RefreshCw className="w-6 h-6 text-white animate-spin mb-2" />
+                        <div className="w-full px-2">
+                          <div className="bg-gray-700 rounded-full h-2">
+                            <div
+                              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                              style={{ width: `${data.progress}%` }}
+                            />
+                          </div>
+                          <p className="text-white text-xs mt-1 text-center">{data.progress}%</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                {(!aiRefImages.ref03 || aiRefImages.ref03.length === 0) && 
+                 Array.from(uploadingAIRefImages.values()).filter(d => d.category === 'ref03').length === 0 && (
+                  <div className="col-span-full text-center py-8 text-gray-500">
+                    <ImageIcon className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                    <p>No Ref 3# images uploaded</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Ref 4# Gallery */}
+            <div className="bg-gray-50 rounded-lg border border-gray-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="text-lg font-medium text-gray-900">Ref 4#</h4>
+                <label className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer text-sm">
+                  <Upload className="w-4 h-4 inline mr-2" />
+                  Upload
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleAIRefImageUpload(file, 'ref04');
+                    }}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {(aiRefImages.ref04 || []).map((url, index) => (
+                  <div key={index} className="relative group bg-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                    <img
+                      src={url}
+                      alt={`Ref 4# ${index + 1}`}
+                      className="w-full h-48 object-contain cursor-pointer hover:opacity-90"
+                      onClick={() => setSelectedImage({ url, alt: `Ref 4# ${index + 1}` })}
+                    />
+                    <button
+                      onClick={() => handleRemoveAIRefImage('ref04', index)}
+                      className="absolute top-2 right-2 p-1 bg-red-600 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                {Array.from(uploadingAIRefImages.entries())
+                  .filter(([_, data]) => data.category === 'ref04')
+                  .map(([uploadId, data]) => (
+                    <div key={uploadId} className="relative bg-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                      <img
+                        src={URL.createObjectURL(data.file)}
+                        alt="Uploading..."
+                        className="w-full h-48 object-contain opacity-50"
+                      />
+                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-black bg-opacity-30">
+                        <RefreshCw className="w-6 h-6 text-white animate-spin mb-2" />
+                        <div className="w-full px-2">
+                          <div className="bg-gray-700 rounded-full h-2">
+                            <div
+                              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                              style={{ width: `${data.progress}%` }}
+                            />
+                          </div>
+                          <p className="text-white text-xs mt-1 text-center">{data.progress}%</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                {(!aiRefImages.ref04 || aiRefImages.ref04.length === 0) && 
+                 Array.from(uploadingAIRefImages.values()).filter(d => d.category === 'ref04').length === 0 && (
+                  <div className="col-span-full text-center py-8 text-gray-500">
+                    <ImageIcon className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                    <p>No Ref 4# images uploaded</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>

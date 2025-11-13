@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ShowSelection } from './ShowSelection';
 import { ShowDashboard } from './ShowDashboard';
@@ -76,41 +76,94 @@ export function ConceptoApp({
     loadShowData,
   } = useFirebaseData();
 
-  // Initialize from URL parameters
+  // Track if we've initialized to prevent repeated loads
+  const hasInitializedRef = useRef(false);
+  const lastInitialShowIdRef = useRef<string | null>(null);
+
+  // Initialize from URL parameters - only run once per showId
+  // Use a ref to store loadShowData to prevent effect re-runs
+  const loadShowDataRef2 = useRef(loadShowData);
+  useEffect(() => {
+    loadShowDataRef2.current = loadShowData;
+  }, [loadShowData]);
+
   useEffect(() => {
     if (initialShowId && shows.length > 0) {
+      // Skip if we've already initialized for this showId
+      if (hasInitializedRef.current && lastInitialShowIdRef.current === initialShowId) {
+        return;
+      }
+
       const show = shows.find(s => s.id === initialShowId);
       if (show) {
+        console.log('🔄 ConceptoApp: Initializing show', show.id);
         setSelectedShow(show);
-        loadShowData(show.id);
+        loadShowDataRef2.current(show.id);
+        hasInitializedRef.current = true;
+        lastInitialShowIdRef.current = initialShowId;
       }
     }
-  }, [initialShowId, shows, loadShowData]);
+  }, [initialShowId, shows.length]); // Only depend on length, not the whole array or function
+
+
+  // Track if we've set the initial episode to prevent repeated updates
+  const hasSetInitialEpisodeRef = useRef(false);
+  const lastInitialEpisodeIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (initialEpisodeId && episodes.length > 0) {
+      // Skip if we've already set this episode
+      if (hasSetInitialEpisodeRef.current && lastInitialEpisodeIdRef.current === initialEpisodeId) {
+        return;
+      }
+
       const episode = episodes.find(e => e.id === initialEpisodeId);
       if (episode) {
         setSelectedEpisode(episode);
+        hasSetInitialEpisodeRef.current = true;
+        lastInitialEpisodeIdRef.current = initialEpisodeId;
       }
     }
-  }, [initialEpisodeId, episodes]);
+  }, [initialEpisodeId, episodes.length]); // Only depend on length, not the whole array
+
+  // Track if we've set the initial asset to prevent repeated updates
+  const hasSetInitialAssetRef = useRef(false);
+  const lastInitialAssetIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (initialAssetId && globalAssets.length > 0) {
+      // Skip if we've already set this asset
+      if (hasSetInitialAssetRef.current && lastInitialAssetIdRef.current === initialAssetId) {
+        return;
+      }
+
       const asset = globalAssets.find(a => a.id === initialAssetId);
       if (asset) {
         setSelectedAsset(asset);
+        hasSetInitialAssetRef.current = true;
+        lastInitialAssetIdRef.current = initialAssetId;
       }
     }
-  }, [initialAssetId, globalAssets]);
+  }, [initialAssetId, globalAssets.length]); // Only depend on length, not the whole array
 
   // Load show data when a show is selected
+  // Track which show is currently loaded to prevent redundant loads
+  const currentLoadedShowIdRef = useRef<string | null>(null);
+
+  // Load show data when selectedShow changes, but only if it's different
+  // Use a ref to store loadShowData to prevent effect re-runs
+  const loadShowDataRef = useRef(loadShowData);
   useEffect(() => {
-    if (selectedShow) {
-      loadShowData(selectedShow.id);
+    loadShowDataRef.current = loadShowData;
+  }, [loadShowData]);
+
+  useEffect(() => {
+    if (selectedShow && selectedShow.id && selectedShow.id !== currentLoadedShowIdRef.current) {
+      console.log('🔄 ConceptoApp: Loading show data for', selectedShow.id);
+      currentLoadedShowIdRef.current = selectedShow.id;
+      loadShowDataRef.current(selectedShow.id);
     }
-  }, [selectedShow, loadShowData]);
+  }, [selectedShow?.id]); // Only depend on the ID, not the function
 
   const handleSelectShow = (show: Show) => {
     setSelectedShow(show);
@@ -319,6 +372,7 @@ export function ConceptoApp({
         renderVideos: character.renderVideos,
         uploadedModels: character.uploadedModels,
         concepts: character.concepts,
+        aiRefImages: character.aiRefImages,
       };
       
       console.log('🔥 Updates being sent to Firebase:', updates);
@@ -434,6 +488,8 @@ export function ConceptoApp({
   const handleSaveEpisode = async (episode: Episode) => {
     try {
       await updateEpisode(episode.id, episode);
+      // Don't update selectedEpisode here - let the episodes array update handle it
+      // This prevents creating unnecessary prop changes that trigger re-renders
     } catch (error) {
       console.error('Failed to save episode:', error);
     }

@@ -232,15 +232,43 @@ export async function deleteFromS3(key: string): Promise<void> {
 /**
  * Generate a unique key for file uploads
  */
-export function generateFileKey(prefix: string, fileName: string): string {
+export function generateFileKey(prefix: string, fileName: string, customName?: string): string {
   const timestamp = Date.now();
   const randomId = Math.random().toString(36).substring(2, 15);
   const extension = fileName.split('.').pop() || '';
   // Remove trailing slash from prefix if it exists to avoid double slashes
   const cleanPrefix = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix;
-  const key = `${cleanPrefix}/${timestamp}-${randomId}.${extension}`;
-  console.log('🔑 Generated file key:', { prefix, cleanPrefix, fileName, key });
+  
+  // If customName is provided, use it; otherwise use timestamp-randomId
+  const namePart = customName 
+    ? `${customName}_${timestamp}-${randomId}` 
+    : `${timestamp}-${randomId}`;
+  
+  const key = `${cleanPrefix}/${namePart}.${extension}`;
+  console.log('🔑 Generated file key:', { prefix, cleanPrefix, fileName, customName, key });
   return key;
+}
+
+/**
+ * Generate a structured filename for AI reference images
+ * @param assetName - The name of the asset (character, location, or gadget)
+ * @param category - The category of reference (e.g., 'full_body', 'ref01', 'full_gadget')
+ * @param extension - File extension
+ * @returns Structured filename like "character_name_full_body.jpg"
+ */
+export function generateStructuredFileName(assetName: string, category: string, extension: string): string {
+  // Sanitize asset name: remove special characters, convert to lowercase, replace spaces with underscores
+  const sanitizedName = assetName
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '') // Remove special characters
+    .replace(/\s+/g, '_') // Replace spaces with underscores
+    .replace(/_+/g, '_') // Replace multiple underscores with single
+    .replace(/^_|_$/g, ''); // Remove leading/trailing underscores
+  
+  const timestamp = Date.now();
+  const randomId = Math.random().toString(36).substring(2, 8);
+  
+  return `${sanitizedName}_${category}_${timestamp}-${randomId}.${extension}`;
 }
 
 /**

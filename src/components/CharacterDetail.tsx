@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Character, AssetConcept, CharacterGeneral, CharacterClothing, CharacterPose, CharacterVoice } from '@/types';
+import { Character, AssetConcept, CharacterGeneral, CharacterClothing, CharacterPose, CharacterVoice, AIRefImages } from '@/types';
 import { 
   ArrowLeft, 
   Save, 
@@ -23,7 +23,9 @@ import {
   X,
   Download,
   Mic,
-  Video
+  Video,
+  Edit3,
+  Sparkles
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useS3Upload } from '@/hooks/useS3Upload';
@@ -44,8 +46,10 @@ export function CharacterDetail({
   onAddConcept,
   onDeleteConcept
 }: CharacterDetailProps) {
-  const [activeTab, setActiveTab] = useState<'general' | 'clothing' | 'gallery' | 'pose-concepts' | '3d-models' | 'production' | 'voice' | 'video-examples'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'clothing' | 'gallery' | 'pose-concepts' | '3d-models' | 'production' | 'voice' | 'video-examples' | 'ai-ref'>('general');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [name, setName] = useState(character.name);
   
   // Autosave ref
   const isFirstRenderRef = useRef(true);
@@ -106,6 +110,12 @@ export function CharacterDetail({
   // Video upload state
   const [uploadingVideos, setUploadingVideos] = useState<Map<string, { progress: number; error?: string; type: 'concept' | 'render' }>>(new Map());
   
+  // AI Reference Images state
+  const [aiRefImages, setAiRefImages] = useState<AIRefImages>(character.aiRefImages || {});
+  
+  // AI Ref upload progress tracking
+  const [uploadingAIRefImages, setUploadingAIRefImages] = useState<Map<string, { progress: number; category: 'fullBody' | 'multipleAngles' | 'head' | 'expressions'; file: File }>>(new Map());
+  
   // Sync video arrays when character prop changes (e.g., after reload)
   const prevConceptVideosRef = useRef<string[]>(character.conceptVideos || []);
   const prevRenderVideosRef = useRef<string[]>(character.renderVideos || []);
@@ -152,6 +162,15 @@ export function CharacterDetail({
     }
   }, [character.voice]);
 
+  // Update AI ref images state when character data changes
+  useEffect(() => {
+    if (character.aiRefImages) {
+      setAiRefImages(character.aiRefImages);
+    } else {
+      setAiRefImages({});
+    }
+  }, [character.aiRefImages]);
+
   // Handle ESC key to close image modal
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -173,6 +192,7 @@ export function CharacterDetail({
     console.log('💾 Saving character with uploadedModels:', uploadedModels);
     const updatedCharacter: Character = {
       ...character,
+      name: name.trim(),
       general,
       clothing,
       pose,
@@ -184,11 +204,13 @@ export function CharacterDetail({
       conceptVideos,
       renderVideos,
       uploadedModels,
+      aiRefImages,
     };
     console.log('💾 Updated character data:', updatedCharacter);
     console.log('💾 Uploaded models being saved:', updatedCharacter.uploadedModels);
     onSave(updatedCharacter);
-  }, [character, general, clothing, pose, voice, mainImageUrl, modelFiles, characterGallery, characterVideoGallery, conceptVideos, renderVideos, uploadedModels, onSave]);
+    setIsEditing(false);
+  }, [character, name, general, clothing, pose, voice, mainImageUrl, modelFiles, characterGallery, characterVideoGallery, conceptVideos, renderVideos, uploadedModels, aiRefImages, onSave]);
 
   // Autosave on voice changes with debounce
   useEffect(() => {
@@ -695,6 +717,95 @@ export function CharacterDetail({
     }
   };
 
+  // AI Ref Image upload handlers
+  const handleAIRefImageUpload = async (file: File, category: 'fullBody' | 'multipleAngles' | 'head' | 'expressions') => {
+    const uploadId = `${category}-${Date.now()}-${Math.random()}`;
+    
+    // Create preview URL for immediate display
+    const previewUrl = URL.createObjectURL(file);
+    
+    // Add to uploading state with 0 progress
+    setUploadingAIRefImages(prev => new Map(prev).set(uploadId, { progress: 0, category, file }));
+    
+    try {
+      // Generate structured filename
+      const extension = file.name.split('.').pop() || 'jpg';
+      const categoryName = category === 'fullBody' ? 'full_body' : 
+                          category === 'multipleAngles' ? 'multiple_angles' :
+                          category === 'head' ? 'head' : 'expressions';
+      const customFileName = `${name}_${categoryName}`;
+      
+      // Simulate progress updates
+      const progressInterval = setInterval(() => {
+        setUploadingAIRefImages(prev => {
+          const current = prev.get(uploadId);
+          if (current && current.progress < 90) {
+            const newMap = new Map(prev);
+            newMap.set(uploadId, { ...current, progress: current.progress + 10 });
+            return newMap;
+          }
+          return prev;
+        });
+      }, 200);
+      
+      const result = await uploadFile(file, `characters/${character.id}/ai-ref`, customFileName);
+      
+      clearInterval(progressInterval);
+      
+      // Set to 100% before removing
+      setUploadingAIRefImages(prev => {
+        const newMap = new Map(prev);
+        const current = newMap.get(uploadId);
+        if (current) {
+          newMap.set(uploadId, { ...current, progress: 100 });
+        }
+        return newMap;
+      });
+      
+      if (result && result.url) {
+        // Update state immediately
+        const updatedAiRefImages = {
+          ...aiRefImages,
+          [category]: [...(aiRefImages[category] || []), result.url]
+        };
+        setAiRefImages(updatedAiRefImages);
+        
+        // Save to database immediately
+        const updatedCharacter: Character = {
+          ...character,
+          aiRefImages: updatedAiRefImages,
+        };
+        onSave(updatedCharacter);
+        
+        // Small delay to show 100% progress before removing
+        setTimeout(() => {
+          setUploadingAIRefImages(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(uploadId);
+            return newMap;
+          });
+          URL.revokeObjectURL(previewUrl);
+        }, 300);
+      }
+    } catch (error) {
+      clearInterval(progressInterval);
+      console.error('Failed to upload AI ref image:', error);
+      setUploadingAIRefImages(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(uploadId);
+        return newMap;
+      });
+      URL.revokeObjectURL(previewUrl);
+    }
+  };
+
+  const handleRemoveAIRefImage = (category: 'fullBody' | 'multipleAngles' | 'head' | 'expressions', index: number) => {
+    setAiRefImages(prev => ({
+      ...prev,
+      [category]: (prev[category] || []).filter((_, i) => i !== index)
+    }));
+  };
+
   const handleRemoveVoiceSample = (index: number) => {
     setVoice(prev => ({
       ...prev,
@@ -745,6 +856,7 @@ export function CharacterDetail({
     { id: 'gallery', label: 'Gallery', icon: ImageIcon },
     { id: 'pose-concepts', label: 'Concepts', icon: ImageIcon },
     { id: 'video-examples', label: 'Video Examples', icon: Video },
+    { id: 'ai-ref', label: 'AI ref', icon: Sparkles },
     { id: '3d-models', label: '3D Models', icon: Box },
     { id: 'production', label: 'Production', icon: Settings },
     { id: 'voice', label: 'Voice', icon: Mic },
@@ -764,18 +876,58 @@ export function CharacterDetail({
                 <ArrowLeft className="w-5 h-5" />
               </button>
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">{character.name}</h1>
+                <h1 className="text-2xl font-bold text-gray-900">
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="bg-transparent border-b border-gray-300 focus:border-indigo-500 focus:outline-none"
+                      autoFocus
+                    />
+                  ) : (
+                    character.name
+                  )}
+                </h1>
                 <p className="text-sm text-gray-600">Character Details</p>
               </div>
             </div>
             <div className="flex items-center space-x-3">
-              <button
-                onClick={handleSave}
-                className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-              >
-                <Save className="w-4 h-4" />
-                <span>Save Changes</span>
-              </button>
+              {isEditing ? (
+                <>
+                  <button
+                    onClick={() => {
+                      setName(character.name);
+                      setIsEditing(false);
+                    }}
+                    className="px-3 py-2 text-gray-600 hover:text-gray-800 rounded-lg hover:bg-gray-100"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                  >
+                    <Save className="w-4 h-4" />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => setIsEditing(true)}
+                    className="px-3 py-2 text-gray-600 hover:text-gray-800 rounded-lg hover:bg-gray-100"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>Save Changes</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -2356,6 +2508,285 @@ export function CharacterDetail({
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {activeTab === 'ai-ref' && (
+                <div className="space-y-6">
+                  <h3 className="text-xl font-semibold text-gray-900">AI Reference Gallery</h3>
+                  <p className="text-sm text-gray-600">Upload reference images organized by category for AI generation tools.</p>
+                  
+                  {/* Full Body Gallery */}
+                  <div className="bg-gray-50 rounded-lg border border-gray-200 p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-lg font-medium text-gray-900">Full Body</h4>
+                      <label className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer text-sm">
+                        <Upload className="w-4 h-4 inline mr-2" />
+                        Upload
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleAIRefImageUpload(file, 'fullBody');
+                          }}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                      {(aiRefImages.fullBody || []).map((url, index) => (
+                        <div key={index} className="relative group bg-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                          <img
+                            src={url}
+                            alt={`Full body ${index + 1}`}
+                            className="w-full h-48 object-contain cursor-pointer hover:opacity-90"
+                            onClick={() => setSelectedImage({ url, alt: `Full body ${index + 1}` })}
+                          />
+                          <button
+                            onClick={() => handleRemoveAIRefImage('fullBody', index)}
+                            className="absolute top-2 right-2 p-1 bg-red-600 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                      {Array.from(uploadingAIRefImages.entries())
+                        .filter(([_, data]) => data.category === 'fullBody')
+                        .map(([uploadId, data]) => (
+                          <div key={uploadId} className="relative bg-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                            <img
+                              src={URL.createObjectURL(data.file)}
+                              alt="Uploading..."
+                              className="w-full h-48 object-contain opacity-50"
+                            />
+                            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black bg-opacity-30">
+                              <RefreshCw className="w-6 h-6 text-white animate-spin mb-2" />
+                              <div className="w-full px-2">
+                                <div className="bg-gray-700 rounded-full h-2">
+                                  <div
+                                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                    style={{ width: `${data.progress}%` }}
+                                  />
+                                </div>
+                                <p className="text-white text-xs mt-1 text-center">{data.progress}%</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      {(!aiRefImages.fullBody || aiRefImages.fullBody.length === 0) && 
+                       Array.from(uploadingAIRefImages.values()).filter(d => d.category === 'fullBody').length === 0 && (
+                        <div className="col-span-full text-center py-8 text-gray-500">
+                          <ImageIcon className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                          <p>No full body images uploaded</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Multiple Angles Gallery */}
+                  <div className="bg-gray-50 rounded-lg border border-gray-200 p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-lg font-medium text-gray-900">Multiple Angles</h4>
+                      <label className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer text-sm">
+                        <Upload className="w-4 h-4 inline mr-2" />
+                        Upload
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleAIRefImageUpload(file, 'multipleAngles');
+                          }}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                      {(aiRefImages.multipleAngles || []).map((url, index) => (
+                        <div key={index} className="relative group bg-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                          <img
+                            src={url}
+                            alt={`Multiple angles ${index + 1}`}
+                            className="w-full h-48 object-contain cursor-pointer hover:opacity-90"
+                            onClick={() => setSelectedImage({ url, alt: `Multiple angles ${index + 1}` })}
+                          />
+                          <button
+                            onClick={() => handleRemoveAIRefImage('multipleAngles', index)}
+                            className="absolute top-2 right-2 p-1 bg-red-600 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                      {Array.from(uploadingAIRefImages.entries())
+                        .filter(([_, data]) => data.category === 'multipleAngles')
+                        .map(([uploadId, data]) => (
+                          <div key={uploadId} className="relative bg-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                            <img
+                              src={URL.createObjectURL(data.file)}
+                              alt="Uploading..."
+                              className="w-full h-48 object-contain opacity-50"
+                            />
+                            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black bg-opacity-30">
+                              <RefreshCw className="w-6 h-6 text-white animate-spin mb-2" />
+                              <div className="w-full px-2">
+                                <div className="bg-gray-700 rounded-full h-2">
+                                  <div
+                                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                    style={{ width: `${data.progress}%` }}
+                                  />
+                                </div>
+                                <p className="text-white text-xs mt-1 text-center">{data.progress}%</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      {(!aiRefImages.multipleAngles || aiRefImages.multipleAngles.length === 0) && 
+                       Array.from(uploadingAIRefImages.values()).filter(d => d.category === 'multipleAngles').length === 0 && (
+                        <div className="col-span-full text-center py-8 text-gray-500">
+                          <ImageIcon className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                          <p>No multiple angles images uploaded</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Head Gallery */}
+                  <div className="bg-gray-50 rounded-lg border border-gray-200 p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-lg font-medium text-gray-900">Head</h4>
+                      <label className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer text-sm">
+                        <Upload className="w-4 h-4 inline mr-2" />
+                        Upload
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleAIRefImageUpload(file, 'head');
+                          }}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                      {(aiRefImages.head || []).map((url, index) => (
+                        <div key={index} className="relative group bg-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                          <img
+                            src={url}
+                            alt={`Head ${index + 1}`}
+                            className="w-full h-48 object-contain cursor-pointer hover:opacity-90"
+                            onClick={() => setSelectedImage({ url, alt: `Head ${index + 1}` })}
+                          />
+                          <button
+                            onClick={() => handleRemoveAIRefImage('head', index)}
+                            className="absolute top-2 right-2 p-1 bg-red-600 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                      {Array.from(uploadingAIRefImages.entries())
+                        .filter(([_, data]) => data.category === 'head')
+                        .map(([uploadId, data]) => (
+                          <div key={uploadId} className="relative bg-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                            <img
+                              src={URL.createObjectURL(data.file)}
+                              alt="Uploading..."
+                              className="w-full h-48 object-contain opacity-50"
+                            />
+                            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black bg-opacity-30">
+                              <RefreshCw className="w-6 h-6 text-white animate-spin mb-2" />
+                              <div className="w-full px-2">
+                                <div className="bg-gray-700 rounded-full h-2">
+                                  <div
+                                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                    style={{ width: `${data.progress}%` }}
+                                  />
+                                </div>
+                                <p className="text-white text-xs mt-1 text-center">{data.progress}%</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      {(!aiRefImages.head || aiRefImages.head.length === 0) && 
+                       Array.from(uploadingAIRefImages.values()).filter(d => d.category === 'head').length === 0 && (
+                        <div className="col-span-full text-center py-8 text-gray-500">
+                          <ImageIcon className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                          <p>No head images uploaded</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Expressions Gallery */}
+                  <div className="bg-gray-50 rounded-lg border border-gray-200 p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-lg font-medium text-gray-900">Expressions</h4>
+                      <label className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer text-sm">
+                        <Upload className="w-4 h-4 inline mr-2" />
+                        Upload
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleAIRefImageUpload(file, 'expressions');
+                          }}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                      {(aiRefImages.expressions || []).map((url, index) => (
+                        <div key={index} className="relative group bg-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                          <img
+                            src={url}
+                            alt={`Expression ${index + 1}`}
+                            className="w-full h-48 object-contain cursor-pointer hover:opacity-90"
+                            onClick={() => setSelectedImage({ url, alt: `Expression ${index + 1}` })}
+                          />
+                          <button
+                            onClick={() => handleRemoveAIRefImage('expressions', index)}
+                            className="absolute top-2 right-2 p-1 bg-red-600 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                      {Array.from(uploadingAIRefImages.entries())
+                        .filter(([_, data]) => data.category === 'expressions')
+                        .map(([uploadId, data]) => (
+                          <div key={uploadId} className="relative bg-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                            <img
+                              src={URL.createObjectURL(data.file)}
+                              alt="Uploading..."
+                              className="w-full h-48 object-contain opacity-50"
+                            />
+                            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black bg-opacity-30">
+                              <RefreshCw className="w-6 h-6 text-white animate-spin mb-2" />
+                              <div className="w-full px-2">
+                                <div className="bg-gray-700 rounded-full h-2">
+                                  <div
+                                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                    style={{ width: `${data.progress}%` }}
+                                  />
+                                </div>
+                                <p className="text-white text-xs mt-1 text-center">{data.progress}%</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      {(!aiRefImages.expressions || aiRefImages.expressions.length === 0) && 
+                       Array.from(uploadingAIRefImages.values()).filter(d => d.category === 'expressions').length === 0 && (
+                        <div className="col-span-full text-center py-8 text-gray-500">
+                          <ImageIcon className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                          <p>No expression images uploaded</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
         </div>

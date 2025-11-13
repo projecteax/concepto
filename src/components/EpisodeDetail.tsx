@@ -98,15 +98,150 @@ export default function EpisodeDetail({
   // Rich text editor refs (currently unused but kept for future use)
   // const scriptEditorRefs = useRef<{[sceneId: string]: HTMLDivElement | null}>({});
 
-  // Sync local episode with prop
+  // Debounce and change detection for saving episodes
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSavedEpisodeRef = useRef<string>('');
+  const pendingSaveRef = useRef<Episode | null>(null);
+  
+  // Track if we've initialized to prevent unnecessary updates
+  const hasInitializedRef = useRef(false);
+  const lastEpisodeHashRef = useRef<string>('');
+
+  // Sync local episode with prop, but only if it actually changed
   useEffect(() => {
-    setLocalEpisode(episode);
+    // Create a hash of the episode data (excluding dates that change frequently)
+    const episodeHash = JSON.stringify({
+      id: episode.id,
+      title: episode.title,
+      description: episode.description,
+      episodeNumber: episode.episodeNumber,
+      characters: episode.characters,
+      locations: episode.locations,
+      scenes: episode.scenes?.map(s => ({
+        id: s.id,
+        sceneNumber: s.sceneNumber,
+        title: s.title,
+        description: s.description,
+        actionDescription: s.actionDescription,
+        script: s.script,
+        locationName: s.locationName,
+        characters: s.characters,
+        sceneCharacters: s.sceneCharacters,
+        gadgets: s.gadgets,
+        shots: s.shots,
+      })),
+      avScript: episode.avScript,
+      screenplayData: episode.screenplayData,
+    });
+
+    // Only update if the episode actually changed (not just a new object reference)
+    if (hasInitializedRef.current && lastEpisodeHashRef.current === episodeHash) {
+      return;
+    }
+
+    // Update local episode only if data actually changed
+    if (!hasInitializedRef.current || lastEpisodeHashRef.current !== episodeHash) {
+      setLocalEpisode(episode);
+      lastEpisodeHashRef.current = episodeHash;
+      hasInitializedRef.current = true;
+      // Reset pending save if the episode changed from external source
+      pendingSaveRef.current = null;
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+    }
   }, [episode]);
 
   const updateEpisodeAndSave = (updatedEpisode: Episode) => {
+    // Update local state immediately for UI responsiveness
     setLocalEpisode(updatedEpisode);
-    onSave?.(updatedEpisode);
+
+    // Create a hash of the episode data (excluding updatedAt and dates that change frequently)
+    const episodeHash = JSON.stringify({
+      id: updatedEpisode.id,
+      title: updatedEpisode.title,
+      description: updatedEpisode.description,
+      episodeNumber: updatedEpisode.episodeNumber,
+      characters: updatedEpisode.characters,
+      locations: updatedEpisode.locations,
+      scenes: updatedEpisode.scenes?.map(s => ({
+        id: s.id,
+        sceneNumber: s.sceneNumber,
+        title: s.title,
+        description: s.description,
+        actionDescription: s.actionDescription,
+        script: s.script,
+        locationName: s.locationName,
+        characters: s.characters,
+        sceneCharacters: s.sceneCharacters,
+        gadgets: s.gadgets,
+        shots: s.shots,
+      })),
+      avScript: updatedEpisode.avScript,
+      screenplayData: updatedEpisode.screenplayData,
+    });
+
+    // Skip if nothing has changed
+    if (lastSavedEpisodeRef.current === episodeHash) {
+      return;
+    }
+
+    // Store pending save
+    pendingSaveRef.current = updatedEpisode;
+
+    // Clear any existing timeout
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    // Debounce: Wait 2 seconds before saving
+    saveTimeoutRef.current = setTimeout(() => {
+      const episodeToSave = pendingSaveRef.current;
+      if (episodeToSave) {
+        // Re-check hash before saving (in case it changed during debounce)
+        const finalHash = JSON.stringify({
+          id: episodeToSave.id,
+          title: episodeToSave.title,
+          description: episodeToSave.description,
+          episodeNumber: episodeToSave.episodeNumber,
+          characters: episodeToSave.characters,
+          locations: episodeToSave.locations,
+          scenes: episodeToSave.scenes?.map(s => ({
+            id: s.id,
+            sceneNumber: s.sceneNumber,
+            title: s.title,
+            description: s.description,
+            actionDescription: s.actionDescription,
+            script: s.script,
+            locationName: s.locationName,
+            characters: s.characters,
+            sceneCharacters: s.sceneCharacters,
+            gadgets: s.gadgets,
+            shots: s.shots,
+          })),
+          avScript: episodeToSave.avScript,
+          screenplayData: episodeToSave.screenplayData,
+        });
+
+        // Only save if still different from last saved
+        if (lastSavedEpisodeRef.current !== finalHash) {
+          lastSavedEpisodeRef.current = finalHash;
+          onSave?.(episodeToSave);
+        }
+        pendingSaveRef.current = null;
+      }
+    }, 2000); // 2 second debounce
   };
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Inline editing handlers
   const handleSaveTitle = () => {
@@ -1159,6 +1294,9 @@ export default function EpisodeDetail({
                 setLocalEpisode(prev => ({ ...prev, avScript }));
                 onSave?.({ ...localEpisode, avScript });
               }}
+              globalAssets={globalAssets}
+              screenplayData={localEpisode.screenplayData}
+              showId={show.id}
             />
           </div>
         )}
@@ -1279,6 +1417,7 @@ export default function EpisodeDetail({
                             value={char.role || ''}
                             onClick={(e) => e.stopPropagation()}
                             onChange={(e) => {
+                              // Update local state immediately for UI responsiveness
                               const updatedEpisode: Episode = {
                                 ...localEpisode,
                                 characters: (localEpisode.characters || []).map(c => 
@@ -1287,7 +1426,20 @@ export default function EpisodeDetail({
                                     : c
                                 ),
                               };
+                              setLocalEpisode(updatedEpisode);
+                              // Debounced save will handle the actual save
                               updateEpisodeAndSave(updatedEpisode);
+                            }}
+                            onBlur={() => {
+                              // Force save on blur if there's a pending save
+                              if (pendingSaveRef.current) {
+                                if (saveTimeoutRef.current) {
+                                  clearTimeout(saveTimeoutRef.current);
+                                }
+                                const episodeToSave = pendingSaveRef.current;
+                                pendingSaveRef.current = null;
+                                onSave?.(episodeToSave);
+                              }
                             }}
                             placeholder="Character role..."
                             className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-transparent"
@@ -1353,6 +1505,7 @@ export default function EpisodeDetail({
                         <textarea
                           value={loc.description || ''}
                           onChange={(e) => {
+                            // Update local state immediately for UI responsiveness
                             const updatedEpisode: Episode = {
                               ...localEpisode,
                               locations: (localEpisode.locations || []).map(l => 
@@ -1361,7 +1514,20 @@ export default function EpisodeDetail({
                                   : l
                               ),
                             };
+                            setLocalEpisode(updatedEpisode);
+                            // Debounced save will handle the actual save
                             updateEpisodeAndSave(updatedEpisode);
+                          }}
+                          onBlur={() => {
+                            // Force save on blur if there's a pending save
+                            if (pendingSaveRef.current) {
+                              if (saveTimeoutRef.current) {
+                                clearTimeout(saveTimeoutRef.current);
+                              }
+                              const episodeToSave = pendingSaveRef.current;
+                              pendingSaveRef.current = null;
+                              onSave?.(episodeToSave);
+                            }
                           }}
                           placeholder="Location description..."
                           className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-transparent resize-none"

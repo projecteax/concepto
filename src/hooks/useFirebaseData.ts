@@ -162,9 +162,28 @@ export function useFirebaseData() {
   const updateEpisode = async (id: string, updates: Partial<Episode>) => {
     try {
       await episodeService.update(id, updates);
-      setEpisodes(prev => prev.map(episode => 
-        episode.id === id ? { ...episode, ...updates, updatedAt: new Date() } : episode
-      ));
+      // Update episodes array without causing unnecessary re-renders
+      // Only update if the episode actually changed
+      setEpisodes(prev => {
+        const existingEpisode = prev.find(e => e.id === id);
+        if (!existingEpisode) return prev;
+        
+        // Check if anything actually changed
+        const hasChanges = Object.keys(updates).some(key => {
+          const oldValue = (existingEpisode as any)[key];
+          const newValue = (updates as any)[key];
+          return JSON.stringify(oldValue) !== JSON.stringify(newValue);
+        });
+        
+        if (!hasChanges) {
+          return prev; // No changes, return same array reference
+        }
+        
+        // Update the episode
+        return prev.map(episode => 
+          episode.id === id ? { ...episode, ...updates, updatedAt: new Date() } : episode
+        );
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update episode');
       throw err;
@@ -280,28 +299,97 @@ export function useFirebaseData() {
     }
   };
 
-  // Load data for specific show
-  const loadShowData = async (showId: string) => {
-    try {
-      setLoading(true);
-      const [assetsData, episodesData, ideasData, generalIdeasData] = await Promise.all([
-        globalAssetService.getByShow(showId),
-        episodeService.getByShow(showId),
-        episodeIdeaService.getByShow(showId),
-        generalIdeaService.getByShow(showId),
-      ]);
+  // Track which show's data has been loaded to prevent redundant loads
+  const loadedShowIdRef = useRef<string | null>(null);
+  const isLoadingShowDataRef = useRef(false);
+  const lastLoadTimeRef = useRef<number>(0);
+  const loadPromiseRef = useRef<Promise<void> | null>(null);
+  const episodesRef = useRef<Episode[]>([]);
+
+  // Keep episodesRef in sync with episodes state
+  useEffect(() => {
+    episodesRef.current = episodes;
+  }, [episodes]);
+
+  // Load data for specific show - memoized to prevent infinite loops
+  const loadShowData = useCallback(async (showId: string, forceReload = false) => {
+    // STRICT: Don't load more than once per 30 seconds for the same show (increased from 10s)
+    const now = Date.now();
+    const timeSinceLastLoad = now - lastLoadTimeRef.current;
+    
+    if (!forceReload && loadedShowIdRef.current === showId) {
+      // If we loaded this show recently, skip
+      if (timeSinceLastLoad < 30000) {
+        console.log(`⏭️ Skipping loadShowData - loaded ${Math.round(timeSinceLastLoad / 1000)}s ago (throttle: 30s)`);
+        return;
+      }
       
-      setGlobalAssets(assetsData);
-      setEpisodes(episodesData);
-      setEpisodeIdeas(ideasData);
-      setGeneralIdeas(generalIdeasData);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load show data');
-      console.error('Error loading show data:', err);
-    } finally {
-      setLoading(false);
+      // If we have data for this show, don't reload
+      if (episodesRef.current.length > 0 && episodesRef.current.some(e => e.showId === showId)) {
+        console.log('⏭️ Skipping loadShowData - data already exists for this show');
+        // Update the last load time to prevent repeated checks
+        lastLoadTimeRef.current = now;
+        return;
+      }
     }
-  };
+
+    // Skip if we're already loading this show's data
+    if (isLoadingShowDataRef.current) {
+      if (loadedShowIdRef.current === showId) {
+        console.log('⏭️ Skipping loadShowData - already loading');
+        // Return the existing promise if it exists
+        if (loadPromiseRef.current) {
+          return loadPromiseRef.current;
+        }
+        return;
+      }
+      console.log('⏭️ Skipping loadShowData - loading different show');
+      return;
+    }
+
+    // Create a promise that we can return if called multiple times
+    const loadPromise = (async () => {
+      try {
+        isLoadingShowDataRef.current = true;
+        lastLoadTimeRef.current = Date.now();
+        console.log('🔄 Loading show data for:', showId);
+        
+        // Don't set loading to true if we already have data (prevents UI flicker)
+        if (loadedShowIdRef.current === null) {
+          setLoading(true);
+        }
+        
+        const [assetsData, episodesData, ideasData, generalIdeasData] = await Promise.all([
+          globalAssetService.getByShow(showId),
+          episodeService.getByShow(showId),
+          episodeIdeaService.getByShow(showId),
+          generalIdeaService.getByShow(showId),
+        ]);
+        
+        // Update state - we've already checked that we should load this showId
+        setGlobalAssets(assetsData);
+        setEpisodes(episodesData);
+        setEpisodeIdeas(ideasData);
+        setGeneralIdeas(generalIdeasData);
+        loadedShowIdRef.current = showId;
+        console.log('✅ Loaded show data for:', showId);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load show data');
+        console.error('❌ Error loading show data:', err);
+        // Reset loadedShowIdRef on error so we can retry
+        if (loadedShowIdRef.current === showId) {
+          loadedShowIdRef.current = null;
+        }
+      } finally {
+        isLoadingShowDataRef.current = false;
+        loadPromiseRef.current = null;
+        setLoading(false);
+      }
+    })();
+
+    loadPromiseRef.current = loadPromise;
+    return loadPromise;
+  }, []);
 
   return {
     // Data

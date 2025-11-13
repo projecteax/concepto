@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { GlobalAsset, AssetConcept } from '@/types';
+import { GlobalAsset, AssetConcept, AIRefImages } from '@/types';
 import { 
   ArrowLeft, 
   Wrench, 
@@ -11,7 +11,9 @@ import {
   Save,
   X,
   Image as ImageIcon,
-  Settings
+  Settings,
+  Sparkles,
+  RefreshCw
 } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
 
@@ -28,7 +30,7 @@ export function GadgetDetail({
   onSave,
   onDeleteConcept
 }: GadgetDetailProps) {
-  const [activeTab, setActiveTab] = useState<'general' | 'concepts' | 'production'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'concepts' | 'production' | 'ai-ref'>('general');
   const [isEditing, setIsEditing] = useState(false);
   
   // Form states
@@ -53,6 +55,12 @@ export function GadgetDetail({
   const [galleryImages, setGalleryImages] = useState<string[]>(gadget.galleryImages || []);
   const [mainRender, setMainRender] = useState<string>(gadget.mainRender || '');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  
+  // AI Reference Images state
+  const [aiRefImages, setAiRefImages] = useState<AIRefImages>(gadget.aiRefImages || {});
+  
+  // AI Ref upload progress tracking
+  const [uploadingAIRefImages, setUploadingAIRefImages] = useState<Map<string, { progress: number; category: 'fullGadget' | 'multipleAnglesGadget'; file: File }>>(new Map());
   
   // Concept gallery states
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'relevance' | 'name'>('newest');
@@ -82,6 +90,15 @@ export function GadgetDetail({
     }
   }, [gadget.id]); // Only run when gadget changes
 
+  // Update AI ref images state when gadget data changes
+  useEffect(() => {
+    if (gadget.aiRefImages) {
+      setAiRefImages(gadget.aiRefImages);
+    } else {
+      setAiRefImages({});
+    }
+  }, [gadget.aiRefImages]);
+
   const handleSave = () => {
     const updatedGadget: GlobalAsset = {
       ...gadget,
@@ -89,6 +106,7 @@ export function GadgetDetail({
       description: description.trim() || undefined,
       galleryImages: galleryImages,
       mainRender: mainRender,
+      aiRefImages,
     };
     onSave(updatedGadget);
     setIsEditing(false);
@@ -222,6 +240,87 @@ export function GadgetDetail({
     }
   };
 
+  // AI Ref Image upload handlers
+  const handleAIRefImageUpload = async (file: File, category: 'fullGadget' | 'multipleAnglesGadget') => {
+    const uploadId = `${category}-${Date.now()}-${Math.random()}`;
+    const previewUrl = URL.createObjectURL(file);
+    
+    setUploadingAIRefImages(prev => new Map(prev).set(uploadId, { progress: 0, category, file }));
+    
+    try {
+      const extension = file.name.split('.').pop() || 'jpg';
+      const categoryName = category === 'fullGadget' ? 'full_gadget' : 'multiple_angles';
+      const customFileName = `${name}_${categoryName}`;
+      
+      const progressInterval = setInterval(() => {
+        setUploadingAIRefImages(prev => {
+          const current = prev.get(uploadId);
+          if (current && current.progress < 90) {
+            const newMap = new Map(prev);
+            newMap.set(uploadId, { ...current, progress: current.progress + 10 });
+            return newMap;
+          }
+          return prev;
+        });
+      }, 200);
+      
+      const result = await uploadFile(file, `gadgets/${gadget.id}/ai-ref`, customFileName);
+      
+      clearInterval(progressInterval);
+      
+      setUploadingAIRefImages(prev => {
+        const newMap = new Map(prev);
+        const current = newMap.get(uploadId);
+        if (current) {
+          newMap.set(uploadId, { ...current, progress: 100 });
+        }
+        return newMap;
+      });
+      
+      if (result && result.url) {
+        // Update state immediately
+        const updatedAiRefImages = {
+          ...aiRefImages,
+          [category]: [...(aiRefImages[category] || []), result.url]
+        };
+        setAiRefImages(updatedAiRefImages);
+        
+        // Save to database immediately
+        const updatedGadget: GlobalAsset = {
+          ...gadget,
+          aiRefImages: updatedAiRefImages,
+        };
+        onSave(updatedGadget);
+        
+        // Small delay to show 100% progress before removing
+        setTimeout(() => {
+          setUploadingAIRefImages(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(uploadId);
+            return newMap;
+          });
+          URL.revokeObjectURL(previewUrl);
+        }, 300);
+      }
+    } catch (error) {
+      clearInterval(progressInterval);
+      console.error('Failed to upload AI ref image:', error);
+      setUploadingAIRefImages(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(uploadId);
+        return newMap;
+      });
+      URL.revokeObjectURL(previewUrl);
+    }
+  };
+
+  const handleRemoveAIRefImage = (category: 'fullGadget' | 'multipleAnglesGadget', index: number) => {
+    setAiRefImages(prev => ({
+      ...prev,
+      [category]: (prev[category] || []).filter((_, i) => i !== index)
+    }));
+  };
+
   const handleUpdateConcept = async (conceptId: string, updates: { name?: string; description?: string; relevanceScale?: number }) => {
     try {
       const updatedConcepts = (gadget.concepts || []).map(concept => 
@@ -324,10 +423,11 @@ export function GadgetDetail({
               { id: 'general', label: 'General', icon: Wrench },
               { id: 'concepts', label: 'Concepts', icon: ImageIcon },
               { id: 'production', label: 'Production', icon: Settings },
+              { id: 'ai-ref', label: 'AI ref', icon: Sparkles },
             ].map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as 'general' | 'concepts' | 'production')}
+                onClick={() => setActiveTab(tab.id as 'general' | 'concepts' | 'production' | 'ai-ref')}
                 className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm ${
                   activeTab === tab.id
                     ? 'border-indigo-500 text-indigo-600'
@@ -840,6 +940,149 @@ export function GadgetDetail({
                     placeholder="Sound effects and audio requirements..."
                   />
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'ai-ref' && (
+          <div className="space-y-6">
+            <h3 className="text-xl font-semibold text-gray-900">AI Reference Gallery</h3>
+            <p className="text-sm text-gray-600">Upload reference images organized by category for AI generation tools.</p>
+            
+            {/* Full Gadget Gallery */}
+            <div className="bg-gray-50 rounded-lg border border-gray-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="text-lg font-medium text-gray-900">Full Gadget</h4>
+                <label className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer text-sm">
+                  <Upload className="w-4 h-4 inline mr-2" />
+                  Upload
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleAIRefImageUpload(file, 'fullGadget');
+                    }}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {(aiRefImages.fullGadget || []).map((url, index) => (
+                  <div key={index} className="relative group bg-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                    <img
+                      src={url}
+                      alt={`Full gadget ${index + 1}`}
+                      className="w-full h-48 object-contain cursor-pointer hover:opacity-90"
+                      onClick={() => setSelectedImage({ url, alt: `Full gadget ${index + 1}` })}
+                    />
+                    <button
+                      onClick={() => handleRemoveAIRefImage('fullGadget', index)}
+                      className="absolute top-2 right-2 p-1 bg-red-600 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                {Array.from(uploadingAIRefImages.entries())
+                  .filter(([_, data]) => data.category === 'fullGadget')
+                  .map(([uploadId, data]) => (
+                    <div key={uploadId} className="relative bg-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                      <img
+                        src={URL.createObjectURL(data.file)}
+                        alt="Uploading..."
+                        className="w-full h-48 object-contain opacity-50"
+                      />
+                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-black bg-opacity-30">
+                        <RefreshCw className="w-6 h-6 text-white animate-spin mb-2" />
+                        <div className="w-full px-2">
+                          <div className="bg-gray-700 rounded-full h-2">
+                            <div
+                              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                              style={{ width: `${data.progress}%` }}
+                            />
+                          </div>
+                          <p className="text-white text-xs mt-1 text-center">{data.progress}%</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                {(!aiRefImages.fullGadget || aiRefImages.fullGadget.length === 0) && 
+                 Array.from(uploadingAIRefImages.values()).filter(d => d.category === 'fullGadget').length === 0 && (
+                  <div className="col-span-full text-center py-8 text-gray-500">
+                    <ImageIcon className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                    <p>No full gadget images uploaded</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Multiple Angles Gallery */}
+            <div className="bg-gray-50 rounded-lg border border-gray-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="text-lg font-medium text-gray-900">Multiple Angles</h4>
+                <label className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer text-sm">
+                  <Upload className="w-4 h-4 inline mr-2" />
+                  Upload
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleAIRefImageUpload(file, 'multipleAnglesGadget');
+                    }}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {(aiRefImages.multipleAnglesGadget || []).map((url, index) => (
+                  <div key={index} className="relative group bg-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                    <img
+                      src={url}
+                      alt={`Multiple angles ${index + 1}`}
+                      className="w-full h-48 object-contain cursor-pointer hover:opacity-90"
+                      onClick={() => setSelectedImage({ url, alt: `Multiple angles ${index + 1}` })}
+                    />
+                    <button
+                      onClick={() => handleRemoveAIRefImage('multipleAnglesGadget', index)}
+                      className="absolute top-2 right-2 p-1 bg-red-600 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                {Array.from(uploadingAIRefImages.entries())
+                  .filter(([_, data]) => data.category === 'multipleAnglesGadget')
+                  .map(([uploadId, data]) => (
+                    <div key={uploadId} className="relative bg-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                      <img
+                        src={URL.createObjectURL(data.file)}
+                        alt="Uploading..."
+                        className="w-full h-48 object-contain opacity-50"
+                      />
+                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-black bg-opacity-30">
+                        <RefreshCw className="w-6 h-6 text-white animate-spin mb-2" />
+                        <div className="w-full px-2">
+                          <div className="bg-gray-700 rounded-full h-2">
+                            <div
+                              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                              style={{ width: `${data.progress}%` }}
+                            />
+                          </div>
+                          <p className="text-white text-xs mt-1 text-center">{data.progress}%</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                {(!aiRefImages.multipleAnglesGadget || aiRefImages.multipleAnglesGadget.length === 0) && 
+                 Array.from(uploadingAIRefImages.values()).filter(d => d.category === 'multipleAnglesGadget').length === 0 && (
+                  <div className="col-span-full text-center py-8 text-gray-500">
+                    <ImageIcon className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                    <p>No multiple angles images uploaded</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>

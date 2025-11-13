@@ -10,7 +10,7 @@ export interface UploadState {
 
 export interface UseS3UploadReturn {
   uploadState: UploadState;
-  uploadFile: (file: File, prefix: string) => Promise<UploadResult | null>;
+  uploadFile: (file: File, prefix: string, customFileName?: string) => Promise<UploadResult | null>;
   resetUpload: () => void;
 }
 
@@ -22,7 +22,7 @@ export function useS3Upload(): UseS3UploadReturn {
     result: null,
   });
 
-  const uploadFile = useCallback(async (file: File, prefix: string): Promise<UploadResult | null> => {
+  const uploadFile = useCallback(async (file: File, prefix: string, customFileName?: string): Promise<UploadResult | null> => {
     // Reset state
     setUploadState({
       isUploading: true,
@@ -46,8 +46,8 @@ export function useS3Upload(): UseS3UploadReturn {
         throw new Error(validation.error);
       }
 
-      // Generate unique key
-      const key = generateFileKey(prefix, file.name);
+      // Generate unique key with optional custom filename
+      const key = generateFileKey(prefix, file.name, customFileName);
 
       // Upload to S3
       const result = await uploadToS3(file, key);
