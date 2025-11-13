@@ -608,9 +608,9 @@ export function ImageGenerationDialog({
           imageUrl,
           createdAt: new Date(),
         }]);
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to generate image. Please try again.';
         console.error('Error generating image:', error);
-        const errorMessage = error.message || 'Failed to generate image. Please try again.';
         alert(errorMessage);
       } finally {
         setIsGenerating(false);
@@ -698,9 +698,9 @@ export function ImageGenerationDialog({
           imageUrl,
           createdAt: new Date(),
         }]);
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to generate image. Please try again.';
         console.error('Error generating image:', error);
-        const errorMessage = error.message || 'Failed to generate image. Please try again.';
         alert(errorMessage);
       } finally {
         setIsGenerating(false);

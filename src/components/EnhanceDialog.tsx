@@ -122,9 +122,9 @@ export function EnhanceDialog({
         // Update thread with new alternatives (this will be saved when inserting)
         return newAlternatives;
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error generating enhancement:', error);
-      const errorMessage = error.message || 'Failed to generate enhancement. Please try again.';
+      const errorMessage = error instanceof Error ? error.message : 'Failed to generate enhancement. Please try again.';
       alert(errorMessage);
       
       // Add error message - use unique ID with random component

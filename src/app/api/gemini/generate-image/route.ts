@@ -8,7 +8,18 @@ const genAI = new GoogleGenAI({
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = await request.json() as {
+      prompt?: string;
+      style?: string;
+      locationDescription?: string;
+      visualDescription?: string;
+      characters?: Array<{ images?: string[] }>;
+      locations?: Array<{ images?: string[] }>;
+      gadgets?: Array<{ images?: string[] }>;
+      sketchImage?: string;
+      previousImage?: string;
+      episodeId?: string;
+    };
     const {
       prompt,
       style,
@@ -20,7 +31,6 @@ export async function POST(request: NextRequest) {
       sketchImage,
       previousImage,
       episodeId,
-      showId,
     } = body;
 
     // Build the prompt with style instructions
@@ -51,7 +61,7 @@ export async function POST(request: NextRequest) {
 
     // Prepare parts for the API call - using the same format as existing gemini.ts
     // Order: text prompt, location images (environment), character images, gadget images, sketch, previous image
-    const parts: any[] = [];
+    const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
     
     // Add text prompt first
     parts.push({ text: fullPrompt });
@@ -193,17 +203,19 @@ export async function POST(request: NextRequest) {
         model: "gemini-2.5-flash-image-preview",
         contents: contents,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       // If image-preview model doesn't work, try regular flash
-      console.log('Image preview model failed, trying regular flash:', error.message);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.log('Image preview model failed, trying regular flash:', errorMessage);
       try {
         response = await genAI.models.generateContent({
           model: "gemini-2.5-flash",
           contents: contents,
         });
-      } catch (fallbackError: any) {
+      } catch (fallbackError: unknown) {
+        const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : 'Unknown error';
         console.error('Both models failed:', fallbackError);
-        throw new Error(`Image generation failed: ${fallbackError.message || 'Unknown error'}`);
+        throw new Error(`Image generation failed: ${fallbackMessage}`);
       }
     }
 
@@ -211,10 +223,10 @@ export async function POST(request: NextRequest) {
     let imageData: { data: string; mimeType?: string } | null = null;
     
     for (const part of response.candidates?.[0]?.content?.parts || []) {
-      if (part.inlineData) {
+      if (part.inlineData && part.inlineData.data) {
         imageData = {
           data: part.inlineData.data,
-          mimeType: part.inlineData.mimeType,
+          mimeType: part.inlineData.mimeType || 'image/png',
         };
         break;
       }
@@ -262,17 +274,19 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error generating image:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
     console.error('Error details:', {
-      message: error.message,
-      stack: error.stack,
-      name: error.name,
+      message: errorMessage,
+      stack: errorStack,
+      name: error instanceof Error ? error.name : 'Error',
     });
     return NextResponse.json(
       { 
-        error: error.message || 'Failed to generate image',
-        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        error: errorMessage,
+        details: process.env.NODE_ENV === 'development' ? errorStack : undefined
       },
       { status: 500 }
     );

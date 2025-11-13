@@ -170,8 +170,8 @@ export function useFirebaseData() {
         
         // Check if anything actually changed
         const hasChanges = Object.keys(updates).some(key => {
-          const oldValue = (existingEpisode as any)[key];
-          const newValue = (updates as any)[key];
+          const oldValue = (existingEpisode as unknown as Record<string, unknown>)[key];
+          const newValue = (updates as unknown as Record<string, unknown>)[key];
           return JSON.stringify(oldValue) !== JSON.stringify(newValue);
         });
         

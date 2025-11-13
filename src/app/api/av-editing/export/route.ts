@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import JSZip from 'jszip';
 
 // Helper to convert seconds to FCP timecode format (HH:MM:SS:FF)
+// Currently unused but kept for potential future use
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function secondsToTimecode(seconds: number, fps: number = 25): string {
   const totalFrames = Math.floor(seconds * fps);
   const hours = Math.floor(totalFrames / (fps * 3600));

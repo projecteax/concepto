@@ -102,10 +102,11 @@ ALTERNATIVE 3:
       alternatives: finalAlternatives,
       success: true,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error in enhance API:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
     return NextResponse.json(
-      { error: error.message || 'Internal server error' },
+      { error: errorMessage },
       { status: 500 }
     );
   }

@@ -134,16 +134,16 @@ export function TranslationDialog({
           content: `Translation completed${chunksInfo}! Review the text above and click "Insert Text" to apply it.`,
           createdAt: new Date(),
         }]);
-      } catch (error: any) {
+      } catch (error: unknown) {
         clearTimeout(timeoutId);
-        if (error.name === 'AbortError') {
+        if (error instanceof Error && error.name === 'AbortError') {
           throw new Error('Translation request timed out. The screenplay is very long. Please try again or contact support.');
         }
         throw error;
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to generate translation. Please try again.';
       console.error('Error generating translation:', error);
-      const errorMessage = error.message || 'Failed to generate translation. Please try again.';
       alert(errorMessage);
       
       // Add error message

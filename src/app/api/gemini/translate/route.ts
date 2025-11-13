@@ -96,19 +96,20 @@ async function translateChunk(
     }
 
     return translatedText.trim();
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error(`Error translating chunk ${chunkNumber}:`, error);
-    throw new Error(`Failed to translate chunk ${chunkNumber}: ${error.message}`);
+    throw new Error(`Failed to translate chunk ${chunkNumber}: ${errorMessage}`);
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
     // Parse request body with error handling
-    let body;
+    let body: { prompt?: string; polishText?: string; screenplayTitle?: string };
     try {
-      body = await request.json();
-    } catch (parseError: any) {
+      body = await request.json() as { prompt?: string; polishText?: string; screenplayTitle?: string };
+    } catch (parseError: unknown) {
       console.error('Error parsing request body:', parseError);
       return NextResponse.json(
         { error: 'Invalid request body. The screenplay may be too large. Try splitting it into smaller parts.' },
@@ -208,9 +209,10 @@ export async function POST(request: NextRequest) {
         if (i < chunks.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 500));
         }
-      } catch (chunkError: any) {
+      } catch (chunkError: unknown) {
+        const errorMessage = chunkError instanceof Error ? chunkError.message : 'Unknown error';
         console.error(`Error in chunk ${i + 1}:`, chunkError);
-        throw new Error(`Failed to translate chunk ${i + 1} of ${chunks.length}: ${chunkError.message}`);
+        throw new Error(`Failed to translate chunk ${i + 1} of ${chunks.length}: ${errorMessage}`);
       }
     }
     
@@ -225,17 +227,19 @@ export async function POST(request: NextRequest) {
       chunksProcessed: chunks.length,
       totalChunks: chunks.length,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
     console.error('Error translating text:', error);
     console.error('Error details:', {
-      message: error.message,
-      stack: error.stack,
-      name: error.name,
+      message: errorMessage,
+      stack: errorStack,
+      name: error instanceof Error ? error.name : 'Error',
     });
     return NextResponse.json(
       { 
-        error: error.message || 'Failed to translate text',
-        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        error: errorMessage,
+        details: process.env.NODE_ENV === 'development' ? errorStack : undefined
       },
       { status: 500 }
     );

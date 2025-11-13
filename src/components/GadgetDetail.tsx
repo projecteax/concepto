@@ -247,12 +247,12 @@ export function GadgetDetail({
     
     setUploadingAIRefImages(prev => new Map(prev).set(uploadId, { progress: 0, category, file }));
     
-    try {
-      const extension = file.name.split('.').pop() || 'jpg';
-      const categoryName = category === 'fullGadget' ? 'full_gadget' : 'multiple_angles';
-      const customFileName = `${name}_${categoryName}`;
-      
-      const progressInterval = setInterval(() => {
+    const extension = file.name.split('.').pop() || 'jpg';
+    const categoryName = category === 'fullGadget' ? 'full_gadget' : 'multiple_angles';
+    const customFileName = `${name}_${categoryName}`;
+    
+    let progressInterval: NodeJS.Timeout | null = null;
+    progressInterval = setInterval(() => {
         setUploadingAIRefImages(prev => {
           const current = prev.get(uploadId);
           if (current && current.progress < 90) {
@@ -262,11 +262,14 @@ export function GadgetDetail({
           }
           return prev;
         });
-      }, 200);
-      
+    }, 200);
+    
+    try {
       const result = await uploadFile(file, `gadgets/${gadget.id}/ai-ref`, customFileName);
       
-      clearInterval(progressInterval);
+      if (progressInterval) {
+        clearInterval(progressInterval);
+      }
       
       setUploadingAIRefImages(prev => {
         const newMap = new Map(prev);

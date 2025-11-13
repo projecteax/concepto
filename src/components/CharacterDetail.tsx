@@ -727,30 +727,33 @@ export function CharacterDetail({
     // Add to uploading state with 0 progress
     setUploadingAIRefImages(prev => new Map(prev).set(uploadId, { progress: 0, category, file }));
     
+    // Generate structured filename
+    const extension = file.name.split('.').pop() || 'jpg';
+    const categoryName = category === 'fullBody' ? 'full_body' : 
+                        category === 'multipleAngles' ? 'multiple_angles' :
+                        category === 'head' ? 'head' : 'expressions';
+    const customFileName = `${name}_${categoryName}`;
+    
+    // Simulate progress updates
+    let progressInterval: NodeJS.Timeout | null = null;
+    progressInterval = setInterval(() => {
+      setUploadingAIRefImages(prev => {
+        const current = prev.get(uploadId);
+        if (current && current.progress < 90) {
+          const newMap = new Map(prev);
+          newMap.set(uploadId, { ...current, progress: current.progress + 10 });
+          return newMap;
+        }
+        return prev;
+      });
+    }, 200);
+    
     try {
-      // Generate structured filename
-      const extension = file.name.split('.').pop() || 'jpg';
-      const categoryName = category === 'fullBody' ? 'full_body' : 
-                          category === 'multipleAngles' ? 'multiple_angles' :
-                          category === 'head' ? 'head' : 'expressions';
-      const customFileName = `${name}_${categoryName}`;
-      
-      // Simulate progress updates
-      const progressInterval = setInterval(() => {
-        setUploadingAIRefImages(prev => {
-          const current = prev.get(uploadId);
-          if (current && current.progress < 90) {
-            const newMap = new Map(prev);
-            newMap.set(uploadId, { ...current, progress: current.progress + 10 });
-            return newMap;
-          }
-          return prev;
-        });
-      }, 200);
-      
       const result = await uploadFile(file, `characters/${character.id}/ai-ref`, customFileName);
       
-      clearInterval(progressInterval);
+      if (progressInterval) {
+        clearInterval(progressInterval);
+      }
       
       // Set to 100% before removing
       setUploadingAIRefImages(prev => {
@@ -788,7 +791,9 @@ export function CharacterDetail({
         }, 300);
       }
     } catch (error) {
-      clearInterval(progressInterval);
+      if (progressInterval) {
+        clearInterval(progressInterval);
+      }
       console.error('Failed to upload AI ref image:', error);
       setUploadingAIRefImages(prev => {
         const newMap = new Map(prev);

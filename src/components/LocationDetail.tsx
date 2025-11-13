@@ -275,11 +275,12 @@ export function LocationDetail({
     
     setUploadingAIRefImages(prev => new Map(prev).set(uploadId, { progress: 0, category, file }));
     
+    let progressInterval: NodeJS.Timeout | undefined;
     try {
       const extension = file.name.split('.').pop() || 'jpg';
       const customFileName = `${name}_${category}`;
       
-      const progressInterval = setInterval(() => {
+      progressInterval = setInterval(() => {
         setUploadingAIRefImages(prev => {
           const current = prev.get(uploadId);
           if (current && current.progress < 90) {
@@ -293,7 +294,9 @@ export function LocationDetail({
       
       const result = await uploadFile(file, `locations/${location.id}/ai-ref`, customFileName);
       
-      clearInterval(progressInterval);
+      if (progressInterval) {
+        clearInterval(progressInterval);
+      }
       
       setUploadingAIRefImages(prev => {
         const newMap = new Map(prev);
@@ -330,7 +333,9 @@ export function LocationDetail({
         }, 300);
       }
     } catch (error) {
-      clearInterval(progressInterval);
+      if (progressInterval) {
+        clearInterval(progressInterval);
+      }
       console.error('Failed to upload AI ref image:', error);
       setUploadingAIRefImages(prev => {
         const newMap = new Map(prev);

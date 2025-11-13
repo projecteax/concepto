@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = await request.json();
+    const body = await request.json() as { text?: string; voiceId?: string };
     const { 
       text, 
       voiceId
@@ -28,7 +28,16 @@ export async function POST(request: NextRequest) {
     // Build request body for v3
     // v3 uses simplified voice_settings with only stability (0.0, 0.5, or 1.0)
     // 0.0 = Creative, 0.5 = Natural, 1.0 = Robust
-    const requestBody: any = {
+    const requestBody: {
+      text: string;
+      model_id?: string;
+      voice_settings?: {
+        stability?: number;
+        similarity_boost?: number;
+        style?: number;
+        use_speaker_boost?: boolean;
+      };
+    } = {
       text,
       model_id: 'eleven_v3', // Using v3 (alpha) - highest quality with tag support
       voice_settings: {
@@ -69,7 +78,7 @@ export async function POST(request: NextRequest) {
       audioBase64: base64Audio,
       mimeType: 'audio/mpeg',
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error generating audio:', error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },

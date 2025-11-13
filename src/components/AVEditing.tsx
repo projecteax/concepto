@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { AVScript, AVEditingSlide, AVEditingAudioTrack, AVEditingData, AVSegment, AVShot } from '@/types';
+import { AVScript, AVEditingSlide, AVEditingAudioTrack, AVEditingData, AVSegment, AVShot, AVShotAudioFile } from '@/types';
 import { 
   Play, 
   Pause, 
@@ -295,11 +295,11 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
           }, 2000);
           return;
         }
-      } catch (error) {
+      } catch (error: unknown) {
         console.error('❌ Error saving AV editing data:', error);
         setSaveStatus('error');
         // If it's a resource-exhausted error, wait much longer before retrying
-        if (error instanceof Error && (error.message.includes('resource-exhausted') || (error as any).code === 'resource-exhausted')) {
+        if (error instanceof Error && (error.message.includes('resource-exhausted') || (error as { code?: string }).code === 'resource-exhausted')) {
           console.warn('⚠️ Firestore write exhausted, waiting 15 seconds before retry...');
           saveQueueRef.current = data;
           setTimeout(() => {
@@ -648,9 +648,9 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
           error.message.includes('resource-exhausted') || 
           error.message.includes('quota') ||
           error.message.includes('quota-exceeded') ||
-          (error as any).code === 'resource-exhausted' ||
-          (error as any).code === 'quota-exceeded' ||
-          (error as any).code === 8 // Resource exhausted error code
+          (error as { code?: string | number }).code === 'resource-exhausted' ||
+          (error as { code?: string | number }).code === 'quota-exceeded' ||
+          (error as { code?: string | number }).code === 8 // Resource exhausted error code
         );
         
         if (isQuotaError) {
@@ -952,7 +952,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
     // Build a map of all audio files that should exist in AV editing (from AV script)
     // Key: `${shotId}-${audioFile.id}` to uniquely identify each audio file
     const expectedAudioTracks = new Map<string, {
-      audioFile: any;
+      audioFile: AVShotAudioFile;
       shotId: string;
       slideStartTime: number;
       voiceName: string;
@@ -1262,7 +1262,8 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
       // A track should be kept if it matches an expected track by shotId + audioUrl
       const expectedTrackKeys = new Set<string>();
       const expectedShotIds = new Set<string>(); // Track which shotIds still exist in AV script
-      expectedAudioTracks.forEach(({ audioFile, shotId }) => {
+      expectedAudioTracks.forEach((entry) => {
+        const { audioFile, shotId } = entry;
         // Add both key formats for matching
         expectedTrackKeys.add(`${shotId}-${audioFile.id}`);
         expectedTrackKeys.add(`${shotId}-${audioFile.audioUrl}`);
@@ -1914,7 +1915,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
         // Add error handler
         audio.addEventListener('error', (e) => {
           // Safely extract error information
-          let errorInfo: any = null;
+          let errorInfo: { code?: number; message?: string; event?: string; target?: EventTarget | null } | null = null;
           if (audio.error) {
             errorInfo = {};
             if (audio.error.code !== undefined) {
@@ -2011,7 +2012,6 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
     let animationFrameId: number;
     let lastFrameTimestamp = typeof window !== 'undefined' ? performance.now() / 1000 : 0; // Timestamp of last frame
     let currentPlaybackTime = currentTimeRef.current; // Current timeline position
-    let syncCounter = 0;
     let isActive = true;
     
     const updateTime = () => {
@@ -2334,7 +2334,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
   const handlePlay = async () => {
     // CRITICAL: Initialize audio context if it doesn't exist
     if (!audioContextRef.current && typeof window !== 'undefined') {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (AudioContextClass) {
         audioContextRef.current = new AudioContextClass();
         console.log('✅ Audio context created');
