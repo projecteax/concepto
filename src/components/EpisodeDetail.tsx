@@ -177,9 +177,10 @@ export default function EpisodeDetail({
         shots: s.shots?.map(sh => ({
           id: sh.id,
           shotNumber: sh.shotNumber,
+          title: sh.title,
           description: sh.description,
-          shotType: sh.shotType,
-          imageUrl: sh.imageUrl,
+          featuredImage: sh.featuredImage,
+          cameraShot: sh.cameraShot,
           storyboards: sh.storyboards?.map(sb => sb.imageUrl),
           inspirationImages: sh.inspirationImages,
         })),
