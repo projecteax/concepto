@@ -303,7 +303,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
         setTimeout(() => {
           preventSyncRef.current = false;
           console.log('✅ Sync protection disabled after save');
-        }, 10000); // Prevent sync for 10 seconds after save
+        }, 3000); // Prevent sync for 3 seconds after save (reduced from 10s to allow new content faster)
         
         console.log('✅ Saved AV editing data to Firebase');
         
@@ -650,13 +650,14 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
             editingDataRef.current = processedData;
             
             // Mark initialization as complete after a short delay
+            // CRITICAL: Use shorter delay to prevent flickering/old state showing
             setTimeout(() => {
               isInitializingRef.current = false;
               // Update last saved data hash to prevent false "unchanged" detection
               const sortedLoadedSlides = [...processedData.slides].sort((a, b) => a.order - b.order);
               lastSavedDataRef.current = JSON.stringify({
-                slides: sortedLoadedSlides.map(s => ({ id: s.id, startTime: s.startTime, duration: s.duration, order: s.order, shotId: s.shotId })),
-                audioTracks: processedData.audioTracks.map(t => ({ id: t.id, startTime: t.startTime, duration: t.duration })),
+                slides: sortedLoadedSlides.map(s => ({ id: s.id, startTime: s.startTime, duration: s.duration, order: s.order, shotId: s.shotId, isManuallyEdited: s.isManuallyEdited })),
+                audioTracks: processedData.audioTracks.map(t => ({ id: t.id, startTime: t.startTime, duration: t.duration, isManuallyEdited: t.isManuallyEdited })),
               });
               console.log('✅ Initialization complete, autosave enabled - sync will run after initialization');
               // CRITICAL: Force sync to run after initialization by clearing the previous hash
@@ -667,7 +668,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
               // CRITICAL: Trigger sync by updating state
               setFirebaseLoadComplete(true);
               console.log('🔄 Cleared AV script hash and sync cooldown - sync will run after initialization');
-            }, 2000); // Increased to 2 seconds to ensure state is fully updated
+            }, 100); // Reduced to 100ms to prevent old state showing
           } else {
             // Data is invalid or needs sync
             if (processedData.slides && processedData.slides.length > 0) {
@@ -3649,8 +3650,10 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
     }
     
     // Check if data has actually changed since last save
+    // Sort slides by order to ensure consistent hashing
+    const sortedSlides = [...slides].sort((a, b) => a.order - b.order);
     const currentDataHash = JSON.stringify({
-      slides: slides.map(s => ({ 
+      slides: sortedSlides.map(s => ({ 
         id: s.id, 
         startTime: s.startTime, 
         duration: s.duration, 
@@ -3678,7 +3681,8 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
       clearTimeout(autosaveDebounceRef.current);
     }
     
-    // Schedule autosave with 3-second debounce (was 90 seconds)
+    // Schedule autosave with 1.5-second debounce (was 90 seconds, then 3 seconds)
+    // Reduced to catch changes faster before navigation
     autosaveDebounceRef.current = setTimeout(() => {
       console.log('💾 Auto-saving changes...');
       const totalDuration = Math.max(
@@ -3698,7 +3702,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
       saveEditingData(updatedData, false).catch(err => {
         console.error('❌ Error auto-saving:', err);
       });
-    }, 3000); // 3 seconds debounce - quick enough to catch changes before navigation
+    }, 1500); // 1.5 seconds debounce - quick enough to catch changes before navigation
     
     return () => {
       if (autosaveDebounceRef.current) {
@@ -3706,6 +3710,72 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
       }
     };
   }, [slides, audioTracks, episodeId, saveEditingData]);
+
+  // CRITICAL: Save immediately before unmounting to prevent data loss on navigation
+  useEffect(() => {
+    // Return cleanup function that runs when component unmounts
+    return () => {
+      console.log('🚪 Component unmounting - saving any pending changes immediately');
+      
+      // Clear any pending autosave to prevent duplicate saves
+      if (autosaveDebounceRef.current) {
+        clearTimeout(autosaveDebounceRef.current);
+        autosaveDebounceRef.current = null;
+      }
+      
+      // Save immediately if there are unsaved changes
+      const currentSlides = slidesRef.current;
+      const currentAudioTracks = audioTracksRef.current;
+      const currentEditingData = editingDataRef.current;
+      
+      if (currentEditingData && (currentSlides.length > 0 || currentAudioTracks.length > 0)) {
+        const sortedSlides = [...currentSlides].sort((a, b) => a.order - b.order);
+        const currentDataHash = JSON.stringify({
+          slides: sortedSlides.map(s => ({ 
+            id: s.id, 
+            startTime: s.startTime, 
+            duration: s.duration, 
+            order: s.order, 
+            shotId: s.shotId,
+            isManuallyEdited: s.isManuallyEdited,
+          })),
+          audioTracks: currentAudioTracks.map(t => ({ 
+            id: t.id, 
+            startTime: t.startTime, 
+            duration: t.duration,
+            isManuallyEdited: t.isManuallyEdited,
+          })),
+        });
+        
+        // Only save if data has changed
+        if (currentDataHash !== lastSavedDataRef.current) {
+          console.log('💾 Saving changes before unmount...');
+          const totalDuration = Math.max(
+            ...(currentSlides.length > 0 ? currentSlides.map(s => s.startTime + s.duration) : [0]),
+            ...(currentAudioTracks.length > 0 ? currentAudioTracks.map(t => t.startTime + t.duration) : [0]),
+            0
+          );
+          const updatedData: AVEditingData = {
+            id: currentEditingData.id,
+            episodeId,
+            slides: currentSlides,
+            audioTracks: currentAudioTracks,
+            totalDuration,
+            createdAt: currentEditingData.createdAt,
+            updatedAt: new Date(),
+          };
+          
+          // Save immediately (synchronous Firestore call)
+          // Note: This might not complete if page is already unloading, but it's better than nothing
+          saveEditingData(updatedData, true).catch(err => {
+            console.error('❌ Error saving on unmount:', err);
+          });
+        } else {
+          console.log('✅ No unsaved changes on unmount');
+        }
+      }
+    };
+  }, [episodeId, saveEditingData]); // Only re-create cleanup when episodeId changes
 
   // Format time as MM:SS:FF (minutes:seconds:frames) at 24 fps
   const formatTime = (seconds: number): string => {
