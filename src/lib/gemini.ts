@@ -14,13 +14,12 @@ export async function generateConceptImage(request: GenerationRequest): Promise<
     const response = await genAI.models.generateContent({
       model: "gemini-2.5-flash-image-preview",
       contents: enhancedPrompt,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       config: {
         responseModalities: ["IMAGE"],
         imageConfig: {
           aspectRatio: "16:9",
         },
-      } as any, // Type assertion needed as SDK types may not be fully updated
+      } as unknown, // Type assertion needed as SDK types may not be fully updated
     });
 
     // Extract image data from response
