@@ -377,6 +377,84 @@ export const episodeService = {
         datesConverted: dateMap.size,
       });
       
+      // Debug: Check what types are in avScript
+      if (finalUpdates.avScript) {
+        const checkTypes = (obj: unknown, path = '', depth = 0): void => {
+          if (depth > 25) {
+            console.warn(`Max depth exceeded at ${path}`);
+            return;
+          }
+          
+          if (obj === null || obj === undefined) return;
+          
+          const objType = typeof obj;
+          const constructor = obj?.constructor?.name || 'unknown';
+          
+          // Log non-primitive types
+          if (objType === 'object') {
+            if (obj instanceof Date) {
+              console.error(`❌ Found Date at ${path}`);
+            } else if (obj instanceof Timestamp) {
+              // OK
+            } else if (Array.isArray(obj)) {
+              if (obj.length > 100) {
+                console.warn(`Large array (${obj.length} items) at ${path}`);
+              }
+              obj.forEach((item, idx) => {
+                if (idx < 5) { // Only check first 5 items
+                  checkTypes(item, `${path}[${idx}]`, depth + 1);
+                }
+              });
+            } else {
+              // Check if it's a plain object
+              if (constructor !== 'Object') {
+                console.warn(`Non-plain object (${constructor}) at ${path}`);
+              }
+              
+              const entries = Object.entries(obj);
+              if (entries.length > 50) {
+                console.warn(`Large object (${entries.length} keys) at ${path}`);
+              }
+              
+              for (const [key, value] of entries) {
+                checkTypes(value, path ? `${path}.${key}` : key, depth + 1);
+              }
+            }
+          }
+        };
+        
+        console.log('🔍 Checking avScript structure for problematic types...');
+        checkTypes(finalUpdates.avScript, 'avScript');
+      }
+      
+      // Try saving with just the non-avScript fields first to isolate the issue
+      if (finalUpdates.avScript && Object.keys(finalUpdates).length > 2) {
+        console.log('⚠️ Attempting to save without avScript first...');
+        const withoutAvScript = { ...finalUpdates };
+        delete withoutAvScript.avScript;
+        
+        try {
+          await updateDoc(doc(db, 'episodes', id), withoutAvScript);
+          console.log('✅ Save without avScript succeeded');
+        } catch (err) {
+          console.error('❌ Save without avScript also failed:', err);
+        }
+        
+        // Now try just avScript
+        console.log('⚠️ Now attempting to save ONLY avScript...');
+        try {
+          await updateDoc(doc(db, 'episodes', id), {
+            avScript: finalUpdates.avScript,
+            updatedAt: Timestamp.now(),
+          });
+          console.log('✅ Save with ONLY avScript succeeded!');
+          return; // Success!
+        } catch (err) {
+          console.error('❌ Save with ONLY avScript failed:', err);
+          throw err;
+        }
+      }
+      
       await updateDoc(doc(db, 'episodes', id), finalUpdates);
       
       console.log('Episode update saved successfully');
