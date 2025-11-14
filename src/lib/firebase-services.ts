@@ -298,30 +298,121 @@ export const episodeService = {
   },
 
   async update(id: string, updates: Partial<Episode>): Promise<void> {
-    // Recursively filter out undefined values to prevent Firebase errors
-    const cleanUpdates = (obj: unknown): unknown => {
+    // NEW APPROACH: Use JSON serialization with custom handling for Date objects and Timestamps
+    // This is more reliable than recursive traversal
+    
+    const convertDatesToTimestamps = (obj: unknown): unknown => {
       if (obj === null || obj === undefined) return obj;
-      if (Array.isArray(obj)) {
-        return obj.map(cleanUpdates).filter(item => item !== undefined);
+      
+      // Check for Date objects
+      if (obj instanceof Date) {
+        return Timestamp.fromDate(obj);
       }
-      if (typeof obj === 'object' && obj !== null) {
-        const cleaned: Record<string, unknown> = {};
+      
+      // Check if it's already a Timestamp
+      if (obj instanceof Timestamp) {
+        return obj;
+      }
+      
+      // Handle arrays
+      if (Array.isArray(obj)) {
+        return obj.map(item => convertDatesToTimestamps(item));
+      }
+      
+      // Handle objects
+      if (typeof obj === 'object') {
+        // Check for Timestamp-like objects (with toDate method)
+        if ('toDate' in obj && typeof (obj as {toDate: unknown}).toDate === 'function') {
+          return obj; // Already a Timestamp
+        }
+        
+        const result: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(obj)) {
           if (value !== undefined) {
-            cleaned[key] = cleanUpdates(value);
+            result[key] = convertDatesToTimestamps(value);
           }
         }
-        return cleaned;
+        return result;
       }
+      
       return obj;
     };
     
-    const cleanedUpdates = cleanUpdates(updates);
-    
-    await updateDoc(doc(db, 'episodes', id), {
-      ...(cleanedUpdates as Record<string, unknown>),
-      updatedAt: Timestamp.now(),
-    });
+    try {
+      console.log('Converting episode updates for Firebase...');
+      
+      // Convert all Date objects to Timestamps
+      const cleanedUpdates = convertDatesToTimestamps(updates) as Record<string, unknown>;
+      
+      // Remove any undefined values
+      const finalUpdates: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(cleanedUpdates)) {
+        if (value !== undefined) {
+          finalUpdates[key] = value;
+        }
+      }
+      
+      // Add updatedAt
+      finalUpdates.updatedAt = Timestamp.now();
+      
+      console.log('Saving episode update to Firebase...', { 
+        episodeId: id, 
+        hasAvScript: !!(updates as {avScript?: unknown}).avScript,
+        updateKeys: Object.keys(finalUpdates),
+      });
+      
+      // Final verification: Check for any remaining Date objects
+      const findRemainingDates = (obj: unknown, path = ''): string[] => {
+        const dates: string[] = [];
+        if (obj instanceof Date) {
+          dates.push(path || 'root');
+        } else if (Array.isArray(obj)) {
+          obj.forEach((item, index) => {
+            dates.push(...findRemainingDates(item, `${path}[${index}]`));
+          });
+        } else if (obj && typeof obj === 'object' && !(obj instanceof Timestamp)) {
+          for (const [key, value] of Object.entries(obj)) {
+            dates.push(...findRemainingDates(value, path ? `${path}.${key}` : key));
+          }
+        }
+        return dates;
+      };
+      
+      const remainingDates = findRemainingDates(finalUpdates, 'updates');
+      if (remainingDates.length > 0) {
+        console.error('CRITICAL: Still found Date objects after conversion at paths:', remainingDates);
+        // Force convert them one more time
+        const forceConvert = (obj: unknown): unknown => {
+          if (obj instanceof Date) return Timestamp.fromDate(obj);
+          if (Array.isArray(obj)) return obj.map(forceConvert);
+          if (obj && typeof obj === 'object' && !(obj instanceof Timestamp)) {
+            const result: Record<string, unknown> = {};
+            for (const [key, value] of Object.entries(obj)) {
+              result[key] = forceConvert(value);
+            }
+            return result;
+          }
+          return obj;
+        };
+        
+        for (const key of Object.keys(finalUpdates)) {
+          finalUpdates[key] = forceConvert(finalUpdates[key]);
+        }
+        
+        console.log('Forced conversion of remaining Date objects');
+      }
+      
+      await updateDoc(doc(db, 'episodes', id), finalUpdates);
+      
+      console.log('Episode update saved successfully');
+    } catch (error) {
+      console.error('Error updating episode:', error);
+      if (error instanceof Error) {
+        console.error('Error message:', error.message);
+        console.error('Error stack:', error.stack);
+      }
+      throw error;
+    }
     
     // Invalidate cache for episodes (we don't know showId here, so clear all episode caches)
     // This is safe because updates are infrequent

@@ -442,9 +442,22 @@ export function ConceptoApp({
 
   const handleEditEpisode = async (episode: Episode) => {
     try {
-      await updateEpisode(episode.id, episode);
+      // Only send the changed fields, not the entire episode object
+      // This prevents issues with nested entities
+      const updates: Partial<Episode> = {
+        avScript: episode.avScript,
+        screenplayData: episode.screenplayData,
+        title: episode.title,
+        description: episode.description,
+        episodeNumber: episode.episodeNumber,
+        characters: episode.characters,
+        locations: episode.locations,
+        scenes: episode.scenes,
+      };
+      await updateEpisode(episode.id, updates);
     } catch (error) {
       console.error('Failed to update episode:', error);
+      throw error; // Re-throw to show error to user
     }
   };
 

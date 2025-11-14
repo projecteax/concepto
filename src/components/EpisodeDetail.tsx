@@ -153,7 +153,7 @@ export default function EpisodeDetail({
     }
   }, [episode]);
 
-  const updateEpisodeAndSave = (updatedEpisode: Episode) => {
+  const updateEpisodeAndSave = async (updatedEpisode: Episode) => {
     // Update local state immediately for UI responsiveness
     setLocalEpisode(updatedEpisode);
 
@@ -1290,9 +1290,45 @@ export default function EpisodeDetail({
             <AVScriptEditor
               episodeId={episode.id}
               avScript={localEpisode.avScript}
-              onSave={(avScript) => {
-                setLocalEpisode(prev => ({ ...prev, avScript }));
-                onSave?.({ ...localEpisode, avScript });
+              onSave={async (avScript) => {
+                const updatedEpisode = { ...localEpisode, avScript };
+                setLocalEpisode(updatedEpisode);
+                try {
+                  // Save immediately (bypass debounce for critical saves like images)
+                  console.log('Saving AV script immediately...');
+                  await onSave?.(updatedEpisode);
+                  console.log('AV script saved successfully');
+                  
+                  // Update the hash to prevent duplicate saves
+                  const episodeHash = JSON.stringify({
+                    id: updatedEpisode.id,
+                    title: updatedEpisode.title,
+                    description: updatedEpisode.description,
+                    episodeNumber: updatedEpisode.episodeNumber,
+                    characters: updatedEpisode.characters,
+                    locations: updatedEpisode.locations,
+                    scenes: updatedEpisode.scenes?.map(s => ({
+                      id: s.id,
+                      sceneNumber: s.sceneNumber,
+                      title: s.title,
+                      description: s.description,
+                      actionDescription: s.actionDescription,
+                      script: s.script,
+                      locationName: s.locationName,
+                      characters: s.characters,
+                      sceneCharacters: s.sceneCharacters,
+                      gadgets: s.gadgets,
+                      shots: s.shots,
+                    })),
+                    avScript: updatedEpisode.avScript,
+                    screenplayData: updatedEpisode.screenplayData,
+                  });
+                  lastSavedEpisodeRef.current = episodeHash;
+                } catch (error) {
+                  console.error('Error saving AV script:', error);
+                  const errorMessage = error instanceof Error ? error.message : 'Failed to save AV script';
+                  alert(`Failed to save AV script: ${errorMessage}. Please check the console for details.`);
+                }
               }}
               globalAssets={globalAssets}
               screenplayData={localEpisode.screenplayData}

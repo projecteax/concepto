@@ -12,7 +12,8 @@ import {
   Loader2,
   Image as ImageIcon,
   Edit3,
-  Check
+  Check,
+  Upload
 } from 'lucide-react';
 import { GlobalAsset, Character, AVShotImageGenerationThread } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -75,6 +76,7 @@ export function ImageGenerationDialog({
     images: Array<{ type: string; name: string; url: string }>;
   } | null>(null);
   const canvasRef = useRef<ReactSketchCanvasRef>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [strokeColor, setStrokeColor] = useState('#000000');
   const [strokeWidth, setStrokeWidth] = useState(2);
 
@@ -458,6 +460,79 @@ export function ImageGenerationDialog({
       canvasRef.current.clearCanvas();
     }
   };
+
+  const handleUploadImage = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const imageData = e.target?.result as string;
+      if (imageData) {
+        setSketchImage(imageData);
+        setShowDrawingCanvas(false);
+      }
+    };
+    reader.onerror = () => {
+      alert('Failed to read image file');
+    };
+    reader.readAsDataURL(file);
+    
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handlePasteImage = async (event: ClipboardEvent) => {
+    // Only handle paste when dialog is open
+    if (!isOpen) return;
+
+    const items = event.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.indexOf('image') !== -1) {
+        event.preventDefault();
+        const blob = item.getAsFile();
+        if (blob) {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const imageData = e.target?.result as string;
+            if (imageData) {
+              // Set as sketch image
+              setSketchImage(imageData);
+              // If canvas is open, close it since we're using the uploaded/pasted image
+              if (showDrawingCanvas) {
+                setShowDrawingCanvas(false);
+              }
+            }
+          };
+          reader.onerror = () => {
+            alert('Failed to paste image');
+          };
+          reader.readAsDataURL(blob);
+        }
+        break;
+      }
+    }
+  };
+
+  // Add paste event listener
+  useEffect(() => {
+    if (isOpen) {
+      window.addEventListener('paste', handlePasteImage as EventListener);
+      return () => {
+        window.removeEventListener('paste', handlePasteImage as EventListener);
+      };
+    }
+  }, [isOpen, showDrawingCanvas]);
 
   // Collect all images that will be sent
   const collectPreviewImages = () => {
@@ -927,6 +1002,20 @@ export function ImageGenerationDialog({
               >
                 <Pencil className="w-5 h-5" />
               </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="p-2 bg-white border rounded hover:bg-gray-100"
+                title="Upload Sketch Image"
+              >
+                <Upload className="w-5 h-5" />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleUploadImage}
+                className="hidden"
+              />
             </div>
 
             {/* Style Selection */}
@@ -1020,6 +1109,14 @@ export function ImageGenerationDialog({
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold">Draw Shot Sketch (16:9)</h3>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 text-sm"
+                  title="Upload Image (or press Ctrl+V to paste)"
+                >
+                  <Upload className="w-4 h-4 inline mr-1" />
+                  Upload
+                </button>
                 <div className="flex items-center gap-2">
                   <input
                     type="color"

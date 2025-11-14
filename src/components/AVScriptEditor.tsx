@@ -1129,9 +1129,20 @@ export function AVScriptEditor({
                       }
                     : seg
                 ),
+                updatedAt: new Date(),
               };
               setScript(updatedScript);
-              // Don't save immediately - let autosave handle it
+              
+              // Save immediately to ensure image is persisted
+              try {
+                console.log('Saving image to AV script:', { imageUrl, shotId: shot.id });
+                await onSave(updatedScript);
+                setLastSavedAt(Date.now());
+                console.log('Image saved successfully');
+              } catch (error) {
+                console.error('Error saving image:', error);
+                alert('Failed to save image. Please try again.');
+              }
             }
           }}
           visualDescription={(() => {
