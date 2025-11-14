@@ -202,12 +202,13 @@ export async function POST(request: NextRequest) {
       response = await genAI.models.generateContent({
         model: "gemini-2.5-flash-image-preview",
         contents: contents,
+        // @ts-expect-error - imageConfig not yet in SDK types but supported by API
         config: {
           responseModalities: ["IMAGE"],
           imageConfig: {
             aspectRatio: "16:9",
           },
-        } as unknown, // Type assertion needed as SDK types may not be fully updated
+        },
       });
     } catch (error: unknown) {
       // If image-preview model doesn't work, try regular flash
@@ -217,12 +218,13 @@ export async function POST(request: NextRequest) {
         response = await genAI.models.generateContent({
           model: "gemini-2.5-flash",
           contents: contents,
+          // @ts-expect-error - imageConfig not yet in SDK types but supported by API
           config: {
             responseModalities: ["IMAGE"],
             imageConfig: {
               aspectRatio: "16:9",
             },
-          } as unknown, // Type assertion needed as SDK types may not be fully updated
+          },
         });
       } catch (fallbackError: unknown) {
         const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : 'Unknown error';
