@@ -298,53 +298,68 @@ export const episodeService = {
   },
 
   async update(id: string, updates: Partial<Episode>): Promise<void> {
-    // NEW APPROACH: Use JSON serialization with custom handling for Date objects and Timestamps
-    // This is more reliable than recursive traversal
-    
-    const convertDatesToTimestamps = (obj: unknown): unknown => {
-      if (obj === null || obj === undefined) return obj;
-      
-      // Check for Date objects
-      if (obj instanceof Date) {
-        return Timestamp.fromDate(obj);
-      }
-      
-      // Check if it's already a Timestamp
-      if (obj instanceof Timestamp) {
-        return obj;
-      }
-      
-      // Handle arrays
-      if (Array.isArray(obj)) {
-        return obj.map(item => convertDatesToTimestamps(item));
-      }
-      
-      // Handle objects
-      if (typeof obj === 'object') {
-        // Check for Timestamp-like objects (with toDate method)
-        if ('toDate' in obj && typeof (obj as {toDate: unknown}).toDate === 'function') {
-          return obj; // Already a Timestamp
-        }
-        
-        const result: Record<string, unknown> = {};
-        for (const [key, value] of Object.entries(obj)) {
-          if (value !== undefined) {
-            result[key] = convertDatesToTimestamps(value);
-          }
-        }
-        return result;
-      }
-      
-      return obj;
-    };
+    // NUCLEAR OPTION: Serialize to JSON, then reconstruct with Timestamp conversion
+    // This ensures we get plain objects that Firestore can handle
     
     try {
       console.log('Converting episode updates for Firebase...');
       
-      // Convert all Date objects to Timestamps
-      const cleanedUpdates = convertDatesToTimestamps(updates) as Record<string, unknown>;
+      // Step 1: Convert to JSON string (this strips out Date objects, functions, etc.)
+      // Use a custom replacer to track Date objects
+      const dateMap = new Map<string, Date>();
+      let pathCounter = 0;
       
-      // Remove any undefined values
+      const jsonString = JSON.stringify(updates, function(key, value) {
+        // Track the path for Date objects
+        if (value instanceof Date) {
+          const path = `__DATE_${pathCounter++}__`;
+          dateMap.set(path, value);
+          return { __isDate: true, __path: path };
+        }
+        // Skip undefined, functions, symbols
+        if (value === undefined || typeof value === 'function' || typeof value === 'symbol') {
+          return undefined;
+        }
+        return value;
+      });
+      
+      // Step 2: Parse back to object
+      const parsed = JSON.parse(jsonString);
+      
+      // Step 3: Convert Date markers to Timestamps
+      const convertDates = (obj: unknown): unknown => {
+        if (obj === null || obj === undefined) return obj;
+        
+        if (Array.isArray(obj)) {
+          return obj.map(item => convertDates(item));
+        }
+        
+        if (typeof obj === 'object') {
+          // Check if this is a Date marker
+          const objAny = obj as {__isDate?: boolean; __path?: string};
+          if (objAny.__isDate && objAny.__path) {
+            const originalDate = dateMap.get(objAny.__path);
+            if (originalDate) {
+              return Timestamp.fromDate(originalDate);
+            }
+          }
+          
+          // Process all properties
+          const result: Record<string, unknown> = {};
+          for (const [key, value] of Object.entries(obj)) {
+            if (value !== undefined) {
+              result[key] = convertDates(value);
+            }
+          }
+          return result;
+        }
+        
+        return obj;
+      };
+      
+      const cleanedUpdates = convertDates(parsed) as Record<string, unknown>;
+      
+      // Step 4: Remove any remaining undefined values
       const finalUpdates: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(cleanedUpdates)) {
         if (value !== undefined) {
@@ -357,50 +372,10 @@ export const episodeService = {
       
       console.log('Saving episode update to Firebase...', { 
         episodeId: id, 
-        hasAvScript: !!(updates as {avScript?: unknown}).avScript,
+        hasAvScript: !!finalUpdates.avScript,
         updateKeys: Object.keys(finalUpdates),
+        datesConverted: dateMap.size,
       });
-      
-      // Final verification: Check for any remaining Date objects
-      const findRemainingDates = (obj: unknown, path = ''): string[] => {
-        const dates: string[] = [];
-        if (obj instanceof Date) {
-          dates.push(path || 'root');
-        } else if (Array.isArray(obj)) {
-          obj.forEach((item, index) => {
-            dates.push(...findRemainingDates(item, `${path}[${index}]`));
-          });
-        } else if (obj && typeof obj === 'object' && !(obj instanceof Timestamp)) {
-          for (const [key, value] of Object.entries(obj)) {
-            dates.push(...findRemainingDates(value, path ? `${path}.${key}` : key));
-          }
-        }
-        return dates;
-      };
-      
-      const remainingDates = findRemainingDates(finalUpdates, 'updates');
-      if (remainingDates.length > 0) {
-        console.error('CRITICAL: Still found Date objects after conversion at paths:', remainingDates);
-        // Force convert them one more time
-        const forceConvert = (obj: unknown): unknown => {
-          if (obj instanceof Date) return Timestamp.fromDate(obj);
-          if (Array.isArray(obj)) return obj.map(forceConvert);
-          if (obj && typeof obj === 'object' && !(obj instanceof Timestamp)) {
-            const result: Record<string, unknown> = {};
-            for (const [key, value] of Object.entries(obj)) {
-              result[key] = forceConvert(value);
-            }
-            return result;
-          }
-          return obj;
-        };
-        
-        for (const key of Object.keys(finalUpdates)) {
-          finalUpdates[key] = forceConvert(finalUpdates[key]);
-        }
-        
-        console.log('Forced conversion of remaining Date objects');
-      }
       
       await updateDoc(doc(db, 'episodes', id), finalUpdates);
       
