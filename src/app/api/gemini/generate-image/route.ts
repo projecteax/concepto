@@ -199,34 +199,36 @@ export async function POST(request: NextRequest) {
       : parts;
     
     try {
+      // Type assertion to bypass SDK type limitations for imageConfig
+      const configWithImageConfig = {
+        responseModalities: ["IMAGE"],
+        imageConfig: {
+          aspectRatio: "16:9",
+        },
+      } as never;
+      
       response = await genAI.models.generateContent({
         model: "gemini-2.5-flash-image-preview",
         contents: contents,
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore - imageConfig not yet in SDK types but supported by API
-        config: {
-          responseModalities: ["IMAGE"],
-          imageConfig: {
-            aspectRatio: "16:9",
-          },
-        },
+        config: configWithImageConfig,
       });
     } catch (error: unknown) {
       // If image-preview model doesn't work, try regular flash
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       console.log('Image preview model failed, trying regular flash:', errorMessage);
       try {
+        // Type assertion to bypass SDK type limitations for imageConfig
+        const configWithImageConfig = {
+          responseModalities: ["IMAGE"],
+          imageConfig: {
+            aspectRatio: "16:9",
+          },
+        } as never;
+        
         response = await genAI.models.generateContent({
           model: "gemini-2.5-flash",
           contents: contents,
-          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-          // @ts-ignore - imageConfig not yet in SDK types but supported by API
-          config: {
-            responseModalities: ["IMAGE"],
-            imageConfig: {
-              aspectRatio: "16:9",
-            },
-          },
+          config: configWithImageConfig,
         });
       } catch (fallbackError: unknown) {
         const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : 'Unknown error';

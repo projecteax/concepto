@@ -153,19 +153,17 @@ export default function EpisodeDetail({
     }
   }, [episode]);
 
-  const updateEpisodeAndSave = async (updatedEpisode: Episode) => {
-    // Update local state immediately for UI responsiveness
-    setLocalEpisode(updatedEpisode);
-
-    // Create a hash of the episode data (excluding updatedAt and dates that change frequently)
-    const episodeHash = JSON.stringify({
-      id: updatedEpisode.id,
-      title: updatedEpisode.title,
-      description: updatedEpisode.description,
-      episodeNumber: updatedEpisode.episodeNumber,
-      characters: updatedEpisode.characters,
-      locations: updatedEpisode.locations,
-      scenes: updatedEpisode.scenes?.map(s => ({
+  // Optimized hash calculation - excludes dates and uses faster method
+  const calculateEpisodeHash = (ep: Episode): string => {
+    // Only hash the essential data, excluding dates and metadata
+    return JSON.stringify({
+      id: ep.id,
+      title: ep.title,
+      description: ep.description,
+      episodeNumber: ep.episodeNumber,
+      characters: ep.characters?.map(c => ({ id: c.id, name: c.name })),
+      locations: ep.locations?.map(l => ({ id: l.id, name: l.name })),
+      scenes: ep.scenes?.map(s => ({
         id: s.id,
         sceneNumber: s.sceneNumber,
         title: s.title,
@@ -174,16 +172,60 @@ export default function EpisodeDetail({
         script: s.script,
         locationName: s.locationName,
         characters: s.characters,
-        sceneCharacters: s.sceneCharacters,
-        gadgets: s.gadgets,
-        shots: s.shots,
+        sceneCharacters: s.sceneCharacters?.map(sc => ({ id: sc.id, name: sc.name })),
+        gadgets: s.gadgets?.map(g => ({ id: g.id, name: g.name })),
+        shots: s.shots?.map(sh => ({
+          id: sh.id,
+          shotNumber: sh.shotNumber,
+          description: sh.description,
+          shotType: sh.shotType,
+          imageUrl: sh.imageUrl,
+          storyboards: sh.storyboards?.map(sb => sb.imageUrl),
+          inspirationImages: sh.inspirationImages,
+        })),
       })),
-      avScript: updatedEpisode.avScript,
-      screenplayData: updatedEpisode.screenplayData,
+      // For avScript and screenplayData, only hash essential fields to avoid expensive serialization
+      avScript: ep.avScript ? {
+        segments: ep.avScript.segments?.map(seg => ({
+          id: seg.id,
+          segmentNumber: seg.segmentNumber,
+          title: seg.title,
+          shots: seg.shots?.map(shot => ({
+            id: shot.id,
+            shotNumber: shot.shotNumber,
+            uniqueName: shot.uniqueName,
+            audio: shot.audio,
+            visual: shot.visual,
+            time: shot.time,
+            imageUrl: shot.imageUrl,
+          })),
+        })),
+      } : null,
+      screenplayData: ep.screenplayData ? {
+        elements: ep.screenplayData.elements?.length,
+        elementsEN: ep.screenplayData.elementsEN?.length,
+      } : null,
     });
+  };
+
+  const updateEpisodeAndSave = async (updatedEpisode: Episode, immediate = false) => {
+    // Update local state immediately for UI responsiveness
+    setLocalEpisode(updatedEpisode);
+
+    // Calculate hash
+    const episodeHash = calculateEpisodeHash(updatedEpisode);
 
     // Skip if nothing has changed
     if (lastSavedEpisodeRef.current === episodeHash) {
+      console.log('Skipping save - no changes detected');
+      return;
+    }
+
+    // If immediate save is requested (e.g., for image generation), save now and update hash
+    if (immediate) {
+      console.log('Saving episode immediately (critical operation)');
+      lastSavedEpisodeRef.current = episodeHash;
+      await onSave?.(updatedEpisode);
       return;
     }
 
@@ -195,43 +237,24 @@ export default function EpisodeDetail({
       clearTimeout(saveTimeoutRef.current);
     }
 
-    // Debounce: Wait 30 seconds before saving (backup save only)
+    // Debounce: Wait 2 minutes before saving (backup save only)
     saveTimeoutRef.current = setTimeout(() => {
       const episodeToSave = pendingSaveRef.current;
       if (episodeToSave) {
         // Re-check hash before saving (in case it changed during debounce)
-        const finalHash = JSON.stringify({
-          id: episodeToSave.id,
-          title: episodeToSave.title,
-          description: episodeToSave.description,
-          episodeNumber: episodeToSave.episodeNumber,
-          characters: episodeToSave.characters,
-          locations: episodeToSave.locations,
-          scenes: episodeToSave.scenes?.map(s => ({
-            id: s.id,
-            sceneNumber: s.sceneNumber,
-            title: s.title,
-            description: s.description,
-            actionDescription: s.actionDescription,
-            script: s.script,
-            locationName: s.locationName,
-            characters: s.characters,
-            sceneCharacters: s.sceneCharacters,
-            gadgets: s.gadgets,
-            shots: s.shots,
-          })),
-          avScript: episodeToSave.avScript,
-          screenplayData: episodeToSave.screenplayData,
-        });
+        const finalHash = calculateEpisodeHash(episodeToSave);
 
         // Only save if still different from last saved
         if (lastSavedEpisodeRef.current !== finalHash) {
           lastSavedEpisodeRef.current = finalHash;
+          console.log('Auto-saving episode (backup save after 2 minutes)');
           onSave?.(episodeToSave);
+        } else {
+          console.log('Skipping save - no changes detected');
         }
         pendingSaveRef.current = null;
       }
-    }, 30000); // 30 seconds - backup save to prevent Firebase quota issues
+    }, 120000); // 2 minutes - backup save to prevent Firebase quota issues
   };
 
   // Cleanup timeout on unmount
@@ -1278,8 +1301,8 @@ export default function EpisodeDetail({
               episodeId={episode.id}
               avScript={localEpisode.avScript}
               onSave={(avScript) => {
-                setLocalEpisode(prev => ({ ...prev, avScript }));
-                onSave?.({ ...localEpisode, avScript });
+                const updatedEpisode = { ...localEpisode, avScript };
+                updateEpisodeAndSave(updatedEpisode, false); // Use debounced save
               }}
             />
           </div>
@@ -1292,43 +1315,8 @@ export default function EpisodeDetail({
               avScript={localEpisode.avScript}
               onSave={async (avScript) => {
                 const updatedEpisode = { ...localEpisode, avScript };
-                setLocalEpisode(updatedEpisode);
-                try {
-                  // Save immediately (bypass debounce for critical saves like images)
-                  console.log('Saving AV script immediately...');
-                  await onSave?.(updatedEpisode);
-                  console.log('AV script saved successfully');
-                  
-                  // Update the hash to prevent duplicate saves
-                  const episodeHash = JSON.stringify({
-                    id: updatedEpisode.id,
-                    title: updatedEpisode.title,
-                    description: updatedEpisode.description,
-                    episodeNumber: updatedEpisode.episodeNumber,
-                    characters: updatedEpisode.characters,
-                    locations: updatedEpisode.locations,
-                    scenes: updatedEpisode.scenes?.map(s => ({
-                      id: s.id,
-                      sceneNumber: s.sceneNumber,
-                      title: s.title,
-                      description: s.description,
-                      actionDescription: s.actionDescription,
-                      script: s.script,
-                      locationName: s.locationName,
-                      characters: s.characters,
-                      sceneCharacters: s.sceneCharacters,
-                      gadgets: s.gadgets,
-                      shots: s.shots,
-                    })),
-                    avScript: updatedEpisode.avScript,
-                    screenplayData: updatedEpisode.screenplayData,
-                  });
-                  lastSavedEpisodeRef.current = episodeHash;
-                } catch (error) {
-                  console.error('Error saving AV script:', error);
-                  const errorMessage = error instanceof Error ? error.message : 'Failed to save AV script';
-                  alert(`Failed to save AV script: ${errorMessage}. Please check the console for details.`);
-                }
+                // Use immediate save for critical operations (like image generation)
+                await updateEpisodeAndSave(updatedEpisode, true);
               }}
               globalAssets={globalAssets}
               screenplayData={localEpisode.screenplayData}
@@ -1469,10 +1457,12 @@ export default function EpisodeDetail({
                             onBlur={() => {
                               // Force save on blur if there's a pending save
                               if (pendingSaveRef.current) {
+                                const episodeToSave = pendingSaveRef.current;
+                                const hash = calculateEpisodeHash(episodeToSave);
+                                lastSavedEpisodeRef.current = hash;
                                 if (saveTimeoutRef.current) {
                                   clearTimeout(saveTimeoutRef.current);
                                 }
-                                const episodeToSave = pendingSaveRef.current;
                                 pendingSaveRef.current = null;
                                 onSave?.(episodeToSave);
                               }
@@ -1557,10 +1547,12 @@ export default function EpisodeDetail({
                           onBlur={() => {
                             // Force save on blur if there's a pending save
                             if (pendingSaveRef.current) {
+                              const episodeToSave = pendingSaveRef.current;
+                              const hash = calculateEpisodeHash(episodeToSave);
+                              lastSavedEpisodeRef.current = hash;
                               if (saveTimeoutRef.current) {
                                 clearTimeout(saveTimeoutRef.current);
                               }
-                              const episodeToSave = pendingSaveRef.current;
                               pendingSaveRef.current = null;
                               onSave?.(episodeToSave);
                             }

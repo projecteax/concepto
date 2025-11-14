@@ -11,17 +11,18 @@ export async function generateConceptImage(request: GenerationRequest): Promise<
     // Enhanced prompt based on category and tags
     const enhancedPrompt = buildEnhancedPrompt(request);
     
+    // Type assertion to bypass SDK type limitations for imageConfig
+    const configWithImageConfig = {
+      responseModalities: ["IMAGE"],
+      imageConfig: {
+        aspectRatio: "16:9",
+      },
+    } as never;
+    
     const response = await genAI.models.generateContent({
       model: "gemini-2.5-flash-image-preview",
       contents: enhancedPrompt,
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore - imageConfig not yet in SDK types but supported by API
-      config: {
-        responseModalities: ["IMAGE"],
-        imageConfig: {
-          aspectRatio: "16:9",
-        },
-      },
+      config: configWithImageConfig,
     });
 
     // Extract image data from response
