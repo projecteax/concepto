@@ -527,12 +527,17 @@ export function ImageGenerationDialog({
   // Add paste event listener
   useEffect(() => {
     if (isOpen) {
-      window.addEventListener('paste', handlePasteImage as EventListener);
+      const pasteHandler = (event: Event) => {
+        if (event instanceof ClipboardEvent) {
+          handlePasteImage(event);
+        }
+      };
+      window.addEventListener('paste', pasteHandler);
       return () => {
-        window.removeEventListener('paste', handlePasteImage as EventListener);
+        window.removeEventListener('paste', pasteHandler);
       };
     }
-  }, [isOpen, showDrawingCanvas]);
+  }, [isOpen, showDrawingCanvas, handlePasteImage]);
 
   // Collect all images that will be sent
   const collectPreviewImages = () => {

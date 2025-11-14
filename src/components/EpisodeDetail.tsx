@@ -194,10 +194,11 @@ export default function EpisodeDetail({
           shots: seg.shots?.map(shot => ({
             id: shot.id,
             shotNumber: shot.shotNumber,
-            uniqueName: shot.uniqueName,
+            take: shot.take,
             audio: shot.audio,
             visual: shot.visual,
-            time: shot.time,
+            duration: shot.duration,
+            runtime: shot.runtime,
             imageUrl: shot.imageUrl,
           })),
         })),
