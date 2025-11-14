@@ -202,6 +202,7 @@ export async function POST(request: NextRequest) {
       response = await genAI.models.generateContent({
         model: "gemini-2.5-flash-image-preview",
         contents: contents,
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         // @ts-ignore - imageConfig not yet in SDK types but supported by API
         config: {
           responseModalities: ["IMAGE"],
@@ -218,6 +219,7 @@ export async function POST(request: NextRequest) {
         response = await genAI.models.generateContent({
           model: "gemini-2.5-flash",
           contents: contents,
+          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
           // @ts-ignore - imageConfig not yet in SDK types but supported by API
           config: {
             responseModalities: ["IMAGE"],
