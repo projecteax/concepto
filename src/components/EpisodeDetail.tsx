@@ -161,8 +161,8 @@ export default function EpisodeDetail({
       title: ep.title,
       description: ep.description,
       episodeNumber: ep.episodeNumber,
-      characters: ep.characters?.map(c => ({ id: c.id, name: c.name })),
-      locations: ep.locations?.map(l => ({ id: l.id, name: l.name })),
+      characters: ep.characters?.map(c => ({ characterId: c.characterId, characterName: c.characterName, type: c.type, role: c.role })),
+      locations: ep.locations?.map(l => ({ locationId: l.locationId, locationName: l.locationName })),
       scenes: ep.scenes?.map(s => ({
         id: s.id,
         sceneNumber: s.sceneNumber,
@@ -172,8 +172,8 @@ export default function EpisodeDetail({
         script: s.script,
         locationName: s.locationName,
         characters: s.characters,
-        sceneCharacters: s.sceneCharacters?.map(sc => ({ id: sc.id, name: sc.name })),
-        gadgets: s.gadgets?.map(g => ({ id: g.id, name: g.name })),
+        sceneCharacters: s.sceneCharacters?.map(sc => ({ characterId: sc.characterId, characterName: sc.characterName, role: sc.role, isPresent: sc.isPresent })),
+        gadgets: s.gadgets?.map(g => ({ gadgetId: g.gadgetId, gadgetName: g.gadgetName })),
         shots: s.shots?.map(sh => ({
           id: sh.id,
           shotNumber: sh.shotNumber,
