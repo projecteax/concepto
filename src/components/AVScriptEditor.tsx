@@ -26,6 +26,8 @@ import { useS3Upload } from '@/hooks/useS3Upload';
 import CommentThread from './CommentThread';
 import { ImageGenerationDialog } from './ImageGenerationDialog';
 import { AVEnhanceDialog } from './AVEnhanceDialog';
+import { AutoPopulateDialog } from './AutoPopulateDialog';
+import { ImportAVDialog } from './ImportAVDialog';
 
 interface AVScriptEditorProps {
   episodeId: string;
@@ -70,6 +72,8 @@ export function AVScriptEditor({
     segmentId: string;
     shotId: string;
   } | null>(null);
+  const [showAutoPopulateDialog, setShowAutoPopulateDialog] = useState(false);
+  const [showImportAVDialog, setShowImportAVDialog] = useState(false);
   const [isAnyPopupOpen, setIsAnyPopupOpen] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -435,6 +439,143 @@ export function AVScriptEditor({
     return `${segmentNumber}.${shotNumber}`;
   };
 
+  // Handle import from CSV
+  const handleImportCSV = async (importedShots: Array<{
+    order: string;
+    take: string;
+    audio: string;
+    visual: string;
+    time: string;
+    segmentNumber: number;
+  }>) => {
+    // Convert imported shots to the same format as generated shots
+    const convertedShots = importedShots.map(shot => ({
+      shotNumber: shot.order,
+      uniqueName: shot.take,
+      visual: shot.visual,
+      audio: shot.audio,
+      time: shot.time,
+      segmentNumber: shot.segmentNumber,
+    }));
+    
+    // Use the same autopopulate logic
+    await handleAutopopulate(convertedShots);
+  };
+
+  // Handle autopopulate from generated shots
+  const handleAutopopulate = async (generatedShots: Array<{
+    shotNumber: string;
+    uniqueName: string;
+    visual: string;
+    audio: string;
+    time: string;
+    segmentNumber: number;
+  }>) => {
+    // Group shots by segment
+    const shotsBySegment = new Map<number, typeof generatedShots>();
+    generatedShots.forEach(shot => {
+      if (!shotsBySegment.has(shot.segmentNumber)) {
+        shotsBySegment.set(shot.segmentNumber, []);
+      }
+      shotsBySegment.get(shot.segmentNumber)!.push(shot);
+    });
+
+    // Update or create segments and shots
+    const updatedSegments = [...script.segments];
+    
+    shotsBySegment.forEach((shots, segmentNum) => {
+      // Find or create segment
+      let segment = updatedSegments.find(s => s.segmentNumber === segmentNum);
+      
+      if (!segment) {
+        // Create new segment
+        segment = {
+          id: `segment-${Date.now()}-${segmentNum}`,
+          episodeId,
+          segmentNumber: segmentNum,
+          title: `Scene ${segmentNum.toString().padStart(2, '0')}`,
+          shots: [],
+          totalRuntime: 0,
+          totalWords: 0,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        updatedSegments.push(segment);
+      }
+
+      // Parse time string (MM:SS:FF) to seconds
+      const parseTime = (timeStr: string): number => {
+        const parts = timeStr.split(':');
+        if (parts.length === 3) {
+          const mins = parseInt(parts[0], 10) || 0;
+          const secs = parseInt(parts[1], 10) || 0;
+          const frames = parseInt(parts[2], 10) || 0;
+          return mins * 60 + secs + frames / 24; // 24 fps
+        }
+        return 0;
+      };
+
+      // Add or update shots
+      shots.forEach((generatedShot, index) => {
+        // Check if shot with this unique name already exists
+        const existingShot = segment.shots.find(s => s.take === generatedShot.uniqueName);
+        
+        if (existingShot) {
+          // Update existing shot
+          existingShot.audio = generatedShot.audio;
+          existingShot.visual = generatedShot.visual;
+          existingShot.duration = parseTime(generatedShot.time);
+          existingShot.wordCount = calculateWordCount(generatedShot.audio);
+          existingShot.runtime = calculateRuntime(generatedShot.audio);
+          existingShot.updatedAt = new Date();
+        } else {
+          // Create new shot
+          const newShot: AVShot = {
+            id: `shot-${Date.now()}-${index}`,
+            segmentId: segment.id,
+            shotNumber: 0, // Will be calculated
+            take: generatedShot.uniqueName,
+            audio: generatedShot.audio,
+            visual: generatedShot.visual,
+            duration: parseTime(generatedShot.time),
+            wordCount: calculateWordCount(generatedShot.audio),
+            runtime: calculateRuntime(generatedShot.audio),
+            order: segment.shots.length,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+          segment.shots.push(newShot);
+        }
+      });
+
+      // Recalculate segment totals
+      segment.totalWords = segment.shots.reduce((sum, s) => sum + s.wordCount, 0);
+      segment.totalRuntime = segment.shots.reduce((sum, s) => sum + s.runtime, 0);
+      segment.updatedAt = new Date();
+    });
+
+    // Sort segments by segment number
+    updatedSegments.sort((a, b) => a.segmentNumber - b.segmentNumber);
+
+    // Update shot numbers and recalculate totals
+    updatedSegments.forEach(segment => {
+      segment.shots.forEach((shot, index) => {
+        shot.shotNumber = segment.segmentNumber * 100 + (index + 1);
+      });
+    });
+
+    // Update script
+    const updatedScript = {
+      ...script,
+      segments: updatedSegments,
+      updatedAt: new Date(),
+    };
+    
+    setScript(updatedScript);
+    // Trigger autosave
+    onSave(updatedScript);
+  };
+
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200">
         {/* Header */}
@@ -451,6 +592,25 @@ export function AVScriptEditor({
                 <div className="text-sm text-gray-500">Total RT</div>
                 <div className="text-lg font-semibold text-gray-900">{formatDuration(script.totalRuntime)}</div>
               </div>
+              {/* Import AV Button */}
+              <button
+                onClick={() => setShowImportAVDialog(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                title="Import AV script from CSV file"
+              >
+                <Upload className="w-4 h-4" />
+                <span>Import AV</span>
+              </button>
+              {/* Auto-populate Button */}
+              <button
+                onClick={() => setShowAutoPopulateDialog(true)}
+                disabled={!screenplayData}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                title="Auto-populate AV script from screenplay"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>Auto-populate</span>
+              </button>
               {/* Manual Save Button */}
               <button
                 onClick={handleManualSave}
@@ -1002,6 +1162,26 @@ export function AVScriptEditor({
         />
       )}
 
+      {/* Import AV Dialog */}
+      {showImportAVDialog && (
+        <ImportAVDialog
+          isOpen={showImportAVDialog}
+          onClose={() => setShowImportAVDialog(false)}
+          onImport={handleImportCSV}
+        />
+      )}
+
+      {/* Auto-populate Dialog */}
+      {showAutoPopulateDialog && (
+        <AutoPopulateDialog
+          isOpen={showAutoPopulateDialog}
+          onClose={() => setShowAutoPopulateDialog(false)}
+          onAutopopulate={handleAutopopulate}
+          screenplayData={screenplayData}
+          avScript={script}
+        />
+      )}
+
       {/* Delete Confirmation Modal */}
       {deleteConfirmation && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -1329,12 +1509,35 @@ function ShotRow({
 
       {/* Audio */}
       <div className="col-span-2 px-4 py-3">
-        <textarea
-          value={shot.audio}
-          onChange={(e) => onUpdate({ audio: e.target.value })}
-          placeholder="Audio..."
-          className="w-full h-20 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none"
-        />
+        <div className="relative">
+          <textarea
+            value={shot.audio}
+            onChange={(e) => onUpdate({ audio: e.target.value })}
+            placeholder="Audio..."
+            className="w-full h-20 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none relative z-10 bg-transparent"
+            style={{ color: 'transparent', caretColor: '#000' }}
+          />
+          <div 
+            className="absolute inset-0 px-2 py-1 text-sm pointer-events-none overflow-hidden"
+            style={{
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              color: '#000',
+              border: '1px solid transparent',
+              borderRadius: '0.25rem',
+            }}
+          >
+            {shot.audio.split(/(\[[^\]]+\])/g).map((part, index) => {
+              if (part.startsWith('[') && part.endsWith(']')) {
+                return <span key={index} className="text-gray-400">{part}</span>;
+              }
+              return <span key={index}>{part}</span>;
+            })}
+            {!shot.audio && (
+              <span className="text-gray-400">Audio...</span>
+            )}
+          </div>
+        </div>
         {/* Audio Controls */}
         <div className="mt-2 flex items-center gap-2 flex-wrap">
           <button

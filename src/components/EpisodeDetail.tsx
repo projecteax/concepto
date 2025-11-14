@@ -195,7 +195,7 @@ export default function EpisodeDetail({
       clearTimeout(saveTimeoutRef.current);
     }
 
-    // Debounce: Wait 2 seconds before saving
+    // Debounce: Wait 30 seconds before saving (backup save only)
     saveTimeoutRef.current = setTimeout(() => {
       const episodeToSave = pendingSaveRef.current;
       if (episodeToSave) {
@@ -231,7 +231,7 @@ export default function EpisodeDetail({
         }
         pendingSaveRef.current = null;
       }
-    }, 2000); // 2 second debounce
+    }, 30000); // 30 seconds - backup save to prevent Firebase quota issues
   };
 
   // Cleanup timeout on unmount

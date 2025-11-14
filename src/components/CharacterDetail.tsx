@@ -212,7 +212,7 @@ export function CharacterDetail({
     setIsEditing(false);
   }, [character, name, general, clothing, pose, voice, mainImageUrl, modelFiles, characterGallery, characterVideoGallery, conceptVideos, renderVideos, uploadedModels, aiRefImages, onSave]);
 
-  // Autosave on voice changes with debounce
+  // Autosave on voice changes with debounce (30 seconds - backup save only)
   useEffect(() => {
     if (isFirstRenderRef.current) {
       isFirstRenderRef.current = false;
@@ -223,7 +223,7 @@ export function CharacterDetail({
     }
     autosaveTimerRef.current = window.setTimeout(() => {
       handleSave();
-    }, 800);
+    }, 30000); // 30 seconds - backup save to prevent Firebase quota issues
     return () => {
       if (autosaveTimerRef.current) {
         window.clearTimeout(autosaveTimerRef.current);

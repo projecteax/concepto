@@ -675,7 +675,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
     setLastSavedAt(Date.now());
   };
 
-  // Autosave on changes with debounce
+  // Autosave on changes with debounce (30 seconds - backup save only)
   useEffect(() => {
     if (isFirstRenderRef.current) {
       isFirstRenderRef.current = false;
@@ -686,7 +686,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
     }
     autosaveTimerRef.current = window.setTimeout(() => {
       handleSave();
-    }, 800);
+    }, 30000); // 30 seconds - backup save to prevent Firebase quota issues
     return () => {
       if (autosaveTimerRef.current) {
         window.clearTimeout(autosaveTimerRef.current);
@@ -758,13 +758,17 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
+    // Get current language elements and title
+    const currentElements = getCurrentElements();
+    const currentTitle = getCurrentTitle();
+
     // Generate HTML content for PDF
     let htmlContent = `
       <!DOCTYPE html>
       <html>
       <head>
         <meta charset="utf-8">
-        <title>${localData.title || 'Untitled Screenplay'}</title>
+        <title>${currentTitle || 'Untitled Screenplay'}</title>
         <style>
           @page {
             size: letter;
@@ -862,12 +866,12 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
     // Add title page
     htmlContent += `
       <div class="page">
-        <div class="title">${localData.title || 'Untitled Screenplay'}</div>
+        <div class="title">${currentTitle || 'Untitled Screenplay'}</div>
       </div>
     `;
 
     // Add screenplay elements
-    localData.elements.forEach((element) => {
+    currentElements.forEach((element) => {
       const elementClass = element.type.replace('-', '-');
       htmlContent += `<div class="${elementClass}">${element.content || '&nbsp;'}</div>`;
     });
@@ -896,8 +900,12 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
+    // Get current language elements and title
+    const currentElements = getCurrentElements();
+    const currentTitle = getCurrentTitle();
+
     // Filter elements to only scene-setting, character, and dialogue
-    const voElements = localData.elements.filter(element => 
+    const voElements = currentElements.filter(element => 
       element.type === 'scene-setting' || 
       element.type === 'character' || 
       element.type === 'dialogue'
@@ -909,7 +917,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
       <html>
       <head>
         <meta charset="utf-8">
-        <title>${localData.title || 'Untitled Screenplay'} - VO</title>
+        <title>${currentTitle || 'Untitled Screenplay'} - VO</title>
         <style>
           @page {
             size: letter;
@@ -985,7 +993,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
     // Add title page
     htmlContent += `
       <div class="page">
-        <div class="title">${localData.title || 'Untitled Screenplay'} - VO</div>
+        <div class="title">${currentTitle || 'Untitled Screenplay'} - VO</div>
       </div>
     `;
 
@@ -1019,13 +1027,17 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
+    // Get current language elements and title
+    const currentElements = getCurrentElements();
+    const currentTitle = getCurrentTitle();
+
     // Generate HTML content for Storyboard PDF
     let htmlContent = `
       <!DOCTYPE html>
       <html>
       <head>
         <meta charset="utf-8">
-        <title>${localData.title || 'Untitled Screenplay'} - Storyboard</title>
+        <title>${currentTitle || 'Untitled Screenplay'} - Storyboard</title>
         <style>
           @page {
             size: letter;
@@ -1182,7 +1194,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
     // Add title page
     htmlContent += `
       <div class="page title-page">
-        <div class="title">${localData.title || 'Untitled Screenplay'}</div>
+        <div class="title">${currentTitle || 'Untitled Screenplay'}</div>
         <div class="subtitle">Storyboard</div>
       </div>
     `;
@@ -1225,7 +1237,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
 
     // Add all script elements, creating new pages as needed
     // Rough estimate: ~25-30 elements per page (adjust based on content length)
-    localData.elements.forEach((element) => {
+    currentElements.forEach((element) => {
       const elementClass = element.type.replace('-', '-');
       const content = element.content || '&nbsp;';
       const elementHtml = `<div class="script-element ${elementClass}">${content}</div>`;

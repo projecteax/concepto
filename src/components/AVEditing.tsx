@@ -3681,10 +3681,10 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
       clearTimeout(autosaveDebounceRef.current);
     }
     
-    // Schedule autosave with 1.5-second debounce (was 90 seconds, then 3 seconds)
-    // Reduced to catch changes faster before navigation
+    // Schedule autosave with 30-second debounce (backup save, not primary)
+    // This is a backup in case user forgets to manually save
     autosaveDebounceRef.current = setTimeout(() => {
-      console.log('💾 Auto-saving changes...');
+      console.log('💾 Auto-saving changes (backup save)...');
       const totalDuration = Math.max(
         ...(slides.length > 0 ? slides.map(s => s.startTime + s.duration) : [0]),
         ...(audioTracks.length > 0 ? audioTracks.map(t => t.startTime + t.duration) : [0]),
@@ -3702,7 +3702,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
       saveEditingData(updatedData, false).catch(err => {
         console.error('❌ Error auto-saving:', err);
       });
-    }, 1500); // 1.5 seconds debounce - quick enough to catch changes before navigation
+    }, 30000); // 30 seconds debounce - backup save to prevent Firebase quota issues
     
     return () => {
       if (autosaveDebounceRef.current) {
