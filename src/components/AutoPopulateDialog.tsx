@@ -532,7 +532,7 @@ export function AutoPopulateDialog({
       const shotNumberSet = new Set<string>(); // Track used shot numbers
       let currentScene = 0;
       let currentShotInScene = 0;
-      let takeCounterMap = new Map<number, number>(); // Track take counters per scene
+      const takeCounterMap = new Map<number, number>(); // Track take counters per scene
       
       allShots.forEach((shot) => {
         const shotNumberParts = shot.shotNumber.split('.');

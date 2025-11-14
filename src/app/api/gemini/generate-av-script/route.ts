@@ -11,7 +11,7 @@ const genAI = new GoogleGenAI({
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { prompt, scriptContent, language, segmentNumber, totalSegments } = body;
+    const { prompt, scriptContent, segmentNumber, totalSegments } = body;
 
     if (!prompt || !scriptContent) {
       return NextResponse.json(
