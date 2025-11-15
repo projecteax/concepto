@@ -17,13 +17,13 @@ import { Episode } from '@/types';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { episodeId: string } }
+  { params }: { params: Promise<{ episodeId: string }> }
 ) {
   try {
     // Validate API key
     await requireApiKey(request);
     
-    const { episodeId } = params;
+    const { episodeId } = await params;
     
     if (!episodeId) {
       return NextResponse.json(
@@ -46,16 +46,19 @@ export async function GET(
     const episodeData = episodeSnap.data();
     
     // Convert Firestore timestamps to Date objects
-    const convertTimestamps = (obj: any): any => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const convertTimestamps = (obj: unknown): unknown => {
       if (obj === null || obj === undefined) return obj;
       if (Array.isArray(obj)) {
         return obj.map(convertTimestamps);
       }
       if (typeof obj === 'object') {
-        if ('toDate' in obj && typeof obj.toDate === 'function') {
-          return obj.toDate().toISOString();
+        const objWithToDate = obj as { toDate?: () => Date };
+        if ('toDate' in obj && typeof objWithToDate.toDate === 'function') {
+          return objWithToDate.toDate().toISOString();
         }
-        const converted: any = {};
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const converted: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(obj)) {
           converted[key] = convertTimestamps(value);
         }
@@ -73,18 +76,19 @@ export async function GET(
       success: true,
       data: episode,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching episode:', error);
     
-    if (error.message === 'API key required' || error.message === 'Invalid API key') {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    if (errorMessage === 'API key required' || errorMessage === 'Invalid API key') {
       return NextResponse.json(
-        { error: error.message, code: 'UNAUTHORIZED' },
+        { error: errorMessage, code: 'UNAUTHORIZED' },
         { status: 401 }
       );
     }
     
     return NextResponse.json(
-      { error: 'Internal server error', code: 'INTERNAL_ERROR' },
+      { error: 'Internal server error', code: 'INTERNAL_ERROR', details: errorMessage },
       { status: 500 }
     );
   }

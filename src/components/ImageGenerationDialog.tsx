@@ -860,7 +860,7 @@ export function ImageGenerationDialog({
       alert('Please select an image file');
       return;
     }
-
+    
     try {
       const fileKey = `episodes/${episodeId}/frames/start-${Date.now()}-${file.name}`;
       const result = await uploadFile(file, fileKey);
@@ -1043,7 +1043,7 @@ export function ImageGenerationDialog({
         style: selectedStyle,
         createdAt: img.createdAt,
       })),
-      selectedImageId: selectedImageId,
+      selectedImageId: selectedImageId || undefined,
       createdAt: existingThread?.createdAt || new Date(),
       updatedAt: new Date(),
     };

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, updateDoc, Timestamp } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, updateDoc, Timestamp } from 'firebase/firestore';
 import { requireApiKey } from '@/lib/api-auth';
-import { AVShot } from '@/types';
+import { AVShot, AVSegment } from '@/types';
 
 /**
  * GET /api/external/shots/:shotId
@@ -17,12 +17,12 @@ import { AVShot } from '@/types';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { shotId: string } }
+  { params }: { params: Promise<{ shotId: string }> }
 ) {
   try {
     await requireApiKey(request);
     
-    const { shotId } = params;
+    const { shotId } = await params;
     
     if (!shotId) {
       return NextResponse.json(
@@ -70,16 +70,19 @@ export async function GET(
     }
     
     // Convert timestamps
-    const convertTimestamps = (obj: any): any => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const convertTimestamps = (obj: unknown): unknown => {
       if (obj === null || obj === undefined) return obj;
       if (Array.isArray(obj)) {
         return obj.map(convertTimestamps);
       }
       if (typeof obj === 'object') {
-        if ('toDate' in obj && typeof obj.toDate === 'function') {
-          return obj.toDate().toISOString();
+        const objWithToDate = obj as { toDate?: () => Date };
+        if ('toDate' in obj && typeof objWithToDate.toDate === 'function') {
+          return objWithToDate.toDate().toISOString();
         }
-        const converted: any = {};
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const converted: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(obj)) {
           converted[key] = convertTimestamps(value);
         }
@@ -98,18 +101,19 @@ export async function GET(
         segmentId,
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching shot:', error);
     
-    if (error.message === 'API key required' || error.message === 'Invalid API key') {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    if (errorMessage === 'API key required' || errorMessage === 'Invalid API key') {
       return NextResponse.json(
-        { error: error.message, code: 'UNAUTHORIZED' },
+        { error: errorMessage, code: 'UNAUTHORIZED' },
         { status: 401 }
       );
     }
     
     return NextResponse.json(
-      { error: 'Internal server error', code: 'INTERNAL_ERROR' },
+      { error: 'Internal server error', code: 'INTERNAL_ERROR', details: errorMessage },
       { status: 500 }
     );
   }
@@ -134,12 +138,12 @@ export async function GET(
  */
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { shotId: string } }
+  { params }: { params: Promise<{ shotId: string }> }
 ) {
   try {
     await requireApiKey(request);
     
-    const { shotId } = params;
+    const { shotId } = await params;
     const body = await request.json();
     
     if (!shotId) {
@@ -154,7 +158,7 @@ export async function PUT(
     const episodesSnap = await getDocs(episodesRef);
     
     let episodeId: string | null = null;
-    let foundSegment: any = null;
+    let foundSegment: AVSegment | null = null;
     
     for (const episodeDoc of episodesSnap.docs) {
       const episodeData = episodeDoc.data();
@@ -203,7 +207,15 @@ export async function PUT(
     const episodeSnap = await getDoc(episodeRef);
     const episodeData = episodeSnap.data();
     
-    const updatedSegments = episodeData.avScript.segments.map((seg: any) => {
+    if (!episodeData) {
+      return NextResponse.json(
+        { error: 'Episode data not found', code: 'NOT_FOUND' },
+        { status: 404 }
+      );
+    }
+    
+    const segments = ((episodeData.avScript?.segments || []) as unknown) as AVSegment[];
+    const mappedSegments = segments.map((seg: AVSegment) => {
       if (seg.id === foundSegment.id) {
         return {
           ...seg,
@@ -215,7 +227,7 @@ export async function PUT(
     });
     
     await updateDoc(episodeRef, {
-      'avScript.segments': updatedSegments,
+      'avScript.segments': mappedSegments,
       updatedAt: Timestamp.now(),
     });
     
@@ -223,18 +235,19 @@ export async function PUT(
       success: true,
       message: 'Shot updated successfully',
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error updating shot:', error);
     
-    if (error.message === 'API key required' || error.message === 'Invalid API key') {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    if (errorMessage === 'API key required' || errorMessage === 'Invalid API key') {
       return NextResponse.json(
-        { error: error.message, code: 'UNAUTHORIZED' },
+        { error: errorMessage, code: 'UNAUTHORIZED' },
         { status: 401 }
       );
     }
     
     return NextResponse.json(
-      { error: 'Internal server error', code: 'INTERNAL_ERROR' },
+      { error: 'Internal server error', code: 'INTERNAL_ERROR', details: errorMessage },
       { status: 500 }
     );
   }

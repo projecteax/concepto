@@ -21,7 +21,8 @@ import {
   Edit3,
   Save,
   Download,
-  Key
+  Key,
+  Package
 } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import CommentThread from './CommentThread';
@@ -79,12 +80,45 @@ export function AVScriptEditor({
   const [showAutoPopulateDialog, setShowAutoPopulateDialog] = useState(false);
   const [showImportAVDialog, setShowImportAVDialog] = useState(false);
   const [showApiKeyDialog, setShowApiKeyDialog] = useState(false);
+  const [isDownloadingPlugin, setIsDownloadingPlugin] = useState(false);
   const [isAnyPopupOpen, setIsAnyPopupOpen] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const autosaveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
   const { uploadFile } = useS3Upload();
+
+  // Handle Blender plugin download
+  const handleDownloadPlugin = async () => {
+    setIsDownloadingPlugin(true);
+    try {
+      const response = await fetch('/api/blender-plugin/download');
+      
+      if (!response.ok) {
+        throw new Error('Failed to download plugin');
+      }
+
+      // Get the blob from the response
+      const blob = await response.blob();
+      
+      // Create a download link
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'concepto_blender_plugin.zip';
+      document.body.appendChild(a);
+      a.click();
+      
+      // Clean up
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Error downloading plugin:', error);
+      alert('Failed to download Blender plugin. Please try again.');
+    } finally {
+      setIsDownloadingPlugin(false);
+    }
+  };
 
   // Sync avScript prop to state when it changes (e.g., when data loads from Firebase or real-time updates)
   // This ensures that when episode data loads from Firebase after component mount,
@@ -754,6 +788,20 @@ export function AVScriptEditor({
                 <Key className="w-4 h-4" />
                 <span>Get API</span>
               </button>
+              {/* Download Blender Plugin Button */}
+              <button
+                onClick={handleDownloadPlugin}
+                disabled={isDownloadingPlugin}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Download Blender plugin as zip file"
+              >
+                {isDownloadingPlugin ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Package className="w-4 h-4" />
+                )}
+                <span>Blender Plugin</span>
+              </button>
               {/* Auto-populate Button */}
               <button
                 onClick={() => setShowAutoPopulateDialog(true)}
@@ -1323,11 +1371,6 @@ export function AVScriptEditor({
           locationId={(() => {
             const segment = script.segments.find(s => s.id === currentShotForGeneration.segmentId);
             return segment?.locationId;
-          })()}
-          existingThread={(() => {
-            const segment = script.segments.find(s => s.id === currentShotForGeneration.segmentId);
-            const shot = segment?.shots.find(s => s.id === currentShotForGeneration.shotId);
-            return shot?.imageGenerationThread;
           })()}
           globalAssets={globalAssets}
           episodeId={episodeId}

@@ -3,7 +3,7 @@ import { db } from '@/lib/firebase';
 import { collection, doc, getDoc, getDocs, updateDoc, Timestamp } from 'firebase/firestore';
 import { requireApiKey } from '@/lib/api-auth';
 import { uploadToS3Server } from '@/lib/s3-service-server';
-import { AVShot } from '@/types';
+import { AVShot, AVSegment, AVShotImageGenerationThread } from '@/types';
 
 /**
  * POST /api/external/shots/:shotId/images
@@ -24,12 +24,12 @@ import { AVShot } from '@/types';
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { shotId: string } }
+  { params }: { params: Promise<{ shotId: string }> }
 ) {
   try {
     await requireApiKey(request);
     
-    const { shotId } = params;
+    const { shotId } = await params;
     
     if (!shotId) {
       return NextResponse.json(
@@ -56,7 +56,7 @@ export async function POST(
     const episodesSnap = await getDocs(episodesRef);
     
     let episodeId: string | null = null;
-    let foundSegment: any = null;
+    let foundSegment: AVSegment | null = null;
     let foundShot: AVShot | null = null;
     
     for (const episodeDoc of episodesSnap.docs) {
@@ -154,31 +154,26 @@ export async function POST(
         // Update image generation thread with start/end frames
         if (uploadedUrls.startFrame || uploadedUrls.endFrame) {
           if (shot.imageGenerationThread) {
-            // Update existing thread - only include fields that have values
-            const threadUpdate: any = {
+            // Update existing thread - ensure all required fields are present
+            const threadUpdate: AVShotImageGenerationThread = {
               ...shot.imageGenerationThread,
               updatedAt: new Date(),
             };
             
-            // Only update startFrame if we uploaded one, otherwise keep existing or omit
+            // Only update startFrame if we uploaded one, otherwise keep existing
             if (uploadedUrls.startFrame) {
               threadUpdate.startFrame = uploadedUrls.startFrame;
-            } else if (shot.imageGenerationThread.startFrame) {
-              threadUpdate.startFrame = shot.imageGenerationThread.startFrame;
             }
             
-            // Only update endFrame if we uploaded one, otherwise keep existing or omit
+            // Only update endFrame if we uploaded one, otherwise keep existing
             if (uploadedUrls.endFrame) {
               threadUpdate.endFrame = uploadedUrls.endFrame;
-            } else if (shot.imageGenerationThread.endFrame) {
-              threadUpdate.endFrame = shot.imageGenerationThread.endFrame;
             }
             
             updatedShot.imageGenerationThread = threadUpdate;
           } else {
             // Create a new thread if it doesn't exist but we have frames
-            // Only include fields that have actual values (no undefined)
-            const newThread: any = {
+            const newThread: AVShotImageGenerationThread = {
               id: `thread-${Date.now()}`,
               selectedAssets: [],
               messages: [],
@@ -187,10 +182,10 @@ export async function POST(
               updatedAt: new Date(),
             };
             
+            // Add optional fields only if they exist
             if (uploadedUrls.startFrame) {
               newThread.startFrame = uploadedUrls.startFrame;
             }
-            
             if (uploadedUrls.endFrame) {
               newThread.endFrame = uploadedUrls.endFrame;
             }
@@ -218,7 +213,16 @@ export async function POST(
     const episodeSnap = await getDoc(episodeRef);
     const episodeData = episodeSnap.data();
     
-    const updatedSegments = (episodeData.avScript?.segments || []).map((seg: any) => {
+    if (!episodeData) {
+      return NextResponse.json(
+        { error: 'Episode data not found', code: 'NOT_FOUND' },
+        { status: 404 }
+      );
+    }
+    
+    // Type assertion for segments - they come from Firestore so we need to assert the type
+    const segments = ((episodeData.avScript?.segments || []) as unknown) as AVSegment[];
+    const updatedSegments = segments.map((seg: AVSegment) => {
       if (seg.id === foundSegment.id) {
         return {
           ...seg,
@@ -230,7 +234,7 @@ export async function POST(
     });
     
     // Ensure avScript structure exists
-    const updateData: any = {
+    const updateData: Record<string, unknown> = {
       'avScript.segments': updatedSegments,
       updatedAt: Timestamp.now(),
     };
@@ -247,24 +251,25 @@ export async function POST(
       message: 'Images uploaded successfully',
       data: uploadedUrls,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error uploading images:', error);
-    console.error('Error stack:', error.stack);
     
-    if (error.message === 'API key required' || error.message === 'Invalid API key') {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    
+    if (errorMessage === 'API key required' || errorMessage === 'Invalid API key') {
       return NextResponse.json(
-        { error: error.message, code: 'UNAUTHORIZED' },
+        { error: errorMessage, code: 'UNAUTHORIZED' },
         { status: 401 }
       );
     }
     
     // Return more detailed error message
-    const errorMessage = error.message || 'Internal server error';
     return NextResponse.json(
       { 
-        error: errorMessage, 
+        error: errorMessage || 'Internal server error', 
         code: 'INTERNAL_ERROR',
-        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        details: process.env.NODE_ENV === 'development' ? errorStack : undefined
       },
       { status: 500 }
     );

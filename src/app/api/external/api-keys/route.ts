@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, getDocs, query, where, doc, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where } from 'firebase/firestore';
 import { Timestamp } from 'firebase/firestore';
 import { randomBytes } from 'crypto';
 
@@ -70,10 +70,11 @@ export async function POST(request: NextRequest) {
       },
       warning: 'Save this API key now - it will not be shown again!',
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating API key:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
-      { error: 'Internal server error', code: 'INTERNAL_ERROR' },
+      { error: 'Internal server error', code: 'INTERNAL_ERROR', details: errorMessage },
       { status: 500 }
     );
   }
@@ -85,7 +86,7 @@ export async function POST(request: NextRequest) {
  * List all API keys for the current user
  * (Requires user authentication, not API key)
  */
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
     // For listing API keys, we need user authentication
     // This is a simplified version - in production, add proper user auth
@@ -111,10 +112,11 @@ export async function GET(request: NextRequest) {
       success: true,
       data: keys,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error listing API keys:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
-      { error: 'Internal server error', code: 'INTERNAL_ERROR' },
+      { error: 'Internal server error', code: 'INTERNAL_ERROR', details: errorMessage },
       { status: 500 }
     );
   }

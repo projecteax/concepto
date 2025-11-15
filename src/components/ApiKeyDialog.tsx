@@ -57,7 +57,7 @@ export function ApiKeyDialog({
         const data = await response.json();
         if (data.data && data.data.length > 0) {
           // Use the first active key
-          const activeKey = data.data.find((k: any) => k.isActive);
+          const activeKey = data.data.find((k: { isActive: boolean }) => k.isActive);
           if (activeKey) {
             // We can't get the actual key back for security reasons
             // User needs to generate a new one if they don't have it saved
