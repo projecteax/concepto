@@ -116,7 +116,7 @@ export function useRealtimeEpisode({
         const episode = convertFirestoreData(data);
         
         // Check if this update is from another user (by comparing lastEditedBy)
-        const currentUser = user?.email || user?.uid || 'unknown';
+        const currentUser = user?.id || user?.username || 'unknown';
         const updateFromAnotherUser = episode.lastEditedBy && 
           episode.lastEditedBy !== currentUser &&
           episode.lastEditedBy !== 'unknown';
@@ -263,7 +263,7 @@ export function useRealtimeEpisode({
           // This reduces the amount of data written to Firestore
           const cleanedUpdates: Record<string, unknown> = {
             updatedAt: serverTimestamp(),
-            lastEditedBy: user?.email || user?.uid || 'unknown',
+            lastEditedBy: user?.id || user?.username || 'unknown',
             lastEditedAt: serverTimestamp(),
           };
           
