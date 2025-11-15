@@ -1,6 +1,43 @@
 import bpy
 from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty
-from bpy.types import PropertyGroup
+from bpy.types import PropertyGroup, AddonPreferences
+
+class ConceptoAddonPreferences(AddonPreferences):
+    """Addon preferences - persists across Blender sessions"""
+    bl_idname = "concepto_blender_plugin"  # Must match the addon folder name
+    
+    api_endpoint: StringProperty(
+        name="API Endpoint",
+        description="Concepto API endpoint URL",
+        default="https://your-app.com/api/external",
+    )
+    
+    api_key: StringProperty(
+        name="API Key",
+        description="Your Concepto API key",
+        default="",
+        subtype='PASSWORD',
+    )
+    
+    show_id: StringProperty(
+        name="Show ID",
+        description="Show ID from Concepto",
+        default="",
+    )
+    
+    episode_id: StringProperty(
+        name="Episode ID",
+        description="Episode ID from Concepto",
+        default="",
+    )
+    
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text="Concepto API Configuration (Saved across sessions)")
+        layout.prop(self, "api_endpoint")
+        layout.prop(self, "api_key")
+        layout.prop(self, "show_id")
+        layout.prop(self, "episode_id")
 
 class ConceptoAPISettings(PropertyGroup):
     """API Configuration Settings"""
@@ -96,6 +133,7 @@ class ConceptoPluginState(PropertyGroup):
 
 # List of classes to register
 _classes = (
+    ConceptoAddonPreferences,
     ConceptoAPISettings,
     ConceptoShotData,
     ConceptoPluginState,

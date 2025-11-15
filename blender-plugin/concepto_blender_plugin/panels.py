@@ -1,5 +1,6 @@
 import bpy
 import os
+import sys
 from bpy.types import Panel
 from . import properties
 
@@ -14,7 +15,24 @@ class CONCEPTO_PT_APIConfig(Panel):
     
     def draw(self, context):
         layout = self.layout
+        # Use addon preferences for persistence
+        addon_name = "concepto_blender_plugin"
+        prefs = None
+        if addon_name in context.preferences.addons:
+            prefs = context.preferences.addons[addon_name].preferences
+        
         api = context.scene.concepto_api
+        
+        # Load from preferences to scene properties if preferences exist
+        if prefs:
+            if prefs.api_endpoint:
+                api.api_endpoint = prefs.api_endpoint
+            if prefs.api_key:
+                api.api_key = prefs.api_key
+            if prefs.show_id:
+                api.show_id = prefs.show_id
+            if prefs.episode_id:
+                api.episode_id = prefs.episode_id
         
         # Show status at top
         if api.is_configured:
@@ -40,6 +58,17 @@ class CONCEPTO_PT_APIConfig(Panel):
         layout.label(text="Required IDs:")
         layout.prop(api, "show_id", text="Show ID")
         layout.prop(api, "episode_id", text="Episode ID")
+        
+        # Save to preferences when changed
+        if prefs:
+            if api.api_endpoint != prefs.api_endpoint:
+                prefs.api_endpoint = api.api_endpoint
+            if api.api_key != prefs.api_key:
+                prefs.api_key = api.api_key
+            if api.show_id != prefs.show_id:
+                prefs.show_id = api.show_id
+            if api.episode_id != prefs.episode_id:
+                prefs.episode_id = api.episode_id
         
         # Buttons section - always visible
         layout.separator()

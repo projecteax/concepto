@@ -39,20 +39,31 @@ class CONCEPTO_OT_PasteAPIConfig(Operator):
         
         try:
             config = json.loads(self.config_json)
-            api = context.scene.concepto_api
+            # Use addon preferences for persistence
+            prefs = get_addon_prefs(context)
+            if not prefs:
+                self.report({'ERROR'}, "Could not access addon preferences")
+                return {'CANCELLED'}
             
             # Set values from JSON (only required fields)
             if 'apiKey' in config:
-                api.api_key = config['apiKey']
+                prefs.api_key = config['apiKey']
             if 'apiEndpoint' in config:
-                api.api_endpoint = config['apiEndpoint']
+                prefs.api_endpoint = config['apiEndpoint']
             if 'showId' in config:
-                api.show_id = config['showId']
+                prefs.show_id = config['showId']
             if 'episodeId' in config:
-                api.episode_id = config['episodeId']
+                prefs.episode_id = config['episodeId']
             # Ignore segmentId and shotId - they'll be populated automatically
             
-            self.report({'INFO'}, "Configuration pasted successfully")
+            # Also update scene properties for compatibility
+            api = context.scene.concepto_api
+            api.api_key = prefs.api_key
+            api.api_endpoint = prefs.api_endpoint
+            api.show_id = prefs.show_id
+            api.episode_id = prefs.episode_id
+            
+            self.report({'INFO'}, "Configuration pasted and saved successfully")
             # Auto-configure and load episode
             bpy.ops.concepto.configure_api()
             return {'FINISHED'}
@@ -71,27 +82,49 @@ class CONCEPTO_OT_ConfigureAPI(Operator):
     bl_options = {'REGISTER', 'UNDO'}
     
     def execute(self, context):
-        # Validate configuration
+        # Get preferences (persistent) and scene properties (for compatibility)
+        prefs = get_addon_prefs(context)
         api = context.scene.concepto_api
-        if not api.api_endpoint or not api.api_key:
+        
+        # Use preferences if available, otherwise fall back to scene properties
+        api_endpoint = (prefs.api_endpoint if prefs else None) or api.api_endpoint
+        api_key = (prefs.api_key if prefs else None) or api.api_key
+        episode_id = (prefs.episode_id if prefs else None) or api.episode_id
+        show_id = (prefs.show_id if prefs else None) or api.show_id
+        
+        # Validate configuration
+        if not api_endpoint or not api_key:
             self.report({'ERROR'}, "Please enter API endpoint and API key")
             return {'CANCELLED'}
         
-        if not api.episode_id:
+        if not episode_id:
             self.report({'ERROR'}, "Please enter Episode ID")
             return {'CANCELLED'}
         
-        if not api.show_id:
+        if not show_id:
             self.report({'ERROR'}, "Please enter Show ID")
             return {'CANCELLED'}
         
+        # Save to preferences for persistence
+        if prefs:
+            prefs.api_endpoint = api_endpoint
+            prefs.api_key = api_key
+            prefs.episode_id = episode_id
+            prefs.show_id = show_id
+        
+        # Also update scene properties for compatibility
+        api.api_endpoint = api_endpoint
+        api.api_key = api_key
+        api.episode_id = episode_id
+        api.show_id = show_id
+        
         # Test connection and load episode
-        client = api_client.ConceptoAPIClient(api.api_endpoint, api.api_key)
-        success, result = client.get_episode(api.episode_id)
+        client = api_client.ConceptoAPIClient(api_endpoint, api_key)
+        success, result = client.get_episode(episode_id)
         
         if success:
             api.is_configured = True
-            self.report({'INFO'}, "API configured successfully")
+            self.report({'INFO'}, "API configured and saved successfully")
             # Automatically load episode data
             bpy.ops.concepto.load_episode()
             return {'FINISHED'}
@@ -107,22 +140,29 @@ class CONCEPTO_OT_LoadEpisode(Operator):
     bl_options = {'REGISTER', 'UNDO'}
     
     def execute(self, context):
+        # Get preferences (persistent) and scene properties
+        prefs = get_addon_prefs(context)
         api = context.scene.concepto_api
         state = context.scene.concepto_state
         
-        if not api.is_configured:
+        # Use preferences if available, otherwise fall back to scene properties
+        api_endpoint = (prefs.api_endpoint if prefs else None) or api.api_endpoint
+        api_key = (prefs.api_key if prefs else None) or api.api_key
+        episode_id = (prefs.episode_id if prefs else None) or api.episode_id
+        
+        if not api.is_configured and not (api_endpoint and api_key):
             self.report({'ERROR'}, "Please configure API first")
             return {'CANCELLED'}
         
-        if not api.episode_id:
+        if not episode_id:
             self.report({'ERROR'}, "Episode ID not set")
             return {'CANCELLED'}
         
         state.is_loading_episode = True
         
         try:
-            client = api_client.ConceptoAPIClient(api.api_endpoint, api.api_key)
-            success, result = client.get_episode(api.episode_id)
+            client = api_client.ConceptoAPIClient(api_endpoint, api_key)
+            success, result = client.get_episode(episode_id)
             
             if success:
                 episode_data = result.get('data', {})
@@ -181,13 +221,19 @@ class CONCEPTO_OT_UpdateShotVisual(Operator):
     visual_text: StringProperty()
     
     def execute(self, context):
+        # Get preferences (persistent)
+        prefs = get_addon_prefs(context)
         api = context.scene.concepto_api
         
-        if not api.is_configured:
+        # Use preferences if available, otherwise fall back to scene properties
+        api_endpoint = (prefs.api_endpoint if prefs else None) or api.api_endpoint
+        api_key = (prefs.api_key if prefs else None) or api.api_key
+        
+        if not api.is_configured and not (api_endpoint and api_key):
             self.report({'ERROR'}, "API not configured")
             return {'CANCELLED'}
         
-        client = api_client.ConceptoAPIClient(api.api_endpoint, api.api_key)
+        client = api_client.ConceptoAPIClient(api_endpoint, api_key)
         success, result = client.update_shot(self.shot_id, visual=self.visual_text)
         
         if success:
@@ -303,10 +349,16 @@ class CONCEPTO_OT_UploadRenderedImage(Operator):
     bl_options = {'REGISTER', 'UNDO'}
     
     def execute(self, context):
+        # Get preferences (persistent)
+        prefs = get_addon_prefs(context)
         api = context.scene.concepto_api
         state = context.scene.concepto_state
         
-        if not api.is_configured:
+        # Use preferences if available, otherwise fall back to scene properties
+        api_endpoint = (prefs.api_endpoint if prefs else None) or api.api_endpoint
+        api_key = (prefs.api_key if prefs else None) or api.api_key
+        
+        if not api.is_configured and not (api_endpoint and api_key):
             self.report({'ERROR'}, "API not configured")
             return {'CANCELLED'}
         
@@ -321,7 +373,7 @@ class CONCEPTO_OT_UploadRenderedImage(Operator):
         state.is_uploading_image = True
         
         try:
-            client = api_client.ConceptoAPIClient(api.api_endpoint, api.api_key)
+            client = api_client.ConceptoAPIClient(api_endpoint, api_key)
             
             # Determine which image to upload based on selected type
             main_path = None
@@ -593,12 +645,19 @@ class CONCEPTO_OT_EditShotVisual(Operator):
         if not self.shot_id:
             return {'CANCELLED'}
         
+        # Get preferences (persistent)
+        prefs = get_addon_prefs(context)
         api = context.scene.concepto_api
-        if not api.is_configured:
+        
+        # Use preferences if available, otherwise fall back to scene properties
+        api_endpoint = (prefs.api_endpoint if prefs else None) or api.api_endpoint
+        api_key = (prefs.api_key if prefs else None) or api.api_key
+        
+        if not api.is_configured and not (api_endpoint and api_key):
             self.report({'ERROR'}, "API not configured")
             return {'CANCELLED'}
         
-        client = api_client.ConceptoAPIClient(api.api_endpoint, api.api_key)
+        client = api_client.ConceptoAPIClient(api_endpoint, api_key)
         success, result = client.update_shot(self.shot_id, visual=self.current_visual)
         
         if success:

@@ -57,17 +57,25 @@ export function ApiKeyDialog({
         const data = await response.json();
         if (data.data && data.data.length > 0) {
           // Use the first active key
-          const activeKey = data.data.find((k: { isActive: boolean }) => k.isActive);
-          if (activeKey) {
-            // We can't get the actual key back for security reasons
-            // User needs to generate a new one if they don't have it saved
-            setApiKey(null);
+          const activeKey = data.data.find((k: { isActive: boolean; key?: string }) => k.isActive);
+          if (activeKey && activeKey.key) {
+            // Use the existing key
+            setApiKey({
+              id: activeKey.id,
+              key: activeKey.key,
+              name: activeKey.name,
+              createdAt: activeKey.createdAt,
+            });
+            return;
           }
         }
       }
+      // No active key found
+      setApiKey(null);
     } catch (error) {
       console.error('Error fetching API keys:', error);
       // If error, just allow user to generate a new key
+      setApiKey(null);
     } finally {
       setIsLoading(false);
     }
@@ -202,8 +210,8 @@ export function ApiKeyDialog({
               </div>
             )}
             {apiKey && (
-              <p className="mt-2 text-xs text-amber-600">
-                ⚠️ Save this key now - it will not be shown again after you close this dialog!
+              <p className="mt-2 text-xs text-green-600">
+                ✓ API key loaded. It will be reused automatically.
               </p>
             )}
           </div>

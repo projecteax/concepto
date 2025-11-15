@@ -42,15 +42,36 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Generate a secure API key
-    const apiKey = `ck_${randomBytes(32).toString('hex')}`;
-    
     // For now, we'll use a placeholder userId
     // In production, get this from authenticated user session
     const userId = 'system'; // TODO: Get from authenticated user
     
-    // Store API key in Firestore
+    // Check if an active API key already exists for this user
     const apiKeysRef = collection(db, 'apiKeys');
+    const q = query(apiKeysRef, where('userId', '==', userId), where('isActive', '==', true));
+    const querySnapshot = await getDocs(q);
+    
+    // If an active key exists, return it instead of creating a new one
+    if (!querySnapshot.empty) {
+      const existingKey = querySnapshot.docs[0];
+      const keyData = existingKey.data();
+      
+      return NextResponse.json({
+        success: true,
+        data: {
+          id: existingKey.id,
+          key: keyData.key, // Return the existing key
+          name: keyData.name,
+          createdAt: keyData.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+        },
+        message: 'Using existing API key',
+      });
+    }
+    
+    // No active key exists, generate a new one
+    const apiKey = `ck_${randomBytes(32).toString('hex')}`;
+    
+    // Store API key in Firestore
     const docRef = await addDoc(apiKeysRef, {
       key: apiKey,
       userId,
@@ -64,11 +85,11 @@ export async function POST(request: NextRequest) {
       success: true,
       data: {
         id: docRef.id,
-        key: apiKey, // Only returned once - user must save it
+        key: apiKey,
         name,
         createdAt: new Date().toISOString(),
       },
-      warning: 'Save this API key now - it will not be shown again!',
+      message: 'New API key created',
     });
   } catch (error: unknown) {
     console.error('Error creating API key:', error);
@@ -100,11 +121,11 @@ export async function GET(_request: NextRequest) {
       const data = doc.data();
       return {
         id: doc.id,
+        key: data.key, // Return the actual key (user requested this for convenience)
         name: data.name,
         isActive: data.isActive,
         createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
         lastUsedAt: data.lastUsedAt?.toDate?.()?.toISOString() || null,
-        // Don't return the actual key for security
       };
     });
     

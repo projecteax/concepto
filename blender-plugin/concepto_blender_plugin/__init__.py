@@ -36,6 +36,9 @@ def register():
                 import traceback
                 traceback.print_exc()
     
+    # Preferences will be loaded automatically when the panel is drawn
+    # The panel's draw() method handles loading preferences into scene properties
+    
     print("Concepto Blender Plugin registered successfully")
 
 def unregister():
