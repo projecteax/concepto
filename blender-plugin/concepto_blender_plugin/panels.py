@@ -23,16 +23,17 @@ class CONCEPTO_PT_APIConfig(Panel):
         
         api = context.scene.concepto_api
         
-        # Load from preferences to scene properties if preferences exist
+        # Check if we need to sync from preferences (read-only check, no writing)
+        needs_sync = False
         if prefs:
-            if prefs.api_endpoint:
-                api.api_endpoint = prefs.api_endpoint
-            if prefs.api_key:
-                api.api_key = prefs.api_key
-            if prefs.show_id:
-                api.show_id = prefs.show_id
-            if prefs.episode_id:
-                api.episode_id = prefs.episode_id
+            if prefs.api_endpoint and prefs.api_endpoint != api.api_endpoint:
+                needs_sync = True
+            elif prefs.api_key and prefs.api_key != api.api_key:
+                needs_sync = True
+            elif prefs.show_id and prefs.show_id != api.show_id:
+                needs_sync = True
+            elif prefs.episode_id and prefs.episode_id != api.episode_id:
+                needs_sync = True
         
         # Show status at top
         if api.is_configured:
@@ -45,30 +46,29 @@ class CONCEPTO_PT_APIConfig(Panel):
                 box.operator("concepto.load_episode", text="Load Episode", icon='IMPORT')
             layout.separator()
         
-        # API Endpoint
+        # Show sync button if preferences exist and differ from scene
+        if prefs and needs_sync:
+            box = layout.box()
+            box.label(text="Saved settings detected", icon='INFO')
+            box.operator("concepto.sync_preferences", text="Load Saved Settings", icon='IMPORT')
+            layout.separator()
+        
+        # Always use scene properties in UI (update callbacks will save to preferences)
         layout.label(text="API Endpoint:")
         layout.prop(api, "api_endpoint", text="")
         
-        # API Key
         layout.label(text="API Key:")
         layout.prop(api, "api_key", text="")
         
-        # Required IDs only
         layout.separator()
         layout.label(text="Required IDs:")
         layout.prop(api, "show_id", text="Show ID")
         layout.prop(api, "episode_id", text="Episode ID")
         
-        # Save to preferences when changed
+        # Note about persistence
         if prefs:
-            if api.api_endpoint != prefs.api_endpoint:
-                prefs.api_endpoint = api.api_endpoint
-            if api.api_key != prefs.api_key:
-                prefs.api_key = api.api_key
-            if api.show_id != prefs.show_id:
-                prefs.show_id = api.show_id
-            if api.episode_id != prefs.episode_id:
-                prefs.episode_id = api.episode_id
+            layout.separator()
+            layout.label(text="Settings auto-save to preferences", icon='CHECKMARK')
         
         # Buttons section - always visible
         layout.separator()

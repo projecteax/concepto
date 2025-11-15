@@ -56,8 +56,9 @@ class CONCEPTO_OT_PasteAPIConfig(Operator):
                 prefs.episode_id = config['episodeId']
             # Ignore segmentId and shotId - they'll be populated automatically
             
-            # Also update scene properties for compatibility
+            # Also update scene properties for compatibility (this triggers update callbacks)
             api = context.scene.concepto_api
+            # Temporarily disable update callbacks to avoid recursion
             api.api_key = prefs.api_key
             api.api_endpoint = prefs.api_endpoint
             api.show_id = prefs.show_id
@@ -623,6 +624,39 @@ class CONCEPTO_OT_CancelRenderPreview(Operator):
         state.rendered_image_path = ""
         return {'FINISHED'}
 
+class CONCEPTO_OT_SyncPreferences(Operator):
+    """Sync preferences to scene properties"""
+    bl_idname = "concepto.sync_preferences"
+    bl_label = "Sync Preferences"
+    bl_description = "Load saved preferences into scene properties"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def execute(self, context):
+        prefs = get_addon_prefs(context)
+        if not prefs:
+            self.report({'ERROR'}, "No saved preferences found")
+            return {'CANCELLED'}
+        
+        api = context.scene.concepto_api
+        
+        # Sync from preferences to scene properties
+        # This will trigger update callbacks, but that's okay since values match
+        if prefs.api_endpoint:
+            api.api_endpoint = prefs.api_endpoint
+        if prefs.api_key:
+            api.api_key = prefs.api_key
+        if prefs.show_id:
+            api.show_id = prefs.show_id
+        if prefs.episode_id:
+            api.episode_id = prefs.episode_id
+        
+        # Mark as configured if we have the required fields
+        if prefs.api_endpoint and prefs.api_key and prefs.show_id and prefs.episode_id:
+            api.is_configured = True
+        
+        self.report({'INFO'}, "Preferences synced successfully")
+        return {'FINISHED'}
+
 class CONCEPTO_OT_EditShotVisual(Operator):
     """Edit shot visual text"""
     bl_idname = "concepto.edit_shot_visual"
@@ -688,6 +722,7 @@ _classes = (
     CONCEPTO_OT_ShotsPage,
     CONCEPTO_OT_CancelRenderPreview,
     CONCEPTO_OT_EditShotVisual,
+    CONCEPTO_OT_SyncPreferences,
 )
 
 def register():
