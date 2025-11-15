@@ -30,7 +30,7 @@ export function useRealtimeEpisode({
   const lastLocalSaveTimeRef = useRef<number>(0); // Track when we last saved
 
   // Convert Firestore data to Episode type
-  const convertFirestoreData = useCallback((data: any): Episode => {
+  const convertFirestoreData = useCallback((data: Record<string, unknown>): Episode => {
     const safeToDate = (timestamp: unknown): Date => {
       if (!timestamp) return new Date();
       if (timestamp instanceof Date) return timestamp;
