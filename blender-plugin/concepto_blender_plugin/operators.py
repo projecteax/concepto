@@ -139,7 +139,12 @@ class CONCEPTO_OT_ConfigureAPI(Operator):
             bpy.ops.concepto.load_episode()
             return {'FINISHED'}
         else:
-            self.report({'ERROR'}, f"API connection failed: {result.get('error', 'Unknown error')}")
+            error_msg = result.get('error', 'Unknown error')
+            error_details = result.get('details', '')
+            if error_details:
+                self.report({'ERROR'}, f"API connection failed: {error_msg}\n{error_details}")
+            else:
+                self.report({'ERROR'}, f"API connection failed: {error_msg}")
             return {'CANCELLED'}
 
 class CONCEPTO_OT_LoadEpisode(Operator):
@@ -210,7 +215,12 @@ class CONCEPTO_OT_LoadEpisode(Operator):
                 
                 self.report({'INFO'}, f"Loaded {len(context.scene.concepto_shots)} shots")
             else:
-                self.report({'ERROR'}, f"Failed to load episode: {result.get('error', 'Unknown error')}")
+                error_msg = result.get('error', 'Unknown error')
+                error_details = result.get('details', '')
+                if error_details:
+                    self.report({'ERROR'}, f"Failed to load episode: {error_msg}\n{error_details}")
+                else:
+                    self.report({'ERROR'}, f"Failed to load episode: {error_msg}")
                 return {'CANCELLED'}
         except Exception as e:
             self.report({'ERROR'}, f"Error loading episode: {str(e)}")

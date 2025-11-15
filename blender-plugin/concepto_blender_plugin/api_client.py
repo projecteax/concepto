@@ -37,18 +37,53 @@ class ConceptoAPIClient:
             else:
                 return False, {"error": f"Unsupported method: {method}"}
             
-            if response.status_code == 200 or response.status_code == 201:
-                return True, response.json()
-            else:
-                error_data = response.json() if response.content else {}
+            # Check if response is HTML (likely wrong endpoint)
+            content_type = response.headers.get('Content-Type', '').lower()
+            if 'text/html' in content_type or response.text.strip().startswith('<!DOCTYPE') or response.text.strip().startswith('<html'):
                 return False, {
-                    "error": error_data.get('error', f'HTTP {response.status_code}'),
-                    "code": error_data.get('code', 'UNKNOWN_ERROR')
+                    "error": f"Received HTML instead of JSON. The API endpoint may be incorrect. URL: {url}",
+                    "code": "INVALID_ENDPOINT",
+                    "details": f"Expected JSON but got HTML. Please check your API endpoint URL. It should end with '/api/external'"
                 }
+            
+            if response.status_code == 200 or response.status_code == 201:
+                try:
+                    return True, response.json()
+                except json.JSONDecodeError as e:
+                    # Response claims to be JSON but isn't valid
+                    return False, {
+                        "error": f"Invalid JSON response from server. URL: {url}",
+                        "code": "INVALID_JSON",
+                        "details": f"Response preview: {response.text[:200]}"
+                    }
+            else:
+                # Try to parse error response as JSON
+                try:
+                    error_data = response.json() if response.content else {}
+                    return False, {
+                        "error": error_data.get('error', f'HTTP {response.status_code}'),
+                        "code": error_data.get('code', 'UNKNOWN_ERROR'),
+                        "details": error_data.get('details', '')
+                    }
+                except json.JSONDecodeError:
+                    # Error response is not JSON
+                    return False, {
+                        "error": f"HTTP {response.status_code} - Non-JSON error response",
+                        "code": "HTTP_ERROR",
+                        "details": f"URL: {url}, Response preview: {response.text[:200]}"
+                    }
         except requests.exceptions.RequestException as e:
-            return False, {"error": str(e), "code": "NETWORK_ERROR"}
-        except json.JSONDecodeError:
-            return False, {"error": "Invalid JSON response", "code": "INVALID_RESPONSE"}
+            return False, {
+                "error": f"Network error: {str(e)}",
+                "code": "NETWORK_ERROR",
+                "details": f"URL: {url}"
+            }
+        except Exception as e:
+            return False, {
+                "error": f"Unexpected error: {str(e)}",
+                "code": "UNEXPECTED_ERROR",
+                "details": f"URL: {url}"
+            }
     
     def get_episode(self, episode_id: str) -> Tuple[bool, Dict]:
         """Get episode data with all segments and shots"""
