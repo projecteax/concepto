@@ -116,10 +116,12 @@ export function useRealtimeEpisode({
         const episode = convertFirestoreData(data);
         
         // Check if this update is from another user (by comparing lastEditedBy)
+        // Note: lastEditedBy is added at runtime in Firestore but not in the Episode type
         const currentUser = user?.id || user?.username || 'unknown';
-        const updateFromAnotherUser = episode.lastEditedBy && 
-          episode.lastEditedBy !== currentUser &&
-          episode.lastEditedBy !== 'unknown';
+        const lastEditedBy = (episode as Episode & { lastEditedBy?: string }).lastEditedBy;
+        const updateFromAnotherUser = lastEditedBy && 
+          lastEditedBy !== currentUser &&
+          lastEditedBy !== 'unknown';
         
         // Skip if this is our own local change (we already have it in state)
         // But only skip if the update happened very recently (within 2 seconds of our save)
@@ -172,7 +174,7 @@ export function useRealtimeEpisode({
           hasAvScript: !!episode.avScript,
           avScriptSegments: episode.avScript?.segments?.length || 0,
           avScriptShots: episode.avScript?.segments?.reduce((sum, seg) => sum + (seg.shots?.length || 0), 0) || 0,
-          lastEditedBy: episode.lastEditedBy,
+          lastEditedBy: lastEditedBy,
           currentUser: currentUser,
           isFromAnotherUser: updateFromAnotherUser,
           isLocalChange: isLocalChangeRef.current,
