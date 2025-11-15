@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Show, Episode, EpisodeScene, SceneShot, Character, GlobalAsset } from '@/types';
 import { 
   Plus, 
@@ -13,7 +13,8 @@ import {
   Trash2,
   Upload,
   Download,
-  Eye
+  Eye,
+  Users
 } from 'lucide-react';
 import StoryboardDrawer from './StoryboardDrawer';
 import CommentThread from './CommentThread';
@@ -21,6 +22,7 @@ import { AVScriptEditor } from './AVScriptEditor';
 import { AVEditing } from './AVEditing';
 import ScreenplayEditor, { ScreenplayEditorHandle } from './ScreenplayEditor';
 import { useS3Upload } from '@/hooks/useS3Upload';
+import { useRealtimeEpisode } from '@/hooks/useRealtimeEpisode';
 
 interface EpisodeDetailProps {
   episode: Episode;
@@ -43,6 +45,72 @@ export default function EpisodeDetail({
   const [localEpisode, setLocalEpisode] = useState<Episode>(episode);
   const screenplayEditorRef = useRef<ScreenplayEditorHandle | null>(null);
   const [screenplayLastSavedAt, setScreenplayLastSavedAt] = useState<number | null>(null);
+  const [isTabVisible, setIsTabVisible] = useState(true);
+  
+  // Track tab visibility to enable/disable real-time sync (saves resources)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      setIsTabVisible(!document.hidden);
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  // Real-time episode sync (only when tab is visible and on AV Script tab)
+  const isRealtimeEnabled = isTabVisible && activeTab === 'av-script';
+  
+  // Memoize the update callback to prevent infinite loops
+  const handleRealtimeUpdate = useCallback((updatedEpisode: Episode) => {
+    console.log('📥 handleRealtimeUpdate called in EpisodeDetail:', {
+      activeTab,
+      episodeId: episode.id,
+      updatedEpisodeId: updatedEpisode.id,
+      matches: activeTab === 'av-script' && updatedEpisode.id === episode.id,
+    });
+    
+    // Only update if we're on the AV Script tab and the episode ID matches
+    if (activeTab === 'av-script' && updatedEpisode.id === episode.id) {
+      console.log('✅ Conditions met - updating local episode');
+      setLocalEpisode(prev => {
+        // Only update if the updatedAt timestamp is newer (prevent loops)
+        const prevUpdatedAt = prev.updatedAt instanceof Date ? prev.updatedAt.getTime() : new Date(prev.updatedAt).getTime();
+        const newUpdatedAt = updatedEpisode.updatedAt instanceof Date ? updatedEpisode.updatedAt.getTime() : new Date(updatedEpisode.updatedAt).getTime();
+        
+        console.log('📊 Comparing timestamps:', {
+          prevUpdatedAt,
+          newUpdatedAt,
+          isNewer: newUpdatedAt > prevUpdatedAt,
+          difference: newUpdatedAt - prevUpdatedAt,
+          prevSegments: prev.avScript?.segments?.length || 0,
+          newSegments: updatedEpisode.avScript?.segments?.length || 0,
+        });
+        
+        // Always update if timestamps are different (even if not strictly newer)
+        // This handles cases where serverTimestamp() might cause slight timing issues
+        if (newUpdatedAt >= prevUpdatedAt || Math.abs(newUpdatedAt - prevUpdatedAt) < 1000) {
+          console.log('✅ Updating local episode with new data');
+          return updatedEpisode;
+        }
+        console.log('⏭️ Skipping update - timestamp is older');
+        return prev; // No update needed
+      });
+    } else {
+      console.log('⏭️ Skipping real-time update - wrong tab or episode:', {
+        activeTab,
+        episodeId: episode.id,
+        updatedEpisodeId: updatedEpisode.id,
+      });
+    }
+  }, [activeTab, episode.id]);
+  
+  const { saveEpisode: saveEpisodeRealtime, saveImmediately: saveImmediatelyRealtime } = useRealtimeEpisode({
+    episodeId: episode.id,
+    onUpdate: handleRealtimeUpdate,
+    enabled: isRealtimeEnabled,
+  });
   
   // Script editing states
   const [editingScripts, setEditingScripts] = useState<{[sceneId: string]: string}>({});
@@ -141,11 +209,24 @@ export default function EpisodeDetail({
 
     // Update local episode only if data actually changed
     if (!hasInitializedRef.current || lastEpisodeHashRef.current !== episodeHash) {
+      console.log('🔄 Episode prop changed, updating local episode:', {
+        isInitialized: hasInitializedRef.current,
+        hashChanged: lastEpisodeHashRef.current !== episodeHash,
+        realtimeActive: realtimeSyncActiveRef.current,
+      });
+      
       setLocalEpisode(episode);
       lastEpisodeHashRef.current = episodeHash;
       hasInitializedRef.current = true;
+      
       // Reset pending save if the episode changed from external source
-      pendingSaveRef.current = null;
+      // This prevents overwriting with stale data when real-time sync is active
+      if (realtimeSyncActiveRef.current) {
+        console.log('⏭️ Real-time sync active - clearing pending saves to prevent overwrite');
+        pendingSaveRef.current = null;
+        lastSavedEpisodeRef.current = episodeHash; // Mark as saved to prevent auto-save
+      }
+      
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
@@ -210,6 +291,13 @@ export default function EpisodeDetail({
     });
   };
 
+  // Track if real-time sync is active to prevent overwriting with stale data
+  const realtimeSyncActiveRef = useRef(false);
+  
+  useEffect(() => {
+    realtimeSyncActiveRef.current = isRealtimeEnabled;
+  }, [isRealtimeEnabled]);
+
   const updateEpisodeAndSave = async (updatedEpisode: Episode, immediate = false) => {
     // Update local state immediately for UI responsiveness
     setLocalEpisode(updatedEpisode);
@@ -220,6 +308,13 @@ export default function EpisodeDetail({
     // Skip if nothing has changed
     if (lastSavedEpisodeRef.current === episodeHash) {
       console.log('Skipping save - no changes detected');
+      return;
+    }
+
+    // If real-time sync is active, don't use the old save mechanism
+    // The real-time hook will handle saving
+    if (realtimeSyncActiveRef.current && !immediate) {
+      console.log('⏭️ Skipping old save mechanism - real-time sync is active');
       return;
     }
 
@@ -1312,13 +1407,36 @@ export default function EpisodeDetail({
 
         {activeTab === 'av-script' && (
           <div className="bg-white rounded-lg shadow-sm">
+            {/* Real-time sync indicator */}
+            {isRealtimeEnabled && (
+              <div className="px-6 py-2 bg-green-50 border-b border-green-200 flex items-center gap-2 text-sm text-green-700">
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                <span>Real-time sync active</span>
+                <span className="text-green-600">•</span>
+                <span className="text-green-600">Changes sync automatically</span>
+              </div>
+            )}
             <AVScriptEditor
               episodeId={episode.id}
               avScript={localEpisode.avScript}
               onSave={async (avScript) => {
                 const updatedEpisode = { ...localEpisode, avScript };
-                // Use immediate save for critical operations (like image generation)
-                await updateEpisodeAndSave(updatedEpisode, true);
+                // Use real-time save if enabled, otherwise fall back to regular save
+                if (isRealtimeEnabled) {
+                  await saveEpisodeRealtime({ avScript });
+                } else {
+                  // Use immediate save for critical operations (like image generation)
+                  await updateEpisodeAndSave(updatedEpisode, true);
+                }
+              }}
+              onSaveImmediately={async (avScript) => {
+                const updatedEpisode = { ...localEpisode, avScript };
+                // Use real-time immediate save if enabled
+                if (isRealtimeEnabled) {
+                  await saveImmediatelyRealtime({ avScript });
+                } else {
+                  await updateEpisodeAndSave(updatedEpisode, true);
+                }
               }}
               globalAssets={globalAssets}
               screenplayData={localEpisode.screenplayData}

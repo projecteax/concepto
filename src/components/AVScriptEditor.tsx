@@ -32,7 +32,8 @@ import { ImportAVDialog } from './ImportAVDialog';
 interface AVScriptEditorProps {
   episodeId: string;
   avScript?: AVScript;
-  onSave: (avScript: AVScript) => void;
+  onSave: (avScript: AVScript) => void | Promise<void>;
+  onSaveImmediately?: (avScript: AVScript) => void | Promise<void>;
   globalAssets?: GlobalAsset[];
   screenplayData?: ScreenplayData;
   showId?: string;
@@ -42,6 +43,7 @@ export function AVScriptEditor({
   episodeId, 
   avScript, 
   onSave,
+  onSaveImmediately,
   globalAssets = [],
   screenplayData,
   showId = '',
@@ -80,6 +82,56 @@ export function AVScriptEditor({
   const autosaveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
   const { uploadFile } = useS3Upload();
+
+  // Sync avScript prop to state when it changes (e.g., when data loads from Firebase or real-time updates)
+  // This ensures that when episode data loads from Firebase after component mount,
+  // the component will update to show the latest saved script
+  const hasInitializedRef = React.useRef(false);
+  const lastSyncedAvScriptRef = React.useRef<string>('');
+  
+  useEffect(() => {
+    if (avScript) {
+      // Create a hash of the avScript to detect actual changes
+      const avScriptHash = JSON.stringify({
+        id: avScript.id,
+        segmentsCount: avScript.segments?.length || 0,
+        totalShots: avScript.segments?.reduce((sum, seg) => sum + (seg.shots?.length || 0), 0) || 0,
+        segmentIds: avScript.segments?.map(s => s.id).sort().join(',') || '',
+        updatedAt: avScript.updatedAt instanceof Date ? avScript.updatedAt.getTime() : avScript.updatedAt,
+      });
+      
+      // Only update if the script actually changed
+      if (lastSyncedAvScriptRef.current !== avScriptHash) {
+        setScript(currentScript => {
+          const isFirstLoad = !hasInitializedRef.current;
+          const isDifferentScript = currentScript.id !== avScript.id;
+          const isDefaultEmptyScript = currentScript.id.startsWith('av-script-') && currentScript.segments.length === 0;
+          
+          console.log('🔄 Syncing AV Script from prop:', {
+            currentId: currentScript.id,
+            newId: avScript.id,
+            currentSegments: currentScript.segments.length,
+            newSegments: avScript.segments?.length || 0,
+            isFirstLoad,
+            isDifferentScript,
+            isDefaultEmptyScript,
+            hashChanged: lastSyncedAvScriptRef.current !== avScriptHash,
+          });
+          
+          if (isFirstLoad || isDifferentScript || isDefaultEmptyScript || lastSyncedAvScriptRef.current !== avScriptHash) {
+            hasInitializedRef.current = true;
+            lastSyncedAvScriptRef.current = avScriptHash;
+            return avScript;
+          }
+          return currentScript; // No change needed
+        });
+      } else {
+        console.log('⏭️ AV Script prop changed but hash is the same - skipping sync');
+      }
+    } else {
+      hasInitializedRef.current = true; // Mark as initialized even if no avScript
+    }
+  }, [avScript]); // Only depend on avScript prop - this will trigger when Firebase data loads
 
   // Ensure all shots have take numbers assigned
   useEffect(() => {
@@ -145,28 +197,79 @@ export function AVScriptEditor({
   }, [script.segments]);
 
   // Manual save handler
-  const handleManualSave = () => {
+  const handleManualSave = async () => {
     setIsSaving(true);
-    onSave(script);
-    setLastSavedAt(Date.now());
-    setIsSaving(false);
+    try {
+      await onSave(script);
+      setLastSavedAt(Date.now());
+    } catch (error) {
+      console.error('Error saving script:', error);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  // Auto-save when script changes (30-second debounce)
+  // Auto-save when script changes (10-second debounce for real-time, 30 seconds for regular)
+  // Use shorter debounce when real-time sync is available (indicated by onSaveImmediately existing)
+  // Increased to 10 seconds to significantly reduce Firebase writes (from 4k/hour to ~360/hour)
+  const autosaveDelay = onSaveImmediately ? 10000 : 30000;
+  
+  // Track last saved script hash to prevent unnecessary saves
+  const lastSavedScriptHashRef = React.useRef<string>('');
+  
   useEffect(() => {
+    // Create a lightweight hash of the script to detect actual changes
+    const scriptHash = JSON.stringify({
+      segmentsCount: script.segments.length,
+      totalShots: script.segments.reduce((sum, seg) => sum + (seg.shots?.length || 0), 0),
+      segmentIds: script.segments.map(s => s.id).sort().join(','),
+      // Only include first 100 chars of titles/audio to detect content changes without full serialization
+      segmentTitles: script.segments.map(s => s.title?.substring(0, 100) || '').join('|'),
+      firstShotAudios: script.segments.map(s => s.shots?.[0]?.audio?.substring(0, 100) || '').join('|'),
+    });
+    
+    // Skip if nothing actually changed (prevents saves on re-renders)
+    if (lastSavedScriptHashRef.current === scriptHash && lastSavedScriptHashRef.current !== '') {
+      console.log('⏭️ Skipping autosave - script hash unchanged');
+      return;
+    }
+    
     // Clear any existing timeout
     if (autosaveTimeoutRef.current) {
       clearTimeout(autosaveTimeoutRef.current);
     }
 
-    // Set new timeout for 30 seconds
-    autosaveTimeoutRef.current = setTimeout(() => {
-      console.log('Auto-saving AV Script:', script);
+    // Set new timeout
+    autosaveTimeoutRef.current = setTimeout(async () => {
+      // Double-check hash hasn't changed during the debounce period
+      const currentHash = JSON.stringify({
+        segmentsCount: script.segments.length,
+        totalShots: script.segments.reduce((sum, seg) => sum + (seg.shots?.length || 0), 0),
+        segmentIds: script.segments.map(s => s.id).sort().join(','),
+        segmentTitles: script.segments.map(s => s.title?.substring(0, 100) || '').join('|'),
+        firstShotAudios: script.segments.map(s => s.shots?.[0]?.audio?.substring(0, 100) || '').join('|'),
+      });
+      
+      if (lastSavedScriptHashRef.current === currentHash && lastSavedScriptHashRef.current !== '') {
+        console.log('⏭️ Skipping autosave - script unchanged during debounce');
+        return;
+      }
+      
+      console.log('💾 Auto-saving AV Script (after', autosaveDelay / 1000, 'seconds):', {
+        segments: script.segments.length,
+        totalShots: script.segments.reduce((sum, seg) => sum + (seg.shots?.length || 0), 0),
+      });
       setIsSaving(true);
-      onSave(script);
-      setLastSavedAt(Date.now());
-      setIsSaving(false);
-    }, 30000); // 30 seconds
+      try {
+        await onSave(script);
+        lastSavedScriptHashRef.current = currentHash; // Update saved hash
+        setLastSavedAt(Date.now());
+      } catch (error) {
+        console.error('Error auto-saving script:', error);
+      } finally {
+        setIsSaving(false);
+      }
+    }, autosaveDelay);
 
     return () => {
       if (autosaveTimeoutRef.current) {
@@ -175,7 +278,7 @@ export function AVScriptEditor({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [script.segments, script.title, script.version, onSave]);
+  }, [script.segments, script.title, script.version, onSave, autosaveDelay]);
 
   const handleAddSegment = () => {
     if (!newSegmentTitle.trim()) return;
@@ -282,20 +385,31 @@ export function AVScriptEditor({
       ),
     };
     setScript(updatedScript);
-    // Don't save immediately - let autosave handle it
+    // Don't save immediately - let autosave handle it (10 second debounce)
+    // This prevents saving on every keystroke, reducing Firebase writes significantly
   };
 
-  const handleDeleteSegment = (segmentId: string) => {
+  const handleDeleteSegment = async (segmentId: string) => {
     const updatedScript = {
       ...script,
       segments: script.segments.filter(segment => segment.id !== segmentId),
     };
     setScript(updatedScript);
     setDeleteConfirmation(null);
-    // Don't save immediately - let autosave handle it
+    // Save immediately for deletions (critical operation)
+    try {
+      if (onSaveImmediately) {
+        await onSaveImmediately(updatedScript);
+      } else {
+        await onSave(updatedScript);
+      }
+      setLastSavedAt(Date.now());
+    } catch (error) {
+      console.error('Error saving after deletion:', error);
+    }
   };
 
-  const handleDeleteShot = (segmentId: string, shotId: string) => {
+  const handleDeleteShot = async (segmentId: string, shotId: string) => {
     const updatedScript = {
       ...script,
       segments: script.segments.map(segment => 
@@ -310,10 +424,20 @@ export function AVScriptEditor({
     };
     setScript(updatedScript);
     setDeleteConfirmation(null);
-    // Don't save immediately - let autosave handle it
+    // Save immediately for deletions (critical operation)
+    try {
+      if (onSaveImmediately) {
+        await onSaveImmediately(updatedScript);
+      } else {
+        await onSave(updatedScript);
+      }
+      setLastSavedAt(Date.now());
+    } catch (error) {
+      console.error('Error saving after deletion:', error);
+    }
   };
 
-  const handleDeleteImage = (segmentId: string, shotId: string) => {
+  const handleDeleteImage = async (segmentId: string, shotId: string) => {
     const updatedScript = {
       ...script,
       segments: script.segments.map(segment => 
@@ -337,7 +461,17 @@ export function AVScriptEditor({
     };
     setScript(updatedScript);
     setDeleteConfirmation(null);
-    // Don't save immediately - let autosave handle it
+    // Save immediately for deletions (critical operation)
+    try {
+      if (onSaveImmediately) {
+        await onSaveImmediately(updatedScript);
+      } else {
+        await onSave(updatedScript);
+      }
+      setLastSavedAt(Date.now());
+    } catch (error) {
+      console.error('Error saving after image deletion:', error);
+    }
   };
 
 
@@ -1136,7 +1270,12 @@ export function AVScriptEditor({
               // Save immediately to ensure image is persisted
               try {
                 console.log('Saving image to AV script:', { imageUrl, shotId: shot.id });
-                await onSave(updatedScript);
+                // Use immediate save if available, otherwise use regular save
+                if (onSaveImmediately) {
+                  await onSaveImmediately(updatedScript);
+                } else {
+                  await onSave(updatedScript);
+                }
                 setLastSavedAt(Date.now());
                 console.log('Image saved successfully');
               } catch (error) {
