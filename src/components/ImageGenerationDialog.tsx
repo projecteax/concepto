@@ -13,7 +13,10 @@ import {
   Image as ImageIcon,
   Edit3,
   Check,
-  Upload
+  Upload,
+  Box,
+  Video,
+  Clapperboard
 } from 'lucide-react';
 import { GlobalAsset, Character, AVShotImageGenerationThread } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -76,7 +79,7 @@ export function ImageGenerationDialog({
   const [showPreview, setShowPreview] = useState(false);
   const [previewData, setPreviewData] = useState<{
     prompt: string;
-    images: Array<{ type: string; name: string; url: string }>;
+    images: Array<{ type: string; name: string; url: string; id?: string; source?: string }>;
   } | null>(null);
   const canvasRef = useRef<ReactSketchCanvasRef>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -86,11 +89,19 @@ export function ImageGenerationDialog({
   // Start frame and end frame states
   const [startFrame, setStartFrame] = useState<string | null>(null);
   const [endFrame, setEndFrame] = useState<string | null>(null);
-  const [mainImageId, setMainImageId] = useState<string | null>(null); // Can be 'startFrame', 'endFrame', or generated image ID
+  const [referenceImage, setReferenceImage] = useState<string | null>(initialImageUrl || null);
+  const [referenceVideo, setReferenceVideo] = useState<string | null>(null);
+  const [mainImageId, setMainImageId] = useState<string | null>(null); // Can be 'startFrame', 'endFrame', 'referenceImage', 'referenceVideo', or generated image ID
   const [isGeneratingStartFrame, setIsGeneratingStartFrame] = useState(false);
   const [isGeneratingEndFrame, setIsGeneratingEndFrame] = useState(false);
+  const [showVideoGenerationModal, setShowVideoGenerationModal] = useState(false);
+  const [videoModel, setVideoModel] = useState<string>('sora-2');
+  const [videoPrompt, setVideoPrompt] = useState<string>('');
   const startFrameFileInputRef = useRef<HTMLInputElement>(null);
   const endFrameFileInputRef = useRef<HTMLInputElement>(null);
+  const referenceImageFileInputRef = useRef<HTMLInputElement>(null);
+  const referenceVideoFileInputRef = useRef<HTMLInputElement>(null);
+  const additionalReferenceImageFileInputRef = useRef<HTMLInputElement>(null);
   const { uploadFile } = useS3Upload();
 
   const buildPrompt = (userMessage?: string): string => {
@@ -208,6 +219,9 @@ export function ImageGenerationDialog({
         })));
         setStartFrame(existingThread.startFrame || null);
         setEndFrame(existingThread.endFrame || null);
+        // Load referenceImage from thread or initialImageUrl
+        setReferenceImage(existingThread.referenceImage || initialImageUrl || null);
+        setReferenceVideo(null); // TODO: Add referenceVideo to thread type if needed
         setMainImageId(existingThread.mainImageId || null);
         setSelectedAssets(existingThread.selectedAssets.map(asset => {
           const fullAsset = globalAssets.find(a => a.id === asset.id);
@@ -255,6 +269,8 @@ export function ImageGenerationDialog({
         setSketchImage(null);
         setStartFrame(null);
         setEndFrame(null);
+        setReferenceImage(initialImageUrl || null);
+        setReferenceVideo(null);
         setMainImageId(null);
         setSelectedStyle('storyboard');
         setGeneratedImages([]);
@@ -560,7 +576,7 @@ export function ImageGenerationDialog({
 
   // Collect all images that will be sent
   const collectPreviewImages = () => {
-    const images: Array<{ type: string; name: string; url: string }> = [];
+    const images: Array<{ type: string; name: string; url: string; id?: string; source?: string }> = [];
     
     // Location images (only 1 per location)
     selectedAssets.filter(a => a.type === 'location').forEach(location => {
@@ -569,6 +585,8 @@ export function ImageGenerationDialog({
           type: 'Location',
           name: `${location.name} (main ref)`,
           url,
+          id: `location-${location.id}`,
+          source: 'location',
         });
       });
     });
@@ -580,6 +598,8 @@ export function ImageGenerationDialog({
           type: 'Character',
           name: `${character.name} (fullBody)`,
           url,
+          id: `character-${character.id}`,
+          source: 'character',
         });
       });
     });
@@ -591,6 +611,8 @@ export function ImageGenerationDialog({
           type: 'Gadget',
           name: `${gadget.name} (main ref)`,
           url,
+          id: `gadget-${gadget.id}`,
+          source: 'gadget',
         });
       });
     });
@@ -601,6 +623,8 @@ export function ImageGenerationDialog({
         type: 'Sketch',
         name: 'Composition Sketch',
         url: sketchImage,
+        id: 'sketch',
+        source: 'sketch',
       });
     }
     
@@ -610,6 +634,8 @@ export function ImageGenerationDialog({
         type: 'Start Frame',
         name: 'Starting Frame',
         url: startFrame,
+        id: 'startFrame',
+        source: 'startFrame',
       });
     }
     
@@ -619,15 +645,30 @@ export function ImageGenerationDialog({
         type: 'End Frame',
         name: 'Ending Frame',
         url: endFrame,
+        id: 'endFrame',
+        source: 'endFrame',
+      });
+    }
+    
+    // Reference image
+    if (referenceImage) {
+      images.push({
+        type: 'Reference',
+        name: 'Reference Image',
+        url: referenceImage,
+        id: 'referenceImage',
+        source: 'referenceImage',
       });
     }
     
     // Initial image (for uploaded images)
-    if (initialImageUrl) {
+    if (initialImageUrl && !referenceImage) {
       images.push({
         type: 'Reference',
         name: 'Reference Image',
         url: initialImageUrl,
+        id: 'initialImage',
+        source: 'initialImage',
       });
     }
     
@@ -639,6 +680,8 @@ export function ImageGenerationDialog({
           type: 'Previous',
           name: 'Previous Generated Image',
           url: prevImg.imageUrl,
+          id: `previous-${selectedImageId}`,
+          source: 'previous',
         });
       }
     }
@@ -670,6 +713,47 @@ export function ImageGenerationDialog({
     const messageText = inputText.trim();
     const isFirstGeneration = generatedImages.length === 0;
     
+    // Get the IDs of images that are still in the preview (not removed)
+    const remainingImageIds = new Set(previewData.images.map(img => img.id));
+    
+    // Filter assets based on remaining images
+    const filteredCharacters = selectedAssets
+      .filter(a => a.type === 'character')
+      .filter(a => remainingImageIds.has(`character-${a.id}`))
+      .map(a => ({
+        id: a.id,
+        name: a.name,
+        images: a.images,
+      }));
+    
+    const filteredLocations = selectedAssets
+      .filter(a => a.type === 'location')
+      .filter(a => remainingImageIds.has(`location-${a.id}`))
+      .map(a => ({
+        id: a.id,
+        name: a.name,
+        images: a.images,
+      }));
+    
+    const filteredGadgets = selectedAssets
+      .filter(a => a.type === 'gadget')
+      .filter(a => remainingImageIds.has(`gadget-${a.id}`))
+      .map(a => ({
+        id: a.id,
+        name: a.name,
+        images: a.images,
+      }));
+    
+    // Filter other images based on remaining images
+    const filteredSketchImage = remainingImageIds.has('sketch') ? sketchImage : undefined;
+    const filteredStartFrame = remainingImageIds.has('startFrame') ? startFrame : undefined;
+    const filteredEndFrame = remainingImageIds.has('endFrame') ? endFrame : undefined;
+    const filteredReferenceImage = remainingImageIds.has('referenceImage') ? referenceImage : undefined;
+    const filteredInitialImageUrl = remainingImageIds.has('initialImage') ? initialImageUrl : undefined;
+    const filteredPreviousImage = selectedImageId && remainingImageIds.has(`previous-${selectedImageId}`)
+      ? generatedImages.find(img => img.id === selectedImageId)?.imageUrl
+      : undefined;
+    
     if (isFirstGeneration) {
       // First message - generate initial image
       setIsGenerating(true);
@@ -684,25 +768,13 @@ export function ImageGenerationDialog({
             style: selectedStyle,
             locationDescription,
             visualDescription,
-            characters: selectedAssets.filter(a => a.type === 'character').map(a => ({
-              id: a.id,
-              name: a.name,
-              images: a.images,
-            })),
-            locations: selectedAssets.filter(a => a.type === 'location').map(a => ({
-              id: a.id,
-              name: a.name,
-              images: a.images,
-            })),
-            gadgets: selectedAssets.filter(a => a.type === 'gadget').map(a => ({
-              id: a.id,
-              name: a.name,
-              images: a.images,
-            })),
-            sketchImage,
-            startFrame,
-            endFrame,
-            initialImageUrl,
+            characters: filteredCharacters,
+            locations: filteredLocations,
+            gadgets: filteredGadgets,
+            sketchImage: filteredSketchImage,
+            startFrame: filteredStartFrame,
+            endFrame: filteredEndFrame,
+            initialImageUrl: filteredReferenceImage || filteredInitialImageUrl,
             episodeId,
             showId,
           }),
@@ -780,26 +852,14 @@ export function ImageGenerationDialog({
             style: selectedStyle,
             locationDescription,
             visualDescription,
-            characters: selectedAssets.filter(a => a.type === 'character').map(a => ({
-              id: a.id,
-              name: a.name,
-              images: a.images,
-            })),
-            locations: selectedAssets.filter(a => a.type === 'location').map(a => ({
-              id: a.id,
-              name: a.name,
-              images: a.images,
-            })),
-            gadgets: selectedAssets.filter(a => a.type === 'gadget').map(a => ({
-              id: a.id,
-              name: a.name,
-              images: a.images,
-            })),
-            sketchImage,
-            startFrame,
-            endFrame,
-            previousImage: selectedImageId ? generatedImages.find(img => img.id === selectedImageId)?.imageUrl : undefined,
-            initialImageUrl,
+            characters: filteredCharacters,
+            locations: filteredLocations,
+            gadgets: filteredGadgets,
+            sketchImage: filteredSketchImage,
+            startFrame: filteredStartFrame,
+            endFrame: filteredEndFrame,
+            previousImage: filteredPreviousImage,
+            initialImageUrl: filteredReferenceImage || filteredInitialImageUrl,
             episodeId,
             showId,
           }),
@@ -1001,30 +1061,89 @@ export function ImageGenerationDialog({
     }
   };
 
-  // Get the main image URL based on mainImageId
-  const getMainImageUrl = (): string | null => {
-    if (!mainImageId) return null;
-    if (mainImageId === 'referenceImage') return initialImageUrl || null;
-    if (mainImageId === 'startFrame') return startFrame;
-    if (mainImageId === 'endFrame') return endFrame;
-    const img = generatedImages.find(img => img.id === mainImageId);
-    return img?.imageUrl || null;
-  };
+  // Handler for uploading reference image
+  const handleUploadReferenceImage = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-  const handleUseImage = () => {
-    // Determine which image to use as main
-    const mainImageUrl = getMainImageUrl();
-    const imageToUse = mainImageId 
-      ? (mainImageId === 'referenceImage' ? initialImageUrl : mainImageId === 'startFrame' ? startFrame : mainImageId === 'endFrame' ? endFrame : generatedImages.find(img => img.id === mainImageId)?.imageUrl)
-      : (selectedImageId ? generatedImages.find(img => img.id === selectedImageId)?.imageUrl : null);
-    
-    if (!imageToUse) {
-      alert('Please select a main image to use');
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file');
       return;
     }
     
-    // Create thread with all conversation data
-    const thread: AVShotImageGenerationThread = {
+    try {
+      const fileKey = `episodes/${episodeId}/reference-images/${Date.now()}-${file.name}`;
+      const result = await uploadFile(file, fileKey);
+      if (result) {
+        setReferenceImage(result.url);
+      }
+    } catch (error) {
+      console.error('Error uploading reference image:', error);
+      alert('Failed to upload reference image');
+    }
+    
+    if (referenceImageFileInputRef.current) {
+      referenceImageFileInputRef.current.value = '';
+    }
+  };
+
+  // Handler for uploading reference video
+  const handleUploadReferenceVideo = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('video/')) {
+      alert('Please select a video file');
+      return;
+    }
+    
+    try {
+      const fileKey = `episodes/${episodeId}/reference-videos/${Date.now()}-${file.name}`;
+      const result = await uploadFile(file, fileKey);
+      if (result) {
+        setReferenceVideo(result.url);
+      }
+    } catch (error) {
+      console.error('Error uploading reference video:', error);
+      alert('Failed to upload reference video');
+    }
+    
+    if (referenceVideoFileInputRef.current) {
+      referenceVideoFileInputRef.current.value = '';
+    }
+  };
+
+  // Handler for uploading additional reference image
+  const handleUploadAdditionalReferenceImage = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file');
+      return;
+    }
+    
+    try {
+      const fileKey = `episodes/${episodeId}/reference-images/${Date.now()}-${file.name}`;
+      const result = await uploadFile(file, fileKey);
+      if (result) {
+        // Add as a new selected asset (reference image type)
+        // For now, we'll treat it as a sketch/reference image
+        setSketchImage(result.url);
+      }
+    } catch (error) {
+      console.error('Error uploading additional reference image:', error);
+      alert('Failed to upload reference image');
+    }
+    
+    if (additionalReferenceImageFileInputRef.current) {
+      additionalReferenceImageFileInputRef.current.value = '';
+    }
+  };
+
+  // Helper to create thread with current state
+  const createThreadFromState = (): AVShotImageGenerationThread => {
+    return {
       id: existingThread?.id || `thread-${Date.now()}`,
       selectedAssets: selectedAssets.map(a => ({
         id: a.id,
@@ -1034,6 +1153,7 @@ export function ImageGenerationDialog({
       sketchImage: sketchImage || undefined,
       startFrame: startFrame || undefined,
       endFrame: endFrame || undefined,
+      referenceImage: referenceImage || undefined,
       mainImageId: mainImageId || selectedImageId || undefined,
       messages: messages,
       generatedImages: generatedImages.map(img => ({
@@ -1047,6 +1167,82 @@ export function ImageGenerationDialog({
       createdAt: existingThread?.createdAt || new Date(),
       updatedAt: new Date(),
     };
+  };
+
+  // Handler to toggle MAIN badge and auto-update AV script
+  const handleToggleMain = (imageId: string) => {
+    const newMainImageId = mainImageId === imageId ? null : imageId;
+    setMainImageId(newMainImageId);
+    
+    // If a main image is selected, immediately update the AV script
+    if (newMainImageId) {
+      // Get the image URL for the new main image ID
+      let mainImageUrl: string | null = null;
+      if (newMainImageId === 'referenceImage') {
+        mainImageUrl = referenceImage || initialImageUrl || null;
+      } else if (newMainImageId === 'startFrame') {
+        mainImageUrl = startFrame;
+      } else if (newMainImageId === 'endFrame') {
+        mainImageUrl = endFrame;
+      } else {
+        const img = generatedImages.find(img => img.id === newMainImageId);
+        mainImageUrl = img?.imageUrl || null;
+      }
+      
+      if (mainImageUrl) {
+        const thread = createThreadFromState();
+        thread.mainImageId = newMainImageId;
+        // Update AV script immediately
+        onImageGenerated(mainImageUrl, thread);
+      }
+    }
+  };
+
+  // Handler to close and save state
+  const handleClose = () => {
+    // Save current state to thread before closing
+    const mainImageUrl = getMainImageUrl();
+    if (mainImageUrl || startFrame || endFrame || referenceImage || generatedImages.length > 0) {
+      const thread = createThreadFromState();
+      // Save the thread even if no main image is selected (to preserve uploaded images)
+      if (mainImageUrl) {
+        onImageGenerated(mainImageUrl, thread);
+      } else {
+        // If no main image but we have state, still save the thread
+        // Use the first available image or keep existing
+        const imageToUse = startFrame || endFrame || referenceImage || initialImageUrl || generatedImages[0]?.imageUrl;
+        if (imageToUse) {
+          onImageGenerated(imageToUse, thread);
+        }
+      }
+    }
+    onClose();
+  };
+
+  // Get the main image URL based on mainImageId
+  const getMainImageUrl = (): string | null => {
+    if (!mainImageId) return null;
+    if (mainImageId === 'referenceImage') return referenceImage || initialImageUrl || null;
+    if (mainImageId === 'startFrame') return startFrame;
+    if (mainImageId === 'endFrame') return endFrame;
+    const img = generatedImages.find(img => img.id === mainImageId);
+    return img?.imageUrl || null;
+  };
+
+  const handleUseImage = () => {
+    // Determine which image to use as main
+    const mainImageUrl = getMainImageUrl();
+    const imageToUse = mainImageId 
+      ? (mainImageId === 'referenceImage' ? (referenceImage || initialImageUrl) : mainImageId === 'startFrame' ? startFrame : mainImageId === 'endFrame' ? endFrame : generatedImages.find(img => img.id === mainImageId)?.imageUrl)
+      : (selectedImageId ? generatedImages.find(img => img.id === selectedImageId)?.imageUrl : null);
+    
+    if (!imageToUse) {
+      alert('Please select a main image to use');
+      return;
+    }
+    
+    // Create thread with all conversation data
+    const thread = createThreadFromState();
     
     onImageGenerated(imageToUse, thread);
     onClose();
@@ -1057,194 +1253,25 @@ export function ImageGenerationDialog({
   return (
     <>
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col">
+        <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] flex flex-col">
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b">
-            <h2 className="text-xl font-semibold">Generate Image</h2>
-            <div className="flex items-center gap-2">
-              {(mainImageId || selectedImageId) && (
-                <Button
-                  onClick={handleUseImage}
-                  size="sm"
-                  className="bg-green-600 hover:bg-green-700"
-                >
-                  <Check className="w-4 h-4 mr-1" />
-                  Use Main Image
-                </Button>
-              )}
+            <h2 className="text-xl font-semibold">Generate image/video</h2>
               <button
-                onClick={onClose}
+              onClick={handleClose}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <X className="w-5 h-5" />
               </button>
-            </div>
           </div>
 
-          {/* Content */}
-          <div className="flex-1 overflow-y-auto p-4">
-            {/* Generated Images Gallery */}
-            {generatedImages.length > 0 && (
-              <div className="mb-4">
-                <h3 className="text-sm font-medium text-gray-700 mb-2">Generated Images</h3>
-                <div className="grid grid-cols-3 gap-2">
-                  {generatedImages.map((img) => (
-                    <div
-                      key={img.id}
-                      onClick={() => {
-                        setSelectedImageId(img.id);
-                        // Also set as main image if not already set
-                        if (!mainImageId) {
-                          setMainImageId(img.id);
-                        }
-                      }}
-                      className={`relative cursor-pointer border-2 rounded-lg overflow-hidden ${
-                        selectedImageId === img.id ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-gray-300'
-                      } ${
-                        mainImageId === img.id ? 'ring-2 ring-green-500' : ''
-                      }`}
-                    >
-                      <img
-                        src={img.imageUrl}
-                        alt="Generated"
-                        className="w-full aspect-video object-cover"
-                      />
-                      {selectedImageId === img.id && (
-                        <div className="absolute top-1 right-1 bg-indigo-600 text-white rounded-full w-6 h-6 flex items-center justify-center">
-                          <Check className="w-4 h-4" />
-                        </div>
-                      )}
-                      {mainImageId === img.id && (
-                        <div className="absolute bottom-1 left-1 bg-green-600 text-white text-xs px-2 py-1 rounded">
-                          Main
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Reference Image Preview */}
-            {initialImageUrl && (
-              <div className="mb-4 relative">
-                <h3 className="text-sm font-medium text-gray-700 mb-2">Reference Image</h3>
-                <div className="relative">
-                  <img
-                    src={initialImageUrl}
-                    alt="Reference"
-                    className="w-full rounded-lg border"
-                  />
-                  <div className="absolute top-1 right-1 flex gap-1">
-                    <button
-                      onClick={() => setMainImageId('referenceImage')}
-                      className={`p-1 rounded ${
-                        mainImageId === 'referenceImage' 
-                          ? 'bg-green-600 text-white' 
-                          : 'bg-white bg-opacity-80 hover:bg-opacity-100'
-                      }`}
-                      title="Set as main image"
-                    >
-                      <Check className="w-4 h-4" />
-                    </button>
-                  </div>
-                  {mainImageId === 'referenceImage' && (
-                    <div className="absolute bottom-1 left-1 bg-green-600 text-white text-xs px-2 py-1 rounded">
-                      Main Image
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Selected Image Preview */}
-            {selectedImageId && (
-              <div className="mb-4">
-                <img
-                  src={generatedImages.find(img => img.id === selectedImageId)?.imageUrl}
-                  alt="Selected"
-                  className="w-full rounded-lg border"
-                />
-              </div>
-            )}
-
-            {/* Chat Messages */}
-            {messages.length > 0 && (
-              <div className="space-y-4 mb-4">
-                {messages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                  >
-                    <div
-                      className={`max-w-[80%] rounded-lg p-3 ${
-                        msg.role === 'user'
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-gray-100 text-gray-900'
-                      }`}
-                    >
-                      {msg.imageUrl && (
-                        <img
-                          src={msg.imageUrl}
-                          alt="Generated"
-                          className="w-full rounded mb-2"
-                        />
-                      )}
-                      <p>{msg.content}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Selected Assets Thumbnails */}
-            {selectedAssets.length > 0 && (
-              <div className="mb-4 flex flex-wrap gap-2">
-                {selectedAssets.map((asset) => (
-                  <div
-                    key={asset.id}
-                    className={`relative ${
-                      asset.type === 'gadget' ? 'w-16 h-16' : 'w-24 h-16'
-                    } rounded border overflow-hidden`}
-                  >
-                    <img
-                      src={asset.thumbnailUrl}
-                      alt={asset.name}
-                      className="w-full h-full object-cover"
-                    />
-                    <button
-                      onClick={() => handleRemoveAsset(asset.id)}
-                      className="absolute top-0 right-0 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Sketch Image */}
-            {sketchImage && (
-              <div className="mb-4 relative">
-                <img
-                  src={sketchImage}
-                  alt="Sketch"
-                  className="w-full rounded-lg border"
-                />
-                <button
-                  onClick={() => setSketchImage(null)}
-                  className="absolute top-2 right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center"
-                >
-                  ×
-                </button>
-              </div>
-            )}
-
-            {/* Start Frame and End Frame Section */}
-            <div className="mb-4 grid grid-cols-2 gap-4">
-              {/* Start Frame */}
+          {/* Content - Two Column Layout */}
+          <div className="flex-1 flex gap-4 p-4 overflow-hidden">
+            {/* Left Column - 4 Image Slots */}
+            <div className="w-64 flex-shrink-0 flex flex-col gap-4 overflow-y-auto">
+              {/* First Frame */}
               <div className="border rounded-lg p-3">
-                <h3 className="text-sm font-medium text-gray-700 mb-2">Starting Frame</h3>
+                <h3 className="text-sm font-medium text-gray-700 mb-2">First Frame</h3>
                 {startFrame ? (
                   <div className="relative">
                     <img
@@ -1252,72 +1279,45 @@ export function ImageGenerationDialog({
                       alt="Start Frame"
                       className="w-full aspect-video object-cover rounded border"
                     />
-                    <div className="absolute top-1 right-1 flex gap-1">
-                      <button
-                        onClick={() => setMainImageId('startFrame')}
-                        className={`p-1 rounded ${
-                          mainImageId === 'startFrame' 
-                            ? 'bg-green-600 text-white' 
-                            : 'bg-white bg-opacity-80 hover:bg-opacity-100'
-                        }`}
-                        title="Set as main image"
-                      >
-                        <Check className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => setStartFrame(null)}
-                        className="p-1 bg-red-500 text-white rounded hover:bg-red-600"
-                        title="Remove"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                    {mainImageId === 'startFrame' && (
-                      <div className="absolute bottom-1 left-1 bg-green-600 text-white text-xs px-2 py-1 rounded">
-                        Main Image
-                      </div>
-                    )}
-                  </div>
+                    <button
+                      onClick={() => handleToggleMain('startFrame')}
+                      className={`absolute top-1 right-1 px-2 py-1 text-xs rounded ${
+                        mainImageId === 'startFrame'
+                          ? 'bg-green-600 text-white'
+                          : 'bg-gray-400 text-white'
+                      }`}
+                    >
+                      MAIN
+                    </button>
+                    <button
+                      onClick={() => setStartFrame(null)}
+                      className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded hover:bg-red-600"
+                      title="Remove"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                        </div>
                 ) : (
-                  <div className="flex flex-col gap-2">
-                    <button
-                      onClick={() => startFrameFileInputRef.current?.click()}
-                      className="flex items-center justify-center gap-2 px-3 py-2 border border-gray-300 rounded hover:bg-gray-50 text-sm"
-                    >
-                      <Upload className="w-4 h-4" />
-                      Upload
-                    </button>
-                    <button
-                      onClick={handleGenerateStartFrame}
-                      disabled={isGeneratingStartFrame}
-                      className="flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 text-sm"
-                    >
-                      {isGeneratingStartFrame ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Generating...
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-4 h-4" />
-                          Generate
-                        </>
-                      )}
-                    </button>
-                    <input
-                      ref={startFrameFileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleUploadStartFrame}
-                      className="hidden"
-                    />
-                  </div>
+                  <button
+                    onClick={() => startFrameFileInputRef.current?.click()}
+                    className="w-full aspect-video border-2 border-dashed border-gray-300 rounded flex flex-col items-center justify-center gap-2 hover:border-gray-400 text-sm text-gray-600"
+                  >
+                    <Upload className="w-6 h-6" />
+                    UPLOAD IMAGE
+                  </button>
                 )}
-              </div>
+                <input
+                  ref={startFrameFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleUploadStartFrame}
+                  className="hidden"
+                />
+                    </div>
 
-              {/* End Frame */}
+              {/* Last Frame */}
               <div className="border rounded-lg p-3">
-                <h3 className="text-sm font-medium text-gray-700 mb-2">Ending Frame</h3>
+                <h3 className="text-sm font-medium text-gray-700 mb-2">Last Frame</h3>
                 {endFrame ? (
                   <div className="relative">
                     <img
@@ -1325,138 +1325,190 @@ export function ImageGenerationDialog({
                       alt="End Frame"
                       className="w-full aspect-video object-cover rounded border"
                     />
-                    <div className="absolute top-1 right-1 flex gap-1">
-                      <button
-                        onClick={() => setMainImageId('endFrame')}
-                        className={`p-1 rounded ${
-                          mainImageId === 'endFrame' 
-                            ? 'bg-green-600 text-white' 
-                            : 'bg-white bg-opacity-80 hover:bg-opacity-100'
-                        }`}
-                        title="Set as main image"
-                      >
-                        <Check className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => setEndFrame(null)}
-                        className="p-1 bg-red-500 text-white rounded hover:bg-red-600"
-                        title="Remove"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
+                    <button
+                      onClick={() => handleToggleMain('endFrame')}
+                      className={`absolute top-1 right-1 px-2 py-1 text-xs rounded ${
+                        mainImageId === 'endFrame'
+                          ? 'bg-green-600 text-white'
+                          : 'bg-gray-400 text-white'
+                      }`}
+                    >
+                      MAIN
+                    </button>
+                    <button
+                      onClick={() => setEndFrame(null)}
+                      className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded hover:bg-red-600"
+                      title="Remove"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+              </div>
+                ) : (
+                  <button
+                    onClick={() => endFrameFileInputRef.current?.click()}
+                    className="w-full aspect-video border-2 border-dashed border-gray-300 rounded flex flex-col items-center justify-center gap-2 hover:border-gray-400 text-sm text-gray-600"
+                  >
+                    <Upload className="w-6 h-6" />
+                    UPLOAD IMAGE
+                  </button>
+                )}
+                <input
+                  ref={endFrameFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleUploadEndFrame}
+                  className="hidden"
+                />
+              </div>
+
+              {/* Reference Image */}
+              <div className="border rounded-lg p-3">
+                <h3 className="text-sm font-medium text-gray-700 mb-2">Reference image</h3>
+                {referenceImage || initialImageUrl ? (
+                  <div className="relative">
+                    <img
+                      src={referenceImage || initialImageUrl}
+                      alt="Reference"
+                      className="w-full aspect-video object-cover rounded border"
+                    />
+                    <button
+                      onClick={() => handleToggleMain('referenceImage')}
+                      className={`absolute top-1 right-1 px-2 py-1 text-xs rounded ${
+                        mainImageId === 'referenceImage'
+                          ? 'bg-green-600 text-white'
+                          : 'bg-gray-400 text-white'
+                      }`}
+                    >
+                      MAIN
+                    </button>
+                    <button
+                      onClick={() => {
+                        setReferenceImage(null);
+                        if (mainImageId === 'referenceImage') setMainImageId(null);
+                      }}
+                      className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded hover:bg-red-600"
+                      title="Remove"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
                     </div>
-                    {mainImageId === 'endFrame' && (
-                      <div className="absolute bottom-1 left-1 bg-green-600 text-white text-xs px-2 py-1 rounded">
-                        Main Image
-                      </div>
-                    )}
+                ) : (
+                  <button
+                    onClick={() => referenceImageFileInputRef.current?.click()}
+                    className="w-full aspect-video border-2 border-dashed border-gray-300 rounded flex flex-col items-center justify-center gap-2 hover:border-gray-400 text-sm text-gray-600"
+                  >
+                    <Upload className="w-6 h-6" />
+                    UPLOAD IMAGE
+                  </button>
+                )}
+                <input
+                  ref={referenceImageFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleUploadReferenceImage}
+                  className="hidden"
+                />
+              </div>
+
+              {/* Reference Video */}
+              <div className="border rounded-lg p-3">
+                <h3 className="text-sm font-medium text-gray-700 mb-2">Reference video</h3>
+                {referenceVideo ? (
+                  <div className="relative">
+                    <video
+                      src={referenceVideo}
+                      className="w-full aspect-video object-cover rounded border"
+                      controls
+                    />
+                    <button
+                      onClick={() => {
+                        setReferenceVideo(null);
+                        if (mainImageId === 'referenceVideo') setMainImageId(null);
+                      }}
+                      className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded hover:bg-red-600"
+                      title="Remove"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-2">
-                    <button
-                      onClick={() => endFrameFileInputRef.current?.click()}
-                      className="flex items-center justify-center gap-2 px-3 py-2 border border-gray-300 rounded hover:bg-gray-50 text-sm"
-                    >
-                      <Upload className="w-4 h-4" />
-                      Upload
-                    </button>
-                    <button
-                      onClick={handleGenerateEndFrame}
-                      disabled={isGeneratingEndFrame}
-                      className="flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 text-sm"
-                    >
-                      {isGeneratingEndFrame ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Generating...
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-4 h-4" />
-                          Generate
-                        </>
-                      )}
-                    </button>
-                    <input
-                      ref={endFrameFileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleUploadEndFrame}
-                      className="hidden"
-                    />
-                  </div>
+                  <button
+                    onClick={() => referenceVideoFileInputRef.current?.click()}
+                    className="w-full aspect-video border-2 border-dashed border-gray-300 rounded flex flex-col items-center justify-center gap-2 hover:border-gray-400 text-sm text-gray-600"
+                  >
+                    <Video className="w-6 h-6" />
+                    UPLOAD VIDEO
+                  </button>
                 )}
+                <input
+                  ref={referenceVideoFileInputRef}
+                  type="file"
+                  accept="video/*"
+                  onChange={handleUploadReferenceVideo}
+                  className="hidden"
+                />
               </div>
             </div>
 
-            {/* Main Image Selector */}
-            {(startFrame || endFrame || generatedImages.length > 0 || initialImageUrl) && (
-              <div className="mb-4 p-3 border rounded-lg bg-gray-50">
-                <h3 className="text-sm font-medium text-gray-700 mb-2">Select Main Image (visible in AV Script)</h3>
-                <div className="flex flex-wrap gap-2">
-                  {initialImageUrl && (
-                    <button
-                      onClick={() => setMainImageId('referenceImage')}
-                      className={`px-3 py-1 rounded text-sm ${
-                        mainImageId === 'referenceImage'
-                          ? 'bg-green-600 text-white'
-                          : 'bg-white border border-gray-300 hover:bg-gray-100'
-                      }`}
-                    >
-                      Reference Image
-                    </button>
-                  )}
-                  {startFrame && (
-                    <button
-                      onClick={() => setMainImageId('startFrame')}
-                      className={`px-3 py-1 rounded text-sm ${
-                        mainImageId === 'startFrame'
-                          ? 'bg-green-600 text-white'
-                          : 'bg-white border border-gray-300 hover:bg-gray-100'
-                      }`}
-                    >
-                      Start Frame
-                    </button>
-                  )}
-                  {endFrame && (
-                    <button
-                      onClick={() => setMainImageId('endFrame')}
-                      className={`px-3 py-1 rounded text-sm ${
-                        mainImageId === 'endFrame'
-                          ? 'bg-green-600 text-white'
-                          : 'bg-white border border-gray-300 hover:bg-gray-100'
-                      }`}
-                    >
-                      End Frame
-                    </button>
-                  )}
-                  {generatedImages.map((img) => (
-                    <button
-                      key={img.id}
-                      onClick={() => setMainImageId(img.id)}
-                      className={`px-3 py-1 rounded text-sm ${
-                        mainImageId === img.id
-                          ? 'bg-green-600 text-white'
-                          : 'bg-white border border-gray-300 hover:bg-gray-100'
-                      }`}
-                    >
-                      Generated {img.id.substring(img.id.length - 6)}
-                    </button>
-                  ))}
-                </div>
+            {/* Right Column - Generated Images + Prompt Area */}
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* Scrollable Generated Images Area */}
+              <div className="flex-1 overflow-y-auto mb-4">
+                <div className="space-y-3">
+                  {generatedImages.length > 0 ? (
+                    generatedImages
+                      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+                      .map((img) => (
+                        <div
+                          key={img.id}
+                          onClick={() => {
+                            setSelectedImageId(img.id);
+                            // If clicking on image and no main is set, set it as main
+                            if (!mainImageId || mainImageId !== img.id) {
+                              handleToggleMain(img.id);
+                            }
+                          }}
+                          className="relative cursor-pointer border-2 rounded-lg overflow-hidden"
+                          style={{ maxWidth: '70%' }}
+                        >
+                          <img
+                            src={img.imageUrl}
+                            alt="Generated"
+                            className="w-full aspect-video object-cover"
+                />
+                <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleMain(img.id);
+                            }}
+                            className={`absolute top-1 right-1 px-2 py-1 text-xs rounded ${
+                              mainImageId === img.id
+                                ? 'bg-green-600 text-white'
+                                : 'bg-gray-400 text-white'
+                            }`}
+                          >
+                            MAIN
+                </button>
+                        </div>
+                      ))
+                  ) : (
+                    <div className="text-sm text-gray-500 text-center py-8">
+                      No generated images yet. Use the prompt below to generate.
               </div>
             )}
-
+                </div>
           </div>
 
-          {/* Input Area */}
-          <div className="p-4 border-t bg-gray-50">
-            {/* Asset Selection Icons */}
-            <div className="flex items-center gap-2 mb-3">
+              {/* Prompt Area */}
+              <div className="border-t pt-4">
+                {/* Icons and Thumbnails Row - Icons on left, thumbnails on right */}
+                <div className="flex items-center gap-3 mb-3">
+                  {/* Icons on the left */}
+                  <div className="flex items-center gap-2">
               <button
-                onClick={handleAddGadget}
+                      onClick={() => additionalReferenceImageFileInputRef.current?.click()}
                 className="p-2 bg-white border rounded hover:bg-gray-100"
-                title="Add Gadget"
+                      title="Add Reference Image"
               >
                 <Plus className="w-5 h-5" />
               </button>
@@ -1475,47 +1527,67 @@ export function ImageGenerationDialog({
                 <User className="w-5 h-5" />
               </button>
               <button
-                onClick={() => setShowDrawingCanvas(true)}
+                      onClick={handleAddGadget}
                 className="p-2 bg-white border rounded hover:bg-gray-100"
-                title="Draw Sketch"
+                      title="Add Gadget"
               >
-                <Pencil className="w-5 h-5" />
+                      <Box className="w-5 h-5" />
               </button>
               <button
-                onClick={() => fileInputRef.current?.click()}
+                      onClick={() => setShowDrawingCanvas(true)}
                 className="p-2 bg-white border rounded hover:bg-gray-100"
-                title="Upload Sketch Image"
+                      title="Draw Sketch"
               >
-                <Upload className="w-5 h-5" />
+                      <Pencil className="w-5 h-5" />
               </button>
               <input
-                ref={fileInputRef}
+                      ref={additionalReferenceImageFileInputRef}
                 type="file"
                 accept="image/*"
-                onChange={handleUploadImage}
+                      onChange={handleUploadAdditionalReferenceImage}
                 className="hidden"
               />
             </div>
 
-            {/* Style Selection */}
-            <div className="flex items-center gap-2 mb-3">
-              <Button
-                variant={selectedStyle === 'storyboard' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setSelectedStyle('storyboard')}
-              >
-                Storyboard
-              </Button>
-              <Button
-                variant={selectedStyle === '3d-render' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setSelectedStyle('3d-render')}
-              >
-                3D Render
-              </Button>
+                  {/* Thumbnails on the right */}
+                  <div className="flex-1 flex flex-wrap gap-2 justify-end">
+                    {selectedAssets.map((asset) => (
+                      <div
+                        key={asset.id}
+                        className="relative w-16 h-16 rounded border overflow-hidden"
+                      >
+                        <img
+                          src={asset.thumbnailUrl}
+                          alt={asset.name}
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          onClick={() => handleRemoveAsset(asset.id)}
+                          className="absolute top-0 right-0 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                    {sketchImage && (
+                      <div className="relative w-16 h-16 rounded border overflow-hidden">
+                        <img
+                          src={sketchImage}
+                          alt="Sketch"
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          onClick={() => setSketchImage(null)}
+                          className="absolute top-0 right-0 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )}
+                  </div>
             </div>
 
-            {/* Editable Prompt - Always visible */}
+                {/* Editable Prompt */}
             <div className="mb-3">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Prompt (editable)
@@ -1527,7 +1599,6 @@ export function ImageGenerationDialog({
                   setEditablePrompt(e.target.value);
                 }}
                 onBlur={() => {
-                  // Reset manual editing flag after a delay to allow auto-updates again
                   setTimeout(() => {
                     isManuallyEditing.current = false;
                   }, 2000);
@@ -1539,30 +1610,32 @@ export function ImageGenerationDialog({
               />
             </div>
 
-            {/* Refinement Input - Only show after first generation */}
-            {generatedImages.length > 0 && (
-              <div className="mb-3">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Describe what you want to change
-                </label>
-                <input
-                  type="text"
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-                  placeholder="Describe what you want to change..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  disabled={isGenerating}
-                />
+                {/* Style Selection and Action Buttons Row - Style on left, buttons on right */}
+                <div className="flex items-center justify-between gap-3">
+                  {/* Style Selection on the left */}
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant={selectedStyle === 'storyboard' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setSelectedStyle('storyboard')}
+                    >
+                      Storyboard
+                    </Button>
+                    <Button
+                      variant={selectedStyle === '3d-render' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setSelectedStyle('3d-render')}
+                    >
+                      3D Render
+                    </Button>
               </div>
-            )}
 
-            {/* Send Button */}
-            <div className="flex items-center justify-end">
+                  {/* Action Buttons on the right */}
+                  <div className="flex items-center gap-3">
               <Button
                 onClick={handleSend}
                 disabled={isGenerating || !editablePrompt.trim()}
-                className="w-full sm:w-auto"
+                      className="bg-blue-600 hover:bg-blue-700"
               >
                 {isGenerating ? (
                   <>
@@ -1571,15 +1644,135 @@ export function ImageGenerationDialog({
                   </>
                 ) : (
                   <>
-                    <Send className="w-4 h-4 mr-2" />
-                    {generatedImages.length === 0 ? 'Generate Image' : 'Refine Image'}
+                          <ImageIcon className="w-4 h-4 mr-2" />
+                          Generate image
                   </>
                 )}
               </Button>
+                    <Button
+                      onClick={() => setShowVideoGenerationModal(true)}
+                      disabled={isGenerating}
+                      className="bg-red-600 hover:bg-red-700"
+                    >
+                      <Clapperboard className="w-4 h-4 mr-2" />
+                      Generate video
+              </Button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Video Generation Modal */}
+      {showVideoGenerationModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[60]">
+          <div className="bg-white rounded-lg p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Generate Video</h3>
+              <button
+                onClick={() => setShowVideoGenerationModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            {/* Video Model Selection */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Video Generation Model
+              </label>
+              <select
+                value={videoModel}
+                onChange={(e) => setVideoModel(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              >
+                <optgroup label="Sora">
+                  <option value="sora-2">Sora 2</option>
+                  <option value="sora-2-pro">Sora 2 Pro</option>
+                </optgroup>
+                <optgroup label="Kling">
+                  <option value="kling-image-to-video">Image-to-Video</option>
+                  <option value="kling-frames-to-video">Frames-to-Video</option>
+                </optgroup>
+                <optgroup label="Runway">
+                  <option value="runway-gen-4">Gen 4</option>
+                  <option value="runway-gen-4-turbo">Gen 4 Turbo</option>
+                </optgroup>
+                <optgroup label="Veo">
+                  <option value="veo-3-1-flash">Veo 3.1 Flash</option>
+                  <option value="veo-3-1-pro">Veo 3.1 Pro</option>
+                </optgroup>
+              </select>
+            </div>
+
+            {/* Start Frame, End Frame, Reference Image */}
+            <div className="grid grid-cols-3 gap-4 mb-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Start Frame</label>
+                {startFrame ? (
+                  <img src={startFrame} alt="Start" className="w-full aspect-video object-cover rounded border" />
+                ) : (
+                  <div className="w-full aspect-video border-2 border-dashed border-gray-300 rounded flex items-center justify-center text-sm text-gray-500">
+                    No start frame
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">End Frame</label>
+                {endFrame ? (
+                  <img src={endFrame} alt="End" className="w-full aspect-video object-cover rounded border" />
+                ) : (
+                  <div className="w-full aspect-video border-2 border-dashed border-gray-300 rounded flex items-center justify-center text-sm text-gray-500">
+                    No end frame
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Reference Image</label>
+                {referenceImage || initialImageUrl ? (
+                  <img src={referenceImage || initialImageUrl} alt="Reference" className="w-full aspect-video object-cover rounded border" />
+                ) : (
+                  <div className="w-full aspect-video border-2 border-dashed border-gray-300 rounded flex items-center justify-center text-sm text-gray-500">
+                    No reference image
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Prompt */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Prompt (editable)
+              </label>
+              <textarea
+                value={videoPrompt}
+                onChange={(e) => setVideoPrompt(e.target.value)}
+                rows={4}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none"
+                placeholder="Enter video generation prompt..."
+              />
+            </div>
+
+            {/* Generate Button */}
+            <div className="flex items-center justify-end">
+              <Button
+                onClick={() => {
+                  // Placeholder - video generation will be implemented later
+                  alert('Video generation will be implemented soon');
+                  setShowVideoGenerationModal(false);
+                }}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                <Clapperboard className="w-4 h-4 mr-2" />
+                Generate
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Drawing Canvas Modal */}
       {showDrawingCanvas && (
@@ -1679,7 +1872,22 @@ export function ImageGenerationDialog({
               </label>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 {previewData.images.map((img, idx) => (
-                  <div key={idx} className="border rounded-lg p-2">
+                  <div key={idx} className="border rounded-lg p-2 relative">
+                    <button
+                      onClick={() => {
+                        setPreviewData(prev => {
+                          if (!prev) return null;
+                          return {
+                            ...prev,
+                            images: prev.images.filter((_, i) => i !== idx),
+                          };
+                        });
+                      }}
+                      className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded hover:bg-red-600 z-10"
+                      title="Remove image"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
                     <div className="text-xs font-medium text-gray-600 mb-1">{img.type}</div>
                     <div className="text-xs text-gray-500 mb-2">{img.name}</div>
                     <img

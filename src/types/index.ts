@@ -328,7 +328,8 @@ export interface AVShotImageGenerationThread {
   sketchImage?: string;
   startFrame?: string; // Starting frame image URL (uploaded or generated)
   endFrame?: string; // Ending frame image URL (uploaded or generated)
-  mainImageId?: string; // ID of the selected main image (can be startFrame, endFrame, or any generated image ID)
+  referenceImage?: string; // Reference image URL (uploaded)
+  mainImageId?: string; // ID of the selected main image (can be 'referenceImage', 'startFrame', 'endFrame', or any generated image ID)
   messages: AVShotImageGenerationMessage[];
   generatedImages: AVShotImageGeneration[];
   selectedImageId?: string;
