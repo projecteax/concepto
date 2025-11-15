@@ -132,14 +132,21 @@ export function useRealtimeEpisode({
         if (updateFromAnotherUser) {
           console.log('👤 Update from another user detected - processing immediately');
           isLocalChangeRef.current = false; // Reset flag to allow processing
-        } else if (isLocalChangeRef.current && timeSinceLastSave < 2000) {
+        } else if (isLocalChangeRef.current && timeSinceLastSave < 1000) {
+          // Only skip if we just saved very recently (within 1 second)
+          // This prevents echo of our own saves while still allowing updates from other tabs/users
           console.log('⏭️ Skipping update - this is our own local change (saved', timeSinceLastSave, 'ms ago)');
           return;
-        } else if (isLocalChangeRef.current && timeSinceLastSave >= 2000) {
-          // If it's been more than 2 seconds, this might be a legitimate update from another user
-          // or a delayed confirmation of our own save, so process it
-          console.log('⚠️ Processing update even though isLocalChange is true (', timeSinceLastSave, 'ms since last save)');
-          isLocalChangeRef.current = false; // Reset the flag
+        } else {
+          // If it's been more than 1 second, process the update
+          // This handles cases where:
+          // - Another tab/user made a change
+          // - We're switching tabs and need to sync
+          // - There's a delayed confirmation of our own save
+          if (isLocalChangeRef.current) {
+            console.log('⚠️ Processing update even though isLocalChange is true (', timeSinceLastSave, 'ms since last save)');
+          }
+          isLocalChangeRef.current = false; // Reset the flag to allow processing
         }
         
         // Create a hash of the episode to detect if it actually changed
@@ -257,8 +264,9 @@ export function useRealtimeEpisode({
       saveTimeoutRef.current = setTimeout(async () => {
         try {
           console.log('💾 Starting debounced save to Firestore...');
+          const saveStartTime = Date.now();
           isLocalChangeRef.current = true; // Mark as local change to skip listener update
-          lastLocalSaveTimeRef.current = Date.now(); // Track when we're saving
+          lastLocalSaveTimeRef.current = saveStartTime; // Track when we're saving
           lastSavedRef.current = updateHash;
 
           // Only send the fields that actually changed (avScript in this case)
@@ -332,9 +340,13 @@ export function useRealtimeEpisode({
           });
 
           // Reset flag after save completes (with small delay to avoid race condition)
+          // But only if enough time has passed to allow other users' updates to come through
+          const saveDuration = Date.now() - saveStartTime;
+          const resetDelay = Math.max(500, 2000 - saveDuration); // At least 500ms, but ensure 2s total from save start
           setTimeout(() => {
             isLocalChangeRef.current = false;
-          }, 500);
+            console.log('🔄 Reset isLocalChange flag after', resetDelay, 'ms');
+          }, resetDelay);
 
           resolve();
         } catch (error) {
@@ -372,14 +384,15 @@ export function useRealtimeEpisode({
       saveTimeoutRef.current = null;
     }
 
-    try {
-      console.log('💾 Starting immediate save to Firestore...');
-      isLocalChangeRef.current = true; // Mark as local change to skip listener update
-      lastLocalSaveTimeRef.current = Date.now(); // Track when we're saving
-      
-      // Create a hash of the updates
-      const updateHash = JSON.stringify(updates);
-      lastSavedRef.current = updateHash;
+          try {
+            console.log('💾 Starting immediate save to Firestore...');
+            const saveStartTime = Date.now();
+            isLocalChangeRef.current = true; // Mark as local change to skip listener update
+            lastLocalSaveTimeRef.current = saveStartTime; // Track when we're saving
+            
+            // Create a hash of the updates
+            const updateHash = JSON.stringify(updates);
+            lastSavedRef.current = updateHash;
 
       // Only send the fields that actually changed (avScript in this case)
       // This reduces the amount of data written to Firestore
@@ -446,15 +459,19 @@ export function useRealtimeEpisode({
       const episodeRef = doc(db, 'episodes', episodeId);
       await updateDoc(episodeRef, cleanedUpdates);
 
-      console.log('💾 Immediately saved episode update to Firestore:', {
-        episodeId,
-        updateKeys: Object.keys(cleanedUpdates),
-      });
-
-      // Reset flag after save completes (with small delay to avoid race condition)
-      setTimeout(() => {
-        isLocalChangeRef.current = false;
-      }, 500);
+            console.log('💾 Immediately saved episode update to Firestore:', {
+              episodeId,
+              updateKeys: Object.keys(cleanedUpdates),
+            });
+    
+            // Reset flag after save completes (with small delay to avoid race condition)
+            // But only if enough time has passed to allow other users' updates to come through
+            const saveDuration = Date.now() - saveStartTime;
+            const resetDelay = Math.max(500, 2000 - saveDuration); // At least 500ms, but ensure 2s total from save start
+            setTimeout(() => {
+              isLocalChangeRef.current = false;
+              console.log('🔄 Reset isLocalChange flag after immediate save (', resetDelay, 'ms)');
+            }, resetDelay);
     } catch (error) {
       console.error('❌ Error immediately saving episode:', error);
       isLocalChangeRef.current = false; // Reset on error so we can receive updates

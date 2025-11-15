@@ -59,8 +59,9 @@ export default function EpisodeDetail({
     };
   }, []);
 
-  // Real-time episode sync (only when tab is visible and on AV Script tab)
-  const isRealtimeEnabled = isTabVisible && activeTab === 'av-script';
+  // Real-time episode sync (always enabled when on AV Script tab, regardless of browser tab visibility)
+  // Browser tab visibility check removed to ensure sync works across browser tabs/windows
+  const isRealtimeEnabled = activeTab === 'av-script';
   
   // Memoize the update callback to prevent infinite loops
   const handleRealtimeUpdate = useCallback((updatedEpisode: Episode) => {
@@ -90,11 +91,26 @@ export default function EpisodeDetail({
         
         // Always update if timestamps are different (even if not strictly newer)
         // This handles cases where serverTimestamp() might cause slight timing issues
-        if (newUpdatedAt >= prevUpdatedAt || Math.abs(newUpdatedAt - prevUpdatedAt) < 1000) {
-          console.log('✅ Updating local episode with new data');
+        // Also check if the content actually changed (not just timestamp)
+        const prevAvScriptHash = JSON.stringify({
+          segments: prev.avScript?.segments?.length || 0,
+          shots: prev.avScript?.segments?.reduce((sum, seg) => sum + (seg.shots?.length || 0), 0) || 0,
+        });
+        const newAvScriptHash = JSON.stringify({
+          segments: updatedEpisode.avScript?.segments?.length || 0,
+          shots: updatedEpisode.avScript?.segments?.reduce((sum, seg) => sum + (seg.shots?.length || 0), 0) || 0,
+        });
+        
+        // Update if timestamp is newer OR if content actually changed (even if timestamp is same/older)
+        // This ensures we get updates even if there's a timestamp mismatch
+        if (newUpdatedAt >= prevUpdatedAt || newAvScriptHash !== prevAvScriptHash) {
+          console.log('✅ Updating local episode with new data', {
+            timestampNewer: newUpdatedAt >= prevUpdatedAt,
+            contentChanged: newAvScriptHash !== prevAvScriptHash,
+          });
           return updatedEpisode;
         }
-        console.log('⏭️ Skipping update - timestamp is older');
+        console.log('⏭️ Skipping update - timestamp is older and content unchanged');
         return prev; // No update needed
       });
     } else {

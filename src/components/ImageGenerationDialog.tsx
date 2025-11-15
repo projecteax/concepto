@@ -18,6 +18,7 @@ import {
 import { GlobalAsset, Character, AVShotImageGenerationThread } from '@/types';
 import { Button } from '@/components/ui/button';
 import { ReactSketchCanvas, ReactSketchCanvasRef } from 'react-sketch-canvas';
+import { useS3Upload } from '@/hooks/useS3Upload';
 
 interface ImageGenerationDialogProps {
   isOpen: boolean;
@@ -30,6 +31,7 @@ interface ImageGenerationDialogProps {
   episodeId: string;
   showId: string;
   existingThread?: AVShotImageGenerationThread;
+  initialImageUrl?: string; // For uploaded images - opens chat with this image in prompt
 }
 
 interface ChatMessage {
@@ -59,6 +61,7 @@ export function ImageGenerationDialog({
   episodeId,
   showId,
   existingThread,
+  initialImageUrl,
 }: ImageGenerationDialogProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -79,6 +82,16 @@ export function ImageGenerationDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [strokeColor, setStrokeColor] = useState('#000000');
   const [strokeWidth, setStrokeWidth] = useState(2);
+  
+  // Start frame and end frame states
+  const [startFrame, setStartFrame] = useState<string | null>(null);
+  const [endFrame, setEndFrame] = useState<string | null>(null);
+  const [mainImageId, setMainImageId] = useState<string | null>(null); // Can be 'startFrame', 'endFrame', or generated image ID
+  const [isGeneratingStartFrame, setIsGeneratingStartFrame] = useState(false);
+  const [isGeneratingEndFrame, setIsGeneratingEndFrame] = useState(false);
+  const startFrameFileInputRef = useRef<HTMLInputElement>(null);
+  const endFrameFileInputRef = useRef<HTMLInputElement>(null);
+  const { uploadFile } = useS3Upload();
 
   const buildPrompt = (userMessage?: string): string => {
     let prompt = `You are generating a storyboard/3D render image for an animated production.\n\n`;
@@ -193,6 +206,9 @@ export function ImageGenerationDialog({
           imageUrl: msg.imageUrl,
           createdAt: msg.createdAt,
         })));
+        setStartFrame(existingThread.startFrame || null);
+        setEndFrame(existingThread.endFrame || null);
+        setMainImageId(existingThread.mainImageId || null);
         setSelectedAssets(existingThread.selectedAssets.map(asset => {
           const fullAsset = globalAssets.find(a => a.id === asset.id);
           if (!fullAsset) return null;
@@ -237,6 +253,9 @@ export function ImageGenerationDialog({
         setInputText('');
         setSelectedAssets([]);
         setSketchImage(null);
+        setStartFrame(null);
+        setEndFrame(null);
+        setMainImageId(null);
         setSelectedStyle('storyboard');
         setGeneratedImages([]);
         setSelectedImageId(null);
@@ -585,6 +604,33 @@ export function ImageGenerationDialog({
       });
     }
     
+    // Start frame
+    if (startFrame) {
+      images.push({
+        type: 'Start Frame',
+        name: 'Starting Frame',
+        url: startFrame,
+      });
+    }
+    
+    // End frame
+    if (endFrame) {
+      images.push({
+        type: 'End Frame',
+        name: 'Ending Frame',
+        url: endFrame,
+      });
+    }
+    
+    // Initial image (for uploaded images)
+    if (initialImageUrl) {
+      images.push({
+        type: 'Reference',
+        name: 'Reference Image',
+        url: initialImageUrl,
+      });
+    }
+    
     // Previous image (for refinement)
     if (selectedImageId) {
       const prevImg = generatedImages.find(img => img.id === selectedImageId);
@@ -654,6 +700,9 @@ export function ImageGenerationDialog({
               images: a.images,
             })),
             sketchImage,
+            startFrame,
+            endFrame,
+            initialImageUrl,
             episodeId,
             showId,
           }),
@@ -680,6 +729,10 @@ export function ImageGenerationDialog({
         
         setGeneratedImages(prev => [...prev, newImage]);
         setSelectedImageId(imageId);
+        // Auto-select as main image if no main image is selected
+        if (!mainImageId) {
+          setMainImageId(imageId);
+        }
         
         setMessages([{
           id: `msg-${Date.now()}`,
@@ -743,7 +796,10 @@ export function ImageGenerationDialog({
               images: a.images,
             })),
             sketchImage,
+            startFrame,
+            endFrame,
             previousImage: selectedImageId ? generatedImages.find(img => img.id === selectedImageId)?.imageUrl : undefined,
+            initialImageUrl,
             episodeId,
             showId,
           }),
@@ -795,14 +851,177 @@ export function ImageGenerationDialog({
     handleShowPreview();
   };
 
-  const handleUseImage = () => {
-    if (!selectedImageId) {
-      alert('Please select an image to use');
+  // Handler for uploading start frame
+  const handleUploadStartFrame = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file');
       return;
     }
+
+    try {
+      const fileKey = `episodes/${episodeId}/frames/start-${Date.now()}-${file.name}`;
+      const result = await uploadFile(file, fileKey);
+      if (result) {
+        setStartFrame(result.url);
+      }
+    } catch (error) {
+      console.error('Error uploading start frame:', error);
+      alert('Failed to upload start frame');
+    }
     
-    const selectedImage = generatedImages.find(img => img.id === selectedImageId);
-    if (!selectedImage) return;
+    if (startFrameFileInputRef.current) {
+      startFrameFileInputRef.current.value = '';
+    }
+  };
+
+  // Handler for uploading end frame
+  const handleUploadEndFrame = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file');
+      return;
+    }
+
+    try {
+      const fileKey = `episodes/${episodeId}/frames/end-${Date.now()}-${file.name}`;
+      const result = await uploadFile(file, fileKey);
+      if (result) {
+        setEndFrame(result.url);
+      }
+    } catch (error) {
+      console.error('Error uploading end frame:', error);
+      alert('Failed to upload end frame');
+    }
+    
+    if (endFrameFileInputRef.current) {
+      endFrameFileInputRef.current.value = '';
+    }
+  };
+
+  // Handler for generating start frame
+  const handleGenerateStartFrame = async () => {
+    setIsGeneratingStartFrame(true);
+    try {
+      const prompt = `Generate a starting frame for this shot. ${visualDescription}`;
+      const response = await fetch('/api/gemini/generate-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          style: selectedStyle,
+          locationDescription,
+          visualDescription,
+          characters: selectedAssets.filter(a => a.type === 'character').map(a => ({
+            id: a.id,
+            name: a.name,
+            images: a.images,
+          })),
+          locations: selectedAssets.filter(a => a.type === 'location').map(a => ({
+            id: a.id,
+            name: a.name,
+            images: a.images,
+          })),
+          gadgets: selectedAssets.filter(a => a.type === 'gadget').map(a => ({
+            id: a.id,
+            name: a.name,
+            images: a.images,
+          })),
+          episodeId,
+          showId,
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate start frame');
+      }
+      
+      const data = await response.json();
+      if (data.imageUrl) {
+        setStartFrame(data.imageUrl);
+      }
+    } catch (error) {
+      console.error('Error generating start frame:', error);
+      alert('Failed to generate start frame');
+    } finally {
+      setIsGeneratingStartFrame(false);
+    }
+  };
+
+  // Handler for generating end frame
+  const handleGenerateEndFrame = async () => {
+    setIsGeneratingEndFrame(true);
+    try {
+      const prompt = `Generate an ending frame for this shot. ${visualDescription}`;
+      const response = await fetch('/api/gemini/generate-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          style: selectedStyle,
+          locationDescription,
+          visualDescription,
+          characters: selectedAssets.filter(a => a.type === 'character').map(a => ({
+            id: a.id,
+            name: a.name,
+            images: a.images,
+          })),
+          locations: selectedAssets.filter(a => a.type === 'location').map(a => ({
+            id: a.id,
+            name: a.name,
+            images: a.images,
+          })),
+          gadgets: selectedAssets.filter(a => a.type === 'gadget').map(a => ({
+            id: a.id,
+            name: a.name,
+            images: a.images,
+          })),
+          episodeId,
+          showId,
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate end frame');
+      }
+      
+      const data = await response.json();
+      if (data.imageUrl) {
+        setEndFrame(data.imageUrl);
+      }
+    } catch (error) {
+      console.error('Error generating end frame:', error);
+      alert('Failed to generate end frame');
+    } finally {
+      setIsGeneratingEndFrame(false);
+    }
+  };
+
+  // Get the main image URL based on mainImageId
+  const getMainImageUrl = (): string | null => {
+    if (!mainImageId) return null;
+    if (mainImageId === 'referenceImage') return initialImageUrl || null;
+    if (mainImageId === 'startFrame') return startFrame;
+    if (mainImageId === 'endFrame') return endFrame;
+    const img = generatedImages.find(img => img.id === mainImageId);
+    return img?.imageUrl || null;
+  };
+
+  const handleUseImage = () => {
+    // Determine which image to use as main
+    const mainImageUrl = getMainImageUrl();
+    const imageToUse = mainImageId 
+      ? (mainImageId === 'referenceImage' ? initialImageUrl : mainImageId === 'startFrame' ? startFrame : mainImageId === 'endFrame' ? endFrame : generatedImages.find(img => img.id === mainImageId)?.imageUrl)
+      : (selectedImageId ? generatedImages.find(img => img.id === selectedImageId)?.imageUrl : null);
+    
+    if (!imageToUse) {
+      alert('Please select a main image to use');
+      return;
+    }
     
     // Create thread with all conversation data
     const thread: AVShotImageGenerationThread = {
@@ -813,6 +1032,9 @@ export function ImageGenerationDialog({
         name: a.name,
       })),
       sketchImage: sketchImage || undefined,
+      startFrame: startFrame || undefined,
+      endFrame: endFrame || undefined,
+      mainImageId: mainImageId || selectedImageId || undefined,
       messages: messages,
       generatedImages: generatedImages.map(img => ({
         id: img.id,
@@ -826,7 +1048,7 @@ export function ImageGenerationDialog({
       updatedAt: new Date(),
     };
     
-    onImageGenerated(selectedImage.imageUrl, thread);
+    onImageGenerated(imageToUse, thread);
     onClose();
   };
 
@@ -840,14 +1062,14 @@ export function ImageGenerationDialog({
           <div className="flex items-center justify-between p-4 border-b">
             <h2 className="text-xl font-semibold">Generate Image</h2>
             <div className="flex items-center gap-2">
-              {selectedImageId && (
+              {(mainImageId || selectedImageId) && (
                 <Button
                   onClick={handleUseImage}
                   size="sm"
                   className="bg-green-600 hover:bg-green-700"
                 >
                   <Check className="w-4 h-4 mr-1" />
-                  Use Selected Image
+                  Use Main Image
                 </Button>
               )}
               <button
@@ -869,9 +1091,17 @@ export function ImageGenerationDialog({
                   {generatedImages.map((img) => (
                     <div
                       key={img.id}
-                      onClick={() => setSelectedImageId(img.id)}
+                      onClick={() => {
+                        setSelectedImageId(img.id);
+                        // Also set as main image if not already set
+                        if (!mainImageId) {
+                          setMainImageId(img.id);
+                        }
+                      }}
                       className={`relative cursor-pointer border-2 rounded-lg overflow-hidden ${
                         selectedImageId === img.id ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-gray-300'
+                      } ${
+                        mainImageId === img.id ? 'ring-2 ring-green-500' : ''
                       }`}
                     >
                       <img
@@ -884,8 +1114,45 @@ export function ImageGenerationDialog({
                           <Check className="w-4 h-4" />
                         </div>
                       )}
+                      {mainImageId === img.id && (
+                        <div className="absolute bottom-1 left-1 bg-green-600 text-white text-xs px-2 py-1 rounded">
+                          Main
+                        </div>
+                      )}
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* Reference Image Preview */}
+            {initialImageUrl && (
+              <div className="mb-4 relative">
+                <h3 className="text-sm font-medium text-gray-700 mb-2">Reference Image</h3>
+                <div className="relative">
+                  <img
+                    src={initialImageUrl}
+                    alt="Reference"
+                    className="w-full rounded-lg border"
+                  />
+                  <div className="absolute top-1 right-1 flex gap-1">
+                    <button
+                      onClick={() => setMainImageId('referenceImage')}
+                      className={`p-1 rounded ${
+                        mainImageId === 'referenceImage' 
+                          ? 'bg-green-600 text-white' 
+                          : 'bg-white bg-opacity-80 hover:bg-opacity-100'
+                      }`}
+                      title="Set as main image"
+                    >
+                      <Check className="w-4 h-4" />
+                    </button>
+                  </div>
+                  {mainImageId === 'referenceImage' && (
+                    <div className="absolute bottom-1 left-1 bg-green-600 text-white text-xs px-2 py-1 rounded">
+                      Main Image
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -970,6 +1237,213 @@ export function ImageGenerationDialog({
                 >
                   ×
                 </button>
+              </div>
+            )}
+
+            {/* Start Frame and End Frame Section */}
+            <div className="mb-4 grid grid-cols-2 gap-4">
+              {/* Start Frame */}
+              <div className="border rounded-lg p-3">
+                <h3 className="text-sm font-medium text-gray-700 mb-2">Starting Frame</h3>
+                {startFrame ? (
+                  <div className="relative">
+                    <img
+                      src={startFrame}
+                      alt="Start Frame"
+                      className="w-full aspect-video object-cover rounded border"
+                    />
+                    <div className="absolute top-1 right-1 flex gap-1">
+                      <button
+                        onClick={() => setMainImageId('startFrame')}
+                        className={`p-1 rounded ${
+                          mainImageId === 'startFrame' 
+                            ? 'bg-green-600 text-white' 
+                            : 'bg-white bg-opacity-80 hover:bg-opacity-100'
+                        }`}
+                        title="Set as main image"
+                      >
+                        <Check className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setStartFrame(null)}
+                        className="p-1 bg-red-500 text-white rounded hover:bg-red-600"
+                        title="Remove"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    {mainImageId === 'startFrame' && (
+                      <div className="absolute bottom-1 left-1 bg-green-600 text-white text-xs px-2 py-1 rounded">
+                        Main Image
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={() => startFrameFileInputRef.current?.click()}
+                      className="flex items-center justify-center gap-2 px-3 py-2 border border-gray-300 rounded hover:bg-gray-50 text-sm"
+                    >
+                      <Upload className="w-4 h-4" />
+                      Upload
+                    </button>
+                    <button
+                      onClick={handleGenerateStartFrame}
+                      disabled={isGeneratingStartFrame}
+                      className="flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 text-sm"
+                    >
+                      {isGeneratingStartFrame ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          Generate
+                        </>
+                      )}
+                    </button>
+                    <input
+                      ref={startFrameFileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleUploadStartFrame}
+                      className="hidden"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* End Frame */}
+              <div className="border rounded-lg p-3">
+                <h3 className="text-sm font-medium text-gray-700 mb-2">Ending Frame</h3>
+                {endFrame ? (
+                  <div className="relative">
+                    <img
+                      src={endFrame}
+                      alt="End Frame"
+                      className="w-full aspect-video object-cover rounded border"
+                    />
+                    <div className="absolute top-1 right-1 flex gap-1">
+                      <button
+                        onClick={() => setMainImageId('endFrame')}
+                        className={`p-1 rounded ${
+                          mainImageId === 'endFrame' 
+                            ? 'bg-green-600 text-white' 
+                            : 'bg-white bg-opacity-80 hover:bg-opacity-100'
+                        }`}
+                        title="Set as main image"
+                      >
+                        <Check className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setEndFrame(null)}
+                        className="p-1 bg-red-500 text-white rounded hover:bg-red-600"
+                        title="Remove"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    {mainImageId === 'endFrame' && (
+                      <div className="absolute bottom-1 left-1 bg-green-600 text-white text-xs px-2 py-1 rounded">
+                        Main Image
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={() => endFrameFileInputRef.current?.click()}
+                      className="flex items-center justify-center gap-2 px-3 py-2 border border-gray-300 rounded hover:bg-gray-50 text-sm"
+                    >
+                      <Upload className="w-4 h-4" />
+                      Upload
+                    </button>
+                    <button
+                      onClick={handleGenerateEndFrame}
+                      disabled={isGeneratingEndFrame}
+                      className="flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 text-sm"
+                    >
+                      {isGeneratingEndFrame ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          Generate
+                        </>
+                      )}
+                    </button>
+                    <input
+                      ref={endFrameFileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleUploadEndFrame}
+                      className="hidden"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Main Image Selector */}
+            {(startFrame || endFrame || generatedImages.length > 0 || initialImageUrl) && (
+              <div className="mb-4 p-3 border rounded-lg bg-gray-50">
+                <h3 className="text-sm font-medium text-gray-700 mb-2">Select Main Image (visible in AV Script)</h3>
+                <div className="flex flex-wrap gap-2">
+                  {initialImageUrl && (
+                    <button
+                      onClick={() => setMainImageId('referenceImage')}
+                      className={`px-3 py-1 rounded text-sm ${
+                        mainImageId === 'referenceImage'
+                          ? 'bg-green-600 text-white'
+                          : 'bg-white border border-gray-300 hover:bg-gray-100'
+                      }`}
+                    >
+                      Reference Image
+                    </button>
+                  )}
+                  {startFrame && (
+                    <button
+                      onClick={() => setMainImageId('startFrame')}
+                      className={`px-3 py-1 rounded text-sm ${
+                        mainImageId === 'startFrame'
+                          ? 'bg-green-600 text-white'
+                          : 'bg-white border border-gray-300 hover:bg-gray-100'
+                      }`}
+                    >
+                      Start Frame
+                    </button>
+                  )}
+                  {endFrame && (
+                    <button
+                      onClick={() => setMainImageId('endFrame')}
+                      className={`px-3 py-1 rounded text-sm ${
+                        mainImageId === 'endFrame'
+                          ? 'bg-green-600 text-white'
+                          : 'bg-white border border-gray-300 hover:bg-gray-100'
+                      }`}
+                    >
+                      End Frame
+                    </button>
+                  )}
+                  {generatedImages.map((img) => (
+                    <button
+                      key={img.id}
+                      onClick={() => setMainImageId(img.id)}
+                      className={`px-3 py-1 rounded text-sm ${
+                        mainImageId === img.id
+                          ? 'bg-green-600 text-white'
+                          : 'bg-white border border-gray-300 hover:bg-gray-100'
+                      }`}
+                    >
+                      Generated {img.id.substring(img.id.length - 6)}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 

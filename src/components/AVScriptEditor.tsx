@@ -20,7 +20,8 @@ import {
   MapPin,
   Edit3,
   Save,
-  Download
+  Download,
+  Key
 } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import CommentThread from './CommentThread';
@@ -28,6 +29,7 @@ import { ImageGenerationDialog } from './ImageGenerationDialog';
 import { AVEnhanceDialog } from './AVEnhanceDialog';
 import { AutoPopulateDialog } from './AutoPopulateDialog';
 import { ImportAVDialog } from './ImportAVDialog';
+import { ApiKeyDialog } from './ApiKeyDialog';
 
 interface AVScriptEditorProps {
   episodeId: string;
@@ -76,6 +78,7 @@ export function AVScriptEditor({
   } | null>(null);
   const [showAutoPopulateDialog, setShowAutoPopulateDialog] = useState(false);
   const [showImportAVDialog, setShowImportAVDialog] = useState(false);
+  const [showApiKeyDialog, setShowApiKeyDialog] = useState(false);
   const [isAnyPopupOpen, setIsAnyPopupOpen] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -196,11 +199,18 @@ export function AVScriptEditor({
     }));
   }, [script.segments]);
 
-  // Manual save handler
+  // Manual save handler - use immediate save if available for real-time sync
   const handleManualSave = async () => {
     setIsSaving(true);
     try {
-      await onSave(script);
+      // Use immediate save if available (for real-time sync), otherwise use regular save
+      if (onSaveImmediately) {
+        console.log('💾 Manual save using immediate save (real-time sync)');
+        await onSaveImmediately(script);
+      } else {
+        console.log('💾 Manual save using regular save');
+        await onSave(script);
+      }
       setLastSavedAt(Date.now());
     } catch (error) {
       console.error('Error saving script:', error);
@@ -735,6 +745,15 @@ export function AVScriptEditor({
                 <Upload className="w-4 h-4" />
                 <span>Import AV</span>
               </button>
+              {/* Get API Button */}
+              <button
+                onClick={() => setShowApiKeyDialog(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                title="Get API configuration for Blender plugin"
+              >
+                <Key className="w-4 h-4" />
+                <span>Get API</span>
+              </button>
               {/* Auto-populate Button */}
               <button
                 onClick={() => setShowAutoPopulateDialog(true)}
@@ -1231,23 +1250,27 @@ export function AVScriptEditor({
       )}
 
       {/* Image Generation Dialog */}
-      {showImageGenerationDialog && currentShotForGeneration && (
-        <ImageGenerationDialog
-          isOpen={showImageGenerationDialog}
-          onClose={() => {
-            setShowImageGenerationDialog(false);
-            setCurrentShotForGeneration(null);
-          }}
-          onImageGenerated={async (imageUrl, thread) => {
-            const segment = script.segments.find(s => s.id === currentShotForGeneration.segmentId);
-            const shot = segment?.shots.find(s => s.id === currentShotForGeneration.shotId);
-            
-            if (segment && shot) {
-              const updatedScript = {
-                ...script,
-                segments: script.segments.map(seg =>
-                  seg.id === segment.id
-                    ? {
+      {showImageGenerationDialog && currentShotForGeneration && (() => {
+        const segment = script.segments.find(s => s.id === currentShotForGeneration.segmentId);
+        const shot = segment?.shots.find(s => s.id === currentShotForGeneration.shotId);
+        const initialImageUrl = shot?.imageUrl && !shot?.imageGenerationThread ? shot.imageUrl : undefined;
+        
+        return (
+          <ImageGenerationDialog
+            isOpen={showImageGenerationDialog}
+            onClose={() => {
+              setShowImageGenerationDialog(false);
+              setCurrentShotForGeneration(null);
+            }}
+            initialImageUrl={initialImageUrl}
+            existingThread={shot?.imageGenerationThread}
+            onImageGenerated={async (imageUrl, thread) => {
+              if (segment && shot) {
+                const updatedScript = {
+                  ...script,
+                  segments: script.segments.map(seg =>
+                    seg.id === segment.id
+                      ? {
                         ...seg,
                         shots: seg.shots.map(s =>
                           s.id === shot.id
@@ -1309,8 +1332,9 @@ export function AVScriptEditor({
           globalAssets={globalAssets}
           episodeId={episodeId}
           showId={showId}
-        />
-      )}
+          />
+        );
+      })()}
 
       {/* Import AV Dialog */}
       {showImportAVDialog && (
@@ -1318,6 +1342,16 @@ export function AVScriptEditor({
           isOpen={showImportAVDialog}
           onClose={() => setShowImportAVDialog(false)}
           onImport={handleImportCSV}
+        />
+      )}
+
+      {/* API Key Dialog */}
+      {showApiKeyDialog && (
+        <ApiKeyDialog
+          isOpen={showApiKeyDialog}
+          onClose={() => setShowApiKeyDialog(false)}
+          showId={showId || ''}
+          episodeId={episodeId}
         />
       )}
 
@@ -2023,6 +2057,9 @@ function ShotRow({
                 onClick={() => {
                   // If image was generated, reopen the dialog with thread
                   if (shot.imageGenerationThread && onImageGenerate) {
+                    onImageGenerate();
+                  } else if (shot.imageUrl && onImageGenerate) {
+                    // For uploaded images, open chat with that image as reference
                     onImageGenerate();
                   } else {
                     onEnlargeImage(shot.imageUrl!);
