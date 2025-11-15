@@ -1,12 +1,21 @@
 import bpy
 import json
 import os
+import sys
 import tempfile
 import requests
 from bpy.props import StringProperty
 from bpy.types import Operator
 from . import api_client
 from . import properties
+
+def get_addon_prefs(context):
+    """Helper function to get addon preferences"""
+    # Use the addon module name directly
+    addon_name = "concepto_blender_plugin"
+    if addon_name in context.preferences.addons:
+        return context.preferences.addons[addon_name].preferences
+    return None
 
 class CONCEPTO_OT_PasteAPIConfig(Operator):
     """Paste API configuration from Concepto"""
