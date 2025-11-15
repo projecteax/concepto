@@ -199,7 +199,7 @@ export function useRealtimeEpisode({
       unsubscribeRef.current = null;
       lastUpdateRef.current = ''; // Reset on cleanup
     };
-  }, [episodeId, enabled, convertFirestoreData]); // Safe to include convertFirestoreData as it's memoized
+  }, [episodeId, enabled, convertFirestoreData, user?.id, user?.username]); // Include user properties to satisfy exhaustive deps
 
   // Debounced save function
   const saveEpisode = useCallback(async (updates: Partial<Episode>) => {
@@ -385,7 +385,7 @@ export function useRealtimeEpisode({
       // This reduces the amount of data written to Firestore
       const cleanedUpdates: Record<string, unknown> = {
         updatedAt: serverTimestamp(),
-        lastEditedBy: user?.email || user?.uid || 'unknown',
+        lastEditedBy: user?.id || user?.username || 'unknown',
         lastEditedAt: serverTimestamp(),
       };
       
