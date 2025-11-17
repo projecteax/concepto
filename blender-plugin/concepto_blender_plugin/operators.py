@@ -199,7 +199,15 @@ class CONCEPTO_OT_LoadEpisode(Operator):
                     for shot in shots:
                         shot_item = context.scene.concepto_shots.add()
                         shot_item.shot_id = shot.get('id', '')
-                        shot_item.shot_number = f"SC{segment_number:02d} - Shot {shot.get('shotNumber', 0)}"
+                        # Use take number (e.g., SC01T01 or SC01T01_image) and extract just the take part (SC01T01)
+                        take = shot.get('take', '')
+                        if take:
+                            # Remove _image suffix if present, then use the take number directly
+                            take_clean = take.replace('_image', '')
+                            shot_item.shot_number = take_clean
+                        else:
+                            # Fallback if no take number
+                            shot_item.shot_number = f"SC{segment_number:02d}T{shot.get('shotNumber', 0):02d}"
                         shot_item.audio = shot.get('audio', '')
                         shot_item.visual = shot.get('visual', '')
                         shot_item.main_image_url = shot.get('imageUrl', '')

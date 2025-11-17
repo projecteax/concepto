@@ -329,9 +329,23 @@ export interface AVShotImageGenerationThread {
   startFrame?: string; // Starting frame image URL (uploaded or generated)
   endFrame?: string; // Ending frame image URL (uploaded or generated)
   referenceImage?: string; // Reference image URL (uploaded)
-  mainImageId?: string; // ID of the selected main image (can be 'referenceImage', 'startFrame', 'endFrame', or any generated image ID)
+  referenceVideo?: string; // Reference video URL (uploaded)
+  // MAIN IMAGE: Only ONE image can be marked as main at a time
+  // When a new image is marked as main, the previous mainImageId is automatically replaced
+  // Can be: 'referenceImage', 'startFrame', 'endFrame', or any generated/uploaded image ID
+  mainImageId?: string;
+  // MAIN VIDEO: Only ONE video can be marked as main at a time
+  // When a new video is marked as main, the previous mainVideoId is automatically replaced
+  // Can be: 'referenceVideo' or any generated/uploaded video ID
+  mainVideoId?: string;
   messages: AVShotImageGenerationMessage[];
   generatedImages: AVShotImageGeneration[];
+  generatedVideos?: Array<{
+    id: string;
+    videoUrl: string;
+    prompt: string;
+    createdAt: Date;
+  }>;
   selectedImageId?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -341,10 +355,12 @@ export interface AVShot {
   id: string;
   segmentId: string;
   shotNumber: number; // 1.1, 1.2, etc. - auto-calculated based on order
-  take: string; // Unique take identifier: SC{segmentNumber}T{takeNumber}_image (e.g., SC01T01_image)
+  take: string; // Unique take identifier: SC{segmentNumber}T{takeNumber} (e.g., SC01T01)
   audio: string;
   visual: string;
-  imageUrl?: string; // Storyboard image
+  // MAIN CONTENT: These represent the currently selected main image and video from the image generation thread
+  imageUrl?: string; // Main storyboard image (selected via mainImageId in imageGenerationThread)
+  videoUrl?: string; // Main video URL (selected via mainVideoId in imageGenerationThread)
   audioFiles?: AVShotAudioFile[]; // Array of audio files for this shot
   imageGenerationThread?: AVShotImageGenerationThread; // Conversation thread for image generation
   enhancementThread?: EnhancementThread; // Conversation thread for text enhancement

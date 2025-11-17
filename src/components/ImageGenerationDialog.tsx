@@ -35,6 +35,7 @@ interface ImageGenerationDialogProps {
   showId: string;
   existingThread?: AVShotImageGenerationThread;
   initialImageUrl?: string; // For uploaded images - opens chat with this image in prompt
+  audioText?: string; // Audio text from AV script to pre-populate video prompt
 }
 
 interface ChatMessage {
@@ -65,6 +66,7 @@ export function ImageGenerationDialog({
   showId,
   existingThread,
   initialImageUrl,
+  audioText,
 }: ImageGenerationDialogProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -91,12 +93,24 @@ export function ImageGenerationDialog({
   const [endFrame, setEndFrame] = useState<string | null>(null);
   const [referenceImage, setReferenceImage] = useState<string | null>(initialImageUrl || null);
   const [referenceVideo, setReferenceVideo] = useState<string | null>(null);
-  const [mainImageId, setMainImageId] = useState<string | null>(null); // Can be 'startFrame', 'endFrame', 'referenceImage', 'referenceVideo', or generated image ID
+  const [mainImageId, setMainImageId] = useState<string | null>(null); // Can be 'startFrame', 'endFrame', 'referenceImage', or generated image ID
+  const [mainVideoId, setMainVideoId] = useState<string | null>(null); // Can be 'referenceVideo' or generated video ID
+  const [generatedVideos, setGeneratedVideos] = useState<Array<{ id: string; videoUrl: string; prompt: string; createdAt: Date }>>([]);
   const [isGeneratingStartFrame, setIsGeneratingStartFrame] = useState(false);
   const [isGeneratingEndFrame, setIsGeneratingEndFrame] = useState(false);
   const [showVideoGenerationModal, setShowVideoGenerationModal] = useState(false);
-  const [videoModel, setVideoModel] = useState<string>('sora-2');
+  const [videoModel, setVideoModel] = useState<string>('veo-3-1-flash');
   const [videoPrompt, setVideoPrompt] = useState<string>('');
+  const [selectedVideoInputType, setSelectedVideoInputType] = useState<'main' | 'start-end' | 'reference-video' | null>(null);
+  const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
+  const [videoResolution, setVideoResolution] = useState<'720p' | '1080p'>('720p');
+  const [videoDuration, setVideoDuration] = useState<4 | 6 | 8>(8);
+  const [enlargedContent, setEnlargedContent] = useState<{ type: 'image' | 'video'; url: string } | null>(null);
+  const [uploadedImages, setUploadedImages] = useState<Array<{ id: string; imageUrl: string; createdAt: Date }>>([]);
+  const [uploadedVideos, setUploadedVideos] = useState<Array<{ id: string; videoUrl: string; createdAt: Date }>>([]);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'image' | 'video'; id: string; url: string } | null>(null);
+  const isPerformingOperation = useRef(false); // Flag to prevent reloading during operations
+  const manualUploadRef = useRef<HTMLInputElement>(null);
   const startFrameFileInputRef = useRef<HTMLInputElement>(null);
   const endFrameFileInputRef = useRef<HTMLInputElement>(null);
   const referenceImageFileInputRef = useRef<HTMLInputElement>(null);
@@ -207,6 +221,11 @@ export function ImageGenerationDialog({
 
   // Initialize from existing thread or reset
   useEffect(() => {
+    // Don't reload if we're in the middle of an operation (like deletion)
+    if (isPerformingOperation.current) {
+      return;
+    }
+    
     if (isOpen) {
       if (existingThread) {
         // Load existing thread
@@ -221,9 +240,114 @@ export function ImageGenerationDialog({
         setEndFrame(existingThread.endFrame || null);
         // Load referenceImage from thread or initialImageUrl
         setReferenceImage(existingThread.referenceImage || initialImageUrl || null);
-        setReferenceVideo(null); // TODO: Add referenceVideo to thread type if needed
-        setMainImageId(existingThread.mainImageId || null);
-        setSelectedAssets(existingThread.selectedAssets.map(asset => {
+        setReferenceVideo(existingThread.referenceVideo || null);
+        // Set main image/video IDs - convert from thread format to display format if needed
+        const threadMainImageId = existingThread.mainImageId;
+        if (threadMainImageId && threadMainImageId.startsWith('uploaded-img-') && !threadMainImageId.startsWith('uploaded-image-')) {
+          // Convert from 'uploaded-img-123' to 'uploaded-image-uploaded-img-123' for display
+          setMainImageId(`uploaded-image-${threadMainImageId}`);
+        } else {
+          setMainImageId(threadMainImageId || null);
+        }
+        setMainVideoId(existingThread.mainVideoId || null);
+        // Separate uploaded images/videos from generated ones
+        const allImages = existingThread.generatedImages || [];
+        const allVideos = existingThread.generatedVideos || [];
+        // Separate uploaded items from generated ones and deduplicate by URL
+        // First, collect all unique URLs to avoid duplicates
+        const uploadedImgsMap = new Map<string, { id: string; imageUrl: string; createdAt: any }>();
+        const uploadedVidsMap = new Map<string, { id: string; videoUrl: string; createdAt: any }>();
+        const genImagesMap = new Map<string, typeof allImages[0]>();
+        const genVideosMap = new Map<string, typeof allVideos[0]>();
+        
+        // Process images - separate uploaded from generated
+        allImages.forEach(img => {
+          if (img.prompt === 'Uploaded image') {
+            // This is an uploaded image - add to uploadedImgsMap
+            if (!uploadedImgsMap.has(img.imageUrl)) {
+              const baseId = img.id.startsWith('uploaded-img-') ? img.id : `uploaded-img-${img.id}`;
+              uploadedImgsMap.set(img.imageUrl, {
+                id: baseId,
+                imageUrl: img.imageUrl,
+                createdAt: img.createdAt,
+              });
+            }
+          } else {
+            // This is a generated image - add to genImagesMap
+            if (!genImagesMap.has(img.imageUrl)) {
+              genImagesMap.set(img.imageUrl, img);
+            }
+          }
+        });
+        
+        // Process videos - separate uploaded from generated
+        allVideos.forEach(vid => {
+          if (vid.prompt === 'Uploaded video') {
+            // This is an uploaded video - add to uploadedVidsMap
+            if (!uploadedVidsMap.has(vid.videoUrl)) {
+              uploadedVidsMap.set(vid.videoUrl, {
+                id: vid.id.startsWith('uploaded-vid-') ? vid.id : `uploaded-vid-${vid.id}`,
+                videoUrl: vid.videoUrl,
+                createdAt: vid.createdAt,
+              });
+            }
+          } else {
+            // This is a generated video - add to genVideosMap
+            if (!genVideosMap.has(vid.videoUrl)) {
+              genVideosMap.set(vid.videoUrl, vid);
+            }
+          }
+        });
+        
+        const uploadedImgs = Array.from(uploadedImgsMap.values());
+        const uploadedVids = Array.from(uploadedVidsMap.values());
+        const genImages = Array.from(genImagesMap.values());
+        const genVideos = Array.from(genVideosMap.values());
+        // Helper to convert date to Date object
+        const toDate = (date: any): Date => {
+          if (date instanceof Date) return date;
+          if (typeof date === 'string') return new Date(date);
+          if (date?.toDate) return date.toDate(); // Firestore Timestamp
+          if (date?.toMillis) return new Date(date.toMillis()); // Firestore Timestamp
+          return new Date();
+        };
+
+        setGeneratedImages(genImages.map(img => ({
+          id: img.id,
+          imageUrl: img.imageUrl,
+          prompt: img.prompt,
+          createdAt: toDate(img.createdAt),
+        })));
+        setGeneratedVideos(genVideos.map(v => ({
+          id: v.id,
+          videoUrl: v.videoUrl,
+          prompt: v.prompt,
+          createdAt: toDate(v.createdAt),
+        })));
+        setUploadedImages(uploadedImgs.map(img => ({
+          ...img,
+          createdAt: toDate(img.createdAt),
+        })));
+        setUploadedVideos(uploadedVids.map(vid => ({
+          ...vid,
+          createdAt: toDate(vid.createdAt),
+        })));
+        // Load uploaded images/videos from initialImageUrl if present and not already loaded
+        // Use a Set to track existing URLs to avoid duplicates
+        const existingImageUrls = new Set(uploadedImgs.map(img => img.imageUrl));
+        if (initialImageUrl && !existingThread.referenceImage && !existingImageUrls.has(initialImageUrl)) {
+          setUploadedImages(prev => {
+            const alreadyExists = prev.some(img => img.imageUrl === initialImageUrl);
+            if (alreadyExists) return prev;
+            return [...prev, {
+              id: `uploaded-img-${Date.now()}`,
+              imageUrl: initialImageUrl,
+              createdAt: new Date(),
+            }];
+          });
+        }
+        // Load existing assets from thread
+        const loadedAssets = existingThread.selectedAssets.map(asset => {
           const fullAsset = globalAssets.find(a => a.id === asset.id);
           if (!fullAsset) return null;
           
@@ -251,14 +375,72 @@ export function ImageGenerationDialog({
             thumbnailUrl,
             images: images.filter(Boolean),
           };
-        }).filter(Boolean) as SelectedAsset[]);
+        }).filter(Boolean) as SelectedAsset[];
+        
+        setSelectedAssets(loadedAssets);
+        
+        // Also auto-detect from visual description to catch any new characters/locations
+        // This helps when visual description has new characters/locations not in the thread
+        setTimeout(() => {
+          if (visualDescription) {
+            const newAssets: SelectedAsset[] = [];
+            
+            // Detect characters from visual description
+            const characterAssets = globalAssets.filter(a => a.category === 'character') as Character[];
+            characterAssets.forEach(character => {
+              const nameRegex = new RegExp(`\\b${character.name}\\b`, 'i');
+              if (nameRegex.test(visualDescription)) {
+                const thumbnailUrl = character.aiRefImages?.head?.[0] || 
+                                     character.mainImage || 
+                                     character.characterGallery?.[0] || '';
+                if (thumbnailUrl) {
+                  newAssets.push({
+                    id: character.id,
+                    type: 'character',
+                    name: character.name,
+                    thumbnailUrl,
+                    images: [
+                      ...(character.aiRefImages?.fullBody || []).slice(0, 1),
+                    ].filter(Boolean),
+                  });
+                }
+              }
+            });
+            
+            // Detect locations from visual description
+            const locationAssets = globalAssets.filter(a => a.category === 'location');
+            locationAssets.forEach(location => {
+              const nameRegex = new RegExp(`\\b${location.name}\\b`, 'i');
+              if (nameRegex.test(visualDescription)) {
+                const thumbnailUrl = location.aiRefImages?.ref01?.[0] || 
+                                     location.mainRender || 
+                                     location.galleryImages?.[0] || '';
+                if (thumbnailUrl) {
+                  newAssets.push({
+                    id: location.id,
+                    type: 'location',
+                    name: location.name,
+                    thumbnailUrl,
+                    images: [
+                      ...(location.aiRefImages?.ref01 || []).slice(0, 1),
+                      ...(location.mainRender ? [location.mainRender] : []),
+                    ].filter(Boolean).slice(0, 1),
+                  });
+                }
+              }
+            });
+            
+            if (newAssets.length > 0) {
+              setSelectedAssets(prev => {
+                const existingIds = new Set(prev.map(a => a.id));
+                const toAdd = newAssets.filter(a => !existingIds.has(a.id));
+                return [...prev, ...toAdd];
+              });
+            }
+          }
+        }, 300);
         setSketchImage(existingThread.sketchImage || null);
-        setGeneratedImages(existingThread.generatedImages.map(img => ({
-          id: img.id,
-          imageUrl: img.imageUrl,
-          prompt: img.prompt,
-          createdAt: img.createdAt,
-        })));
+        // Don't override setGeneratedImages again - it was already set above with deduplication (lines 303-322)
         setSelectedImageId(existingThread.selectedImageId || null);
         setSelectedStyle(existingThread.generatedImages[0]?.style || 'storyboard');
       } else {
@@ -272,7 +454,22 @@ export function ImageGenerationDialog({
         setReferenceImage(initialImageUrl || null);
         setReferenceVideo(null);
         setMainImageId(null);
+        setMainVideoId(null);
+        setGeneratedVideos([]);
         setSelectedStyle('storyboard');
+        // Initialize uploaded images/videos from initialImageUrl if present
+        if (initialImageUrl) {
+          setUploadedImages([{
+            id: `uploaded-img-${Date.now()}`,
+            imageUrl: initialImageUrl,
+            createdAt: new Date(),
+          }]);
+        } else {
+          setUploadedImages([]);
+        }
+        setUploadedVideos([]);
+        // Also check if there's a videoUrl in the shot that's not in the thread
+        // This handles the case where video was uploaded directly in AV script
         setGeneratedImages([]);
         setSelectedImageId(null);
         
@@ -298,13 +495,14 @@ export function ImageGenerationDialog({
           }
         }
         
-        // Parse visual description for character names
+        // Parse visual description for character and location names
         // This needs to happen after initial state is set
         setTimeout(() => {
           if (visualDescription) {
-            const characterAssets = globalAssets.filter(a => a.category === 'character') as Character[];
-            const newCharacters: SelectedAsset[] = [];
+            const newAssets: SelectedAsset[] = [];
             
+            // Detect characters from visual description
+            const characterAssets = globalAssets.filter(a => a.category === 'character') as Character[];
             characterAssets.forEach(character => {
               // Check if character name appears in visual description (case insensitive)
               const nameRegex = new RegExp(`\\b${character.name}\\b`, 'i');
@@ -313,7 +511,7 @@ export function ImageGenerationDialog({
                                      character.mainImage || 
                                      character.characterGallery?.[0] || '';
                 if (thumbnailUrl) {
-                  newCharacters.push({
+                  newAssets.push({
                     id: character.id,
                     type: 'character',
                     name: character.name,
@@ -327,16 +525,41 @@ export function ImageGenerationDialog({
               }
             });
             
-            if (newCharacters.length > 0) {
+            // Detect locations from visual description
+            const locationAssets = globalAssets.filter(a => a.category === 'location');
+            locationAssets.forEach(location => {
+              // Check if location name appears in visual description (case insensitive)
+              const nameRegex = new RegExp(`\\b${location.name}\\b`, 'i');
+              if (nameRegex.test(visualDescription)) {
+                const thumbnailUrl = location.aiRefImages?.ref01?.[0] || 
+                                     location.mainRender || 
+                                     location.galleryImages?.[0] || '';
+                if (thumbnailUrl) {
+                  newAssets.push({
+                    id: location.id,
+                    type: 'location',
+                    name: location.name,
+                    thumbnailUrl,
+                    images: [
+                      ...(location.aiRefImages?.ref01 || []).slice(0, 1),
+                      ...(location.mainRender ? [location.mainRender] : []),
+                    ].filter(Boolean).slice(0, 1),
+                  });
+                }
+              }
+            });
+            
+            // Add detected assets if they don't already exist
+            if (newAssets.length > 0) {
               setSelectedAssets(prev => {
                 const existingIds = new Set(prev.map(a => a.id));
-                const toAdd = newCharacters.filter(c => !existingIds.has(c.id));
+                const toAdd = newAssets.filter(a => !existingIds.has(a.id));
                 return [...prev, ...toAdd];
               });
             }
           }
           
-          // Update prompt after character parsing
+          // Update prompt after asset parsing
           setTimeout(() => {
             if (!isManuallyEditing.current) {
               const initialPrompt = buildPrompt();
@@ -650,11 +873,11 @@ export function ImageGenerationDialog({
       });
     }
     
-    // Reference image
+    // Main image (previously reference image)
     if (referenceImage) {
       images.push({
-        type: 'Reference',
-        name: 'Reference Image',
+        type: 'Main',
+        name: 'Main Image',
         url: referenceImage,
         id: 'referenceImage',
         source: 'referenceImage',
@@ -664,8 +887,8 @@ export function ImageGenerationDialog({
     // Initial image (for uploaded images)
     if (initialImageUrl && !referenceImage) {
       images.push({
-        type: 'Reference',
-        name: 'Reference Image',
+        type: 'Main',
+        name: 'Main Image',
         url: initialImageUrl,
         id: 'initialImage',
         source: 'initialImage',
@@ -1076,6 +1299,16 @@ export function ImageGenerationDialog({
       const result = await uploadFile(file, fileKey);
       if (result) {
         setReferenceImage(result.url);
+        // Also add to uploaded images grid if not already present
+        setUploadedImages(prev => {
+          const exists = prev.some(img => img.imageUrl === result.url);
+          if (exists) return prev;
+          return [...prev, {
+            id: `uploaded-img-${Date.now()}`,
+            imageUrl: result.url,
+            createdAt: new Date(),
+          }];
+        });
       }
     } catch (error) {
       console.error('Error uploading reference image:', error);
@@ -1143,6 +1376,35 @@ export function ImageGenerationDialog({
 
   // Helper to create thread with current state
   const createThreadFromState = (): AVShotImageGenerationThread => {
+    // Combine uploaded images with generated images for the thread
+    const allImages = [
+      ...uploadedImages.map(img => ({
+        id: img.id,
+        imageUrl: img.imageUrl,
+        prompt: 'Uploaded image',
+        style: selectedStyle as 'storyboard' | '3d-render',
+        createdAt: img.createdAt,
+      })),
+      ...generatedImages.map(img => ({
+        id: img.id,
+        imageUrl: img.imageUrl,
+        prompt: img.prompt,
+        style: selectedStyle as 'storyboard' | '3d-render',
+        createdAt: img.createdAt,
+      })),
+    ];
+
+    // Combine uploaded videos with generated videos for the thread
+    const allVideos = [
+      ...uploadedVideos.map(vid => ({
+        id: vid.id,
+        videoUrl: vid.videoUrl,
+        prompt: 'Uploaded video',
+        createdAt: vid.createdAt,
+      })),
+      ...generatedVideos,
+    ];
+
     return {
       id: existingThread?.id || `thread-${Date.now()}`,
       selectedAssets: selectedAssets.map(a => ({
@@ -1154,46 +1416,74 @@ export function ImageGenerationDialog({
       startFrame: startFrame || undefined,
       endFrame: endFrame || undefined,
       referenceImage: referenceImage || undefined,
+      referenceVideo: referenceVideo || undefined,
       mainImageId: mainImageId || selectedImageId || undefined,
+      mainVideoId: mainVideoId || undefined,
       messages: messages,
-      generatedImages: generatedImages.map(img => ({
-        id: img.id,
-        imageUrl: img.imageUrl,
-        prompt: img.prompt,
-        style: selectedStyle,
-        createdAt: img.createdAt,
-      })),
+      generatedImages: allImages,
+      generatedVideos: allVideos.length > 0 ? allVideos : undefined,
       selectedImageId: selectedImageId || undefined,
       createdAt: existingThread?.createdAt || new Date(),
       updatedAt: new Date(),
     };
   };
 
-  // Handler to toggle MAIN badge and auto-update AV script
+  // Handler to set MAIN badge for images and auto-update AV script
+  // Note: Only ONE image can be main at a time. When clicking on a new image,
+  // it becomes main and the previous main is automatically replaced.
   const handleToggleMain = (imageId: string) => {
-    const newMainImageId = mainImageId === imageId ? null : imageId;
+    // Always set the clicked image as main (no toggle-off behavior)
+    const newMainImageId = imageId;
     setMainImageId(newMainImageId);
     
-    // If a main image is selected, immediately update the AV script
-    if (newMainImageId) {
-      // Get the image URL for the new main image ID
-      let mainImageUrl: string | null = null;
-      if (newMainImageId === 'referenceImage') {
-        mainImageUrl = referenceImage || initialImageUrl || null;
-      } else if (newMainImageId === 'startFrame') {
-        mainImageUrl = startFrame;
-      } else if (newMainImageId === 'endFrame') {
-        mainImageUrl = endFrame;
-      } else {
-        const img = generatedImages.find(img => img.id === newMainImageId);
-        mainImageUrl = img?.imageUrl || null;
-      }
-      
-      if (mainImageUrl) {
-        const thread = createThreadFromState();
-        thread.mainImageId = newMainImageId;
-        // Update AV script immediately
-        onImageGenerated(mainImageUrl, thread);
+    // Get the image URL for the new main image ID
+    let mainImageUrl: string | null = null;
+    
+    // Check uploaded images first
+    if (newMainImageId.startsWith('uploaded-image-')) {
+      const uploadedImgId = newMainImageId.replace('uploaded-image-', '');
+      const uploadedImg = uploadedImages.find(img => img.id === uploadedImgId);
+      mainImageUrl = uploadedImg?.imageUrl || null;
+    } else if (newMainImageId === 'referenceImage') {
+      mainImageUrl = referenceImage || initialImageUrl || null;
+    } else if (newMainImageId === 'startFrame') {
+      mainImageUrl = startFrame;
+    } else if (newMainImageId === 'endFrame') {
+      mainImageUrl = endFrame;
+    } else {
+      // Check generated images
+      const img = generatedImages.find(img => img.id === newMainImageId);
+      mainImageUrl = img?.imageUrl || null;
+    }
+    
+    if (mainImageUrl) {
+      const thread = createThreadFromState();
+      thread.mainImageId = newMainImageId;
+      // Update AV script immediately
+      onImageGenerated(mainImageUrl, thread);
+    }
+  };
+
+  // Handler to set MAIN badge for videos and auto-update AV script
+  // Note: Only ONE video can be main at a time. When clicking on a new video,
+  // it becomes main and the previous main is automatically replaced.
+  const handleToggleMainVideo = (videoId: string) => {
+    // Always set the clicked video as main (no toggle-off behavior)
+    const newMainVideoId = videoId;
+    setMainVideoId(newMainVideoId);
+    
+    const thread = createThreadFromState();
+    thread.mainVideoId = newMainVideoId;
+    // Get current main image URL to preserve it
+    const mainImageUrl = getMainImageUrl();
+    // Update AV script with both image and video
+    if (mainImageUrl) {
+      onImageGenerated(mainImageUrl, thread);
+    } else {
+      // If no main image, still save the thread with video
+      const imageToUse = startFrame || endFrame || referenceImage || initialImageUrl || generatedImages[0]?.imageUrl || uploadedImages[0]?.imageUrl;
+      if (imageToUse) {
+        onImageGenerated(imageToUse, thread);
       }
     }
   };
@@ -1201,18 +1491,28 @@ export function ImageGenerationDialog({
   // Handler to close and save state
   const handleClose = () => {
     // Save current state to thread before closing
-    const mainImageUrl = getMainImageUrl();
-    if (mainImageUrl || startFrame || endFrame || referenceImage || generatedImages.length > 0) {
+    // Always save if there's any content (uploaded or generated) to preserve it
+    const hasContent = uploadedImages.length > 0 || uploadedVideos.length > 0 || 
+                       generatedImages.length > 0 || generatedVideos.length > 0 ||
+                       startFrame || endFrame || referenceImage || referenceVideo;
+    
+    if (hasContent) {
       const thread = createThreadFromState();
-      // Save the thread even if no main image is selected (to preserve uploaded images)
+      const mainImageUrl = getMainImageUrl();
+      
+      // Always save the thread to preserve uploaded content
       if (mainImageUrl) {
         onImageGenerated(mainImageUrl, thread);
       } else {
-        // If no main image but we have state, still save the thread
+        // If no main image but we have content, still save the thread
         // Use the first available image or keep existing
-        const imageToUse = startFrame || endFrame || referenceImage || initialImageUrl || generatedImages[0]?.imageUrl;
+        const imageToUse = startFrame || endFrame || referenceImage || initialImageUrl || 
+                          generatedImages[0]?.imageUrl || uploadedImages[0]?.imageUrl;
         if (imageToUse) {
           onImageGenerated(imageToUse, thread);
+        } else {
+          // Even if no image, save the thread to preserve videos and other content
+          onImageGenerated('', thread);
         }
       }
     }
@@ -1225,6 +1525,13 @@ export function ImageGenerationDialog({
     if (mainImageId === 'referenceImage') return referenceImage || initialImageUrl || null;
     if (mainImageId === 'startFrame') return startFrame;
     if (mainImageId === 'endFrame') return endFrame;
+    // Check uploaded images first
+    if (mainImageId.startsWith('uploaded-image-')) {
+      const uploadedImgId = mainImageId.replace('uploaded-image-', '');
+      const uploadedImg = uploadedImages.find(img => img.id === uploadedImgId);
+      return uploadedImg?.imageUrl || null;
+    }
+    // Check generated images
     const img = generatedImages.find(img => img.id === mainImageId);
     return img?.imageUrl || null;
   };
@@ -1361,44 +1668,38 @@ export function ImageGenerationDialog({
                 />
               </div>
 
-              {/* Reference Image */}
+              {/* Main Image */}
               <div className="border rounded-lg p-3">
-                <h3 className="text-sm font-medium text-gray-700 mb-2">Reference image</h3>
-                {referenceImage || initialImageUrl ? (
+                <h3 className="text-sm font-medium text-gray-700 mb-2">Main Image</h3>
+                {getMainImageUrl() ? (
                   <div className="relative">
                     <img
-                      src={referenceImage || initialImageUrl}
-                      alt="Reference"
-                      className="w-full aspect-video object-cover rounded border"
+                      src={getMainImageUrl()!}
+                      alt="Main Image"
+                      className="w-full aspect-video object-cover rounded border cursor-pointer hover:opacity-90"
+                      onClick={() => setEnlargedContent({ type: 'image', url: getMainImageUrl()! })}
                     />
-                    <button
-                      onClick={() => handleToggleMain('referenceImage')}
-                      className={`absolute top-1 right-1 px-2 py-1 text-xs rounded ${
-                        mainImageId === 'referenceImage'
-                          ? 'bg-green-600 text-white'
-                          : 'bg-gray-400 text-white'
-                      }`}
-                    >
+                    <div className="absolute top-1 right-1 px-2 py-1 text-xs rounded bg-green-600 text-white">
                       MAIN
-                    </button>
+                    </div>
                     <button
                       onClick={() => {
-                        setReferenceImage(null);
-                        if (mainImageId === 'referenceImage') setMainImageId(null);
+                        // Clear the main image
+                        setMainImageId(null);
                       }}
                       className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded hover:bg-red-600"
-                      title="Remove"
+                      title="Clear main image"
                     >
                       <X className="w-3 h-3" />
                     </button>
-                    </div>
+                  </div>
                 ) : (
                   <button
                     onClick={() => referenceImageFileInputRef.current?.click()}
                     className="w-full aspect-video border-2 border-dashed border-gray-300 rounded flex flex-col items-center justify-center gap-2 hover:border-gray-400 text-sm text-gray-600"
                   >
                     <Upload className="w-6 h-6" />
-                    UPLOAD IMAGE
+                    UPLOAD MAIN IMAGE
                   </button>
                 )}
                 <input
@@ -1420,10 +1721,24 @@ export function ImageGenerationDialog({
                       className="w-full aspect-video object-cover rounded border"
                       controls
                     />
+                    {/* Video camera icon to indicate this is a video */}
+                    <div className="absolute bottom-1 right-1 bg-black bg-opacity-60 rounded-full p-1.5 pointer-events-none z-10">
+                      <Video className="w-3 h-3 text-white" />
+                    </div>
+                    <button
+                      onClick={() => handleToggleMainVideo('referenceVideo')}
+                      className={`absolute top-1 right-1 px-2 py-1 text-xs rounded ${
+                        mainVideoId === 'referenceVideo'
+                          ? 'bg-green-600 text-white'
+                          : 'bg-gray-400 text-white'
+                      }`}
+                    >
+                      MAIN
+                    </button>
                     <button
                       onClick={() => {
                         setReferenceVideo(null);
-                        if (mainImageId === 'referenceVideo') setMainImageId(null);
+                        if (mainVideoId === 'referenceVideo') setMainVideoId(null);
                       }}
                       className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded hover:bg-red-600"
                       title="Remove"
@@ -1450,54 +1765,200 @@ export function ImageGenerationDialog({
               </div>
             </div>
 
-            {/* Right Column - Generated Images + Prompt Area */}
+            {/* Right Column - Generated Content Grid + Prompt Area */}
             <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Scrollable Generated Images Area */}
+              {/* Scrollable Generated Content Grid */}
               <div className="flex-1 overflow-y-auto mb-4">
-                <div className="space-y-3">
-                  {generatedImages.length > 0 ? (
-                    generatedImages
-                      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-                      .map((img) => (
-                        <div
-                          key={img.id}
-                          onClick={() => {
-                            setSelectedImageId(img.id);
-                            // If clicking on image and no main is set, set it as main
-                            if (!mainImageId || mainImageId !== img.id) {
-                              handleToggleMain(img.id);
-                            }
+                {/* Grid with 3 items per row */}
+                <div className="grid grid-cols-3 gap-3">
+                  {/* Uploaded Images */}
+                  {uploadedImages.map((img, idx) => (
+                    <div
+                      key={`uploaded-img-${img.id}-${idx}`}
+                      onClick={() => setEnlargedContent({ type: 'image', url: img.imageUrl })}
+                      className="relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group"
+                    >
+                      <img
+                        src={img.imageUrl}
+                        alt="Uploaded"
+                        className="w-full h-full object-cover"
+                      />
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleMain(`uploaded-image-${img.id}`);
+                        }}
+                        className={`absolute top-1 right-1 px-2 py-1 text-xs rounded z-10 ${
+                          mainImageId === `uploaded-image-${img.id}`
+                            ? 'bg-green-600 text-white'
+                            : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                        }`}
+                      >
+                        MAIN
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteConfirm({ type: 'image', id: img.id, url: img.imageUrl });
+                        }}
+                        className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-red-600"
+                        title="Delete image"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                  
+                  {/* Uploaded Videos */}
+                  {uploadedVideos.map((vid, idx) => (
+                    <div
+                      key={`uploaded-vid-${vid.id}-${idx}`}
+                      onClick={() => setEnlargedContent({ type: 'video', url: vid.videoUrl })}
+                      className="relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group"
+                    >
+                      <video
+                        src={vid.videoUrl}
+                        className="w-full h-full object-cover"
+                        muted
+                      />
+                      {/* Video camera icon to indicate this is a video */}
+                      <div className="absolute bottom-1 right-1 bg-black bg-opacity-60 rounded-full p-1.5 pointer-events-none z-10">
+                        <Video className="w-3 h-3 text-white" />
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleMainVideo(`uploaded-video-${vid.id}`);
+                        }}
+                        className={`absolute top-1 right-1 px-2 py-1 text-xs rounded z-10 ${
+                          mainVideoId === `uploaded-video-${vid.id}`
+                            ? 'bg-green-600 text-white'
+                            : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                        }`}
+                      >
+                        MAIN
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteConfirm({ type: 'video', id: vid.id, url: vid.videoUrl });
+                        }}
+                        className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-red-600"
+                        title="Delete video"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                  
+                  {/* Generated Images */}
+                  {generatedImages
+                    .sort((a, b) => {
+                      const aTime = a.createdAt instanceof Date ? a.createdAt.getTime() : 
+                                   (typeof a.createdAt === 'string' ? new Date(a.createdAt).getTime() : 
+                                   (a.createdAt?.toMillis ? a.createdAt.toMillis() : 0));
+                      const bTime = b.createdAt instanceof Date ? b.createdAt.getTime() : 
+                                   (typeof b.createdAt === 'string' ? new Date(b.createdAt).getTime() : 
+                                   (b.createdAt?.toMillis ? b.createdAt.toMillis() : 0));
+                      return bTime - aTime;
+                    })
+                    .map((img, idx) => (
+                      <div
+                        key={`gen-img-${img.id}-${idx}`}
+                        onClick={() => setEnlargedContent({ type: 'image', url: img.imageUrl })}
+                        className="relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group"
+                      >
+                        <img
+                          src={img.imageUrl}
+                          alt="Generated"
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleMain(img.id);
                           }}
-                          className="relative cursor-pointer border-2 rounded-lg overflow-hidden"
-                          style={{ maxWidth: '70%' }}
+                          className={`absolute top-1 right-1 px-2 py-1 text-xs rounded z-10 ${
+                            mainImageId === img.id
+                              ? 'bg-green-600 text-white'
+                              : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                          }`}
                         >
-                          <img
-                            src={img.imageUrl}
-                            alt="Generated"
-                            className="w-full aspect-video object-cover"
-                />
-                <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleToggleMain(img.id);
-                            }}
-                            className={`absolute top-1 right-1 px-2 py-1 text-xs rounded ${
-                              mainImageId === img.id
-                                ? 'bg-green-600 text-white'
-                                : 'bg-gray-400 text-white'
-                            }`}
-                          >
-                            MAIN
-                </button>
+                          MAIN
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteConfirm({ type: 'image', id: img.id, url: img.imageUrl });
+                          }}
+                          className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-red-600"
+                          title="Delete image"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  
+                  {/* Generated Videos */}
+                  {generatedVideos
+                    .sort((a, b) => {
+                      const aTime = a.createdAt instanceof Date ? a.createdAt.getTime() : 
+                                   (typeof a.createdAt === 'string' ? new Date(a.createdAt).getTime() : 
+                                   (a.createdAt?.toMillis ? a.createdAt.toMillis() : 0));
+                      const bTime = b.createdAt instanceof Date ? b.createdAt.getTime() : 
+                                   (typeof b.createdAt === 'string' ? new Date(b.createdAt).getTime() : 
+                                   (b.createdAt?.toMillis ? b.createdAt.toMillis() : 0));
+                      return bTime - aTime;
+                    })
+                    .map((vid, idx) => (
+                      <div
+                        key={`gen-vid-${vid.id}-${idx}`}
+                        onClick={() => setEnlargedContent({ type: 'video', url: vid.videoUrl })}
+                        className="relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group"
+                      >
+                        <video
+                          src={vid.videoUrl}
+                          className="w-full h-full object-cover"
+                          muted
+                        />
+                        {/* Video camera icon to indicate this is a video */}
+                        <div className="absolute bottom-1 right-1 bg-black bg-opacity-60 rounded-full p-1.5 pointer-events-none z-10">
+                          <Video className="w-3 h-3 text-white" />
                         </div>
-                      ))
-                  ) : (
-                    <div className="text-sm text-gray-500 text-center py-8">
-                      No generated images yet. Use the prompt below to generate.
-              </div>
-            )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleMainVideo(vid.id);
+                          }}
+                          className={`absolute top-1 right-1 px-2 py-1 text-xs rounded z-10 ${
+                            mainVideoId === vid.id
+                              ? 'bg-green-600 text-white'
+                              : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                          }`}
+                        >
+                          MAIN
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteConfirm({ type: 'video', id: vid.id, url: vid.videoUrl });
+                          }}
+                          className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-red-600"
+                          title="Delete video"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  
+                  {/* Empty state */}
+                  {uploadedImages.length === 0 && uploadedVideos.length === 0 && generatedImages.length === 0 && generatedVideos.length === 0 && (
+                    <div className="col-span-3 text-sm text-gray-500 text-center py-8">
+                      No content yet. Generate or upload images/videos to get started.
+                    </div>
+                  )}
                 </div>
-          </div>
+              </div>
 
               {/* Prompt Area */}
               <div className="border-t pt-4">
@@ -1650,14 +2111,229 @@ export function ImageGenerationDialog({
                 )}
               </Button>
                     <Button
-                      onClick={() => setShowVideoGenerationModal(true)}
+                      onClick={() => {
+                        // Pre-populate prompt with audio text if available
+                        if (audioText) {
+                          setVideoPrompt(audioText);
+                        } else {
+                          setVideoPrompt(visualDescription || '');
+                        }
+                        // Auto-select input type based on availability
+                        if (getMainImageUrl()) {
+                          setSelectedVideoInputType('main');
+                        } else if (startFrame && endFrame) {
+                          setSelectedVideoInputType('start-end');
+                        } else {
+                          setSelectedVideoInputType(null);
+                        }
+                        setShowVideoGenerationModal(true);
+                      }}
                       disabled={isGenerating}
                       className="bg-red-600 hover:bg-red-700"
                     >
                       <Clapperboard className="w-4 h-4 mr-2" />
                       Generate video
               </Button>
+                    <Button
+                      onClick={() => manualUploadRef.current?.click()}
+                      className="bg-black hover:bg-gray-800 text-white"
+                    >
+                      <Upload className="w-4 h-4 mr-2" />
+                      Upload manually
+                    </Button>
                   </div>
+                </div>
+                
+                {/* Hidden Upload Input */}
+                <div className="hidden">
+
+                  <input
+                    ref={manualUploadRef}
+                    type="file"
+                    accept="image/*,video/*"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      
+                      // Set flag to prevent useEffect from reloading during upload
+                      isPerformingOperation.current = true;
+                      
+                      try {
+                        if (file.type.startsWith('image/')) {
+                          const result = await uploadFile(file, `episodes/${episodeId}/av-script/images/`);
+                          if (result) {
+                            const uploadedImgId = `uploaded-img-${Date.now()}`;
+                            const uploadedImageMainId = `uploaded-image-${uploadedImgId}`;
+                            
+                            // Add the new image to the state
+                            const newImage = {
+                              id: uploadedImgId,
+                              imageUrl: result.url,
+                              createdAt: new Date(),
+                            };
+                            
+                            // Update state and get current values
+                            const currentMainImageUrl = getMainImageUrl();
+                            const shouldSetAsMain = !currentMainImageUrl;
+                            
+                            setUploadedImages(prev => [...prev, newImage]);
+                            
+                            if (shouldSetAsMain) {
+                              setMainImageId(uploadedImageMainId);
+                            }
+                            
+                            // Wait for state to update then save
+                            await new Promise(resolve => setTimeout(resolve, 150));
+                            
+                            // Create thread with updated state
+                            const allImages = [
+                              ...uploadedImages,
+                              newImage,
+                              ...generatedImages.map(img => ({
+                                id: img.id,
+                                imageUrl: img.imageUrl,
+                                prompt: 'Uploaded image',
+                                style: selectedStyle as 'storyboard' | '3d-render',
+                                createdAt: img.createdAt,
+                              })),
+                            ].map(img => ({
+                              id: img.id,
+                              imageUrl: img.imageUrl,
+                              prompt: (img as any).prompt || 'Uploaded image',
+                              style: selectedStyle as 'storyboard' | '3d-render',
+                              createdAt: img.createdAt,
+                            }));
+                            
+                            const allVideos = [
+                              ...uploadedVideos.map(vid => ({
+                                id: vid.id,
+                                videoUrl: vid.videoUrl,
+                                prompt: 'Uploaded video',
+                                createdAt: vid.createdAt,
+                              })),
+                              ...generatedVideos,
+                            ];
+                            
+                            const thread = {
+                              id: existingThread?.id || `thread-${Date.now()}`,
+                              selectedAssets: selectedAssets.map(a => ({
+                                id: a.id,
+                                type: a.type,
+                                name: a.name,
+                              })),
+                              sketchImage: sketchImage || undefined,
+                              startFrame: startFrame || undefined,
+                              endFrame: endFrame || undefined,
+                              referenceImage: referenceImage || undefined,
+                              referenceVideo: referenceVideo || undefined,
+                              mainImageId: shouldSetAsMain ? uploadedImageMainId : (mainImageId || undefined),
+                              mainVideoId: mainVideoId || undefined,
+                              messages: messages,
+                              generatedImages: allImages,
+                              generatedVideos: allVideos.length > 0 ? allVideos : undefined,
+                              selectedImageId: selectedImageId || undefined,
+                              createdAt: existingThread?.createdAt || new Date(),
+                              updatedAt: new Date(),
+                            };
+                            
+                            const imageUrlToSave = shouldSetAsMain ? result.url : (currentMainImageUrl || result.url);
+                            onImageGenerated(imageUrlToSave, thread);
+                          }
+                        } else if (file.type.startsWith('video/')) {
+                          const result = await uploadFile(file, `episodes/${episodeId}/av-script/videos/`);
+                          if (result) {
+                            const uploadedVidId = `uploaded-vid-${Date.now()}`;
+                            const uploadedVideoMainId = `uploaded-video-${uploadedVidId}`;
+                            
+                            // Add the new video to the state
+                            const newVideo = {
+                              id: uploadedVidId,
+                              videoUrl: result.url,
+                              createdAt: new Date(),
+                            };
+                            
+                            const shouldSetAsMainVideo = !mainVideoId;
+                            
+                            setUploadedVideos(prev => {
+                              const exists = prev.some(vid => vid.videoUrl === result.url);
+                              if (exists) return prev;
+                              return [...prev, newVideo];
+                            });
+                            
+                            if (shouldSetAsMainVideo) {
+                              setMainVideoId(uploadedVideoMainId);
+                            }
+                            
+                            // Wait for state to update then save
+                            await new Promise(resolve => setTimeout(resolve, 150));
+                            
+                            const allImages = [
+                              ...uploadedImages.map(img => ({
+                                id: img.id,
+                                imageUrl: img.imageUrl,
+                                prompt: 'Uploaded image',
+                                style: selectedStyle as 'storyboard' | '3d-render',
+                                createdAt: img.createdAt,
+                              })),
+                              ...generatedImages.map(img => ({
+                                id: img.id,
+                                imageUrl: img.imageUrl,
+                                prompt: img.prompt,
+                                style: selectedStyle as 'storyboard' | '3d-render',
+                                createdAt: img.createdAt,
+                              })),
+                            ];
+                            
+                            const allVideos = [
+                              ...uploadedVideos,
+                              newVideo,
+                              ...generatedVideos,
+                            ].map(vid => ({
+                              id: vid.id,
+                              videoUrl: vid.videoUrl,
+                              prompt: (vid as any).prompt || 'Uploaded video',
+                              createdAt: vid.createdAt,
+                            }));
+                            
+                            const thread = {
+                              id: existingThread?.id || `thread-${Date.now()}`,
+                              selectedAssets: selectedAssets.map(a => ({
+                                id: a.id,
+                                type: a.type,
+                                name: a.name,
+                              })),
+                              sketchImage: sketchImage || undefined,
+                              startFrame: startFrame || undefined,
+                              endFrame: endFrame || undefined,
+                              referenceImage: referenceImage || undefined,
+                              referenceVideo: referenceVideo || undefined,
+                              mainImageId: mainImageId || undefined,
+                              mainVideoId: shouldSetAsMainVideo ? uploadedVideoMainId : (mainVideoId || undefined),
+                              messages: messages,
+                              generatedImages: allImages,
+                              generatedVideos: allVideos.length > 0 ? allVideos : undefined,
+                              selectedImageId: selectedImageId || undefined,
+                              createdAt: existingThread?.createdAt || new Date(),
+                              updatedAt: new Date(),
+                            };
+                            
+                            const mainImageUrl = getMainImageUrl();
+                            const imageToUse = mainImageUrl || startFrame || endFrame || referenceImage || initialImageUrl || generatedImages[0]?.imageUrl || uploadedImages[0]?.imageUrl;
+                            onImageGenerated(imageToUse || '', thread);
+                          }
+                        }
+                      } finally {
+                        // Clear flag after operation completes
+                        setTimeout(() => {
+                          isPerformingOperation.current = false;
+                        }, 200);
+                        
+                        // Reset the file input
+                        e.target.value = '';
+                      }
+                    }}
+                    className="hidden"
+                  />
                 </div>
               </div>
             </div>
@@ -1672,7 +2348,10 @@ export function ImageGenerationDialog({
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold">Generate Video</h3>
               <button
-                onClick={() => setShowVideoGenerationModal(false)}
+                onClick={() => {
+                  setShowVideoGenerationModal(false);
+                  setSelectedVideoInputType(null);
+                }}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <X className="w-5 h-5" />
@@ -1689,57 +2368,192 @@ export function ImageGenerationDialog({
                 onChange={(e) => setVideoModel(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               >
-                <optgroup label="Sora">
-                  <option value="sora-2">Sora 2</option>
-                  <option value="sora-2-pro">Sora 2 Pro</option>
-                </optgroup>
-                <optgroup label="Kling">
-                  <option value="kling-image-to-video">Image-to-Video</option>
-                  <option value="kling-frames-to-video">Frames-to-Video</option>
-                </optgroup>
-                <optgroup label="Runway">
-                  <option value="runway-gen-4">Gen 4</option>
-                  <option value="runway-gen-4-turbo">Gen 4 Turbo</option>
-                </optgroup>
-                <optgroup label="Veo">
+                <optgroup label="Veo (Google Gemini)">
                   <option value="veo-3-1-flash">Veo 3.1 Flash</option>
                   <option value="veo-3-1-pro">Veo 3.1 Pro</option>
                 </optgroup>
+                <optgroup label="SORA (OpenAI)">
+                  <option value="sora-2">SORA 2</option>
+                </optgroup>
               </select>
+              <p className="text-xs text-gray-500 mt-1">
+                {videoModel.startsWith('veo') 
+                  ? 'Using Veo 3.1 models for video generation. Fast mode generates quicker, Pro mode provides higher quality. Note: Veo models require a paid tier Gemini API account.'
+                  : 'Using OpenAI SORA 2 for video generation. Supports text-to-video and image-to-video generation.'}
+              </p>
             </div>
 
-            {/* Start Frame, End Frame, Reference Image */}
-            <div className="grid grid-cols-3 gap-4 mb-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Start Frame</label>
-                {startFrame ? (
-                  <img src={startFrame} alt="Start" className="w-full aspect-video object-cover rounded border" />
-                ) : (
-                  <div className="w-full aspect-video border-2 border-dashed border-gray-300 rounded flex items-center justify-center text-sm text-gray-500">
-                    No start frame
-                  </div>
-                )}
+            {/* Resolution Selection - Available for both Veo and SORA */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Video Resolution
+              </label>
+              <select
+                value={videoResolution}
+                onChange={(e) => setVideoResolution(e.target.value as '720p' | '1080p')}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              >
+                <option value="720p">720p (1280x720 - Faster generation)</option>
+                <option value="1080p">1080p (1920x1080 - Higher quality)</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                Select the output resolution for the generated video. Both Veo and SORA models support this.
+              </p>
+            </div>
+
+            {/* Duration Selection */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Video Duration: {videoDuration}s
+              </label>
+              <div className="flex items-center gap-4">
+                {([4, 6, 8] as const).map((duration) => (
+                  <button
+                    key={duration}
+                    type="button"
+                    onClick={() => setVideoDuration(duration)}
+                    className={`flex-1 px-4 py-2 border-2 rounded-lg font-medium transition-colors ${
+                      videoDuration === duration
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                        : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                    }`}
+                  >
+                    {duration}s
+                  </button>
+                ))}
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">End Frame</label>
-                {endFrame ? (
-                  <img src={endFrame} alt="End" className="w-full aspect-video object-cover rounded border" />
-                ) : (
-                  <div className="w-full aspect-video border-2 border-dashed border-gray-300 rounded flex items-center justify-center text-sm text-gray-500">
-                    No end frame
+              <p className="text-xs text-gray-500 mt-1">
+                Select the duration of the generated video. Available options: 4s, 6s, or 8s.
+              </p>
+            </div>
+
+            {/* Select Input Type */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Select Input Type *
+              </label>
+              <div className="grid grid-cols-2 gap-4">
+                {/* Main Image - Image to Video */}
+                <div
+                  onClick={() => {
+                    if (getMainImageUrl()) {
+                      setSelectedVideoInputType('main');
+                    } else {
+                      alert('No main image available. Please set a main image first.');
+                    }
+                  }}
+                  className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video ${
+                    selectedVideoInputType === 'main' ? 'border-indigo-500' : 'border-gray-300'
+                  } ${!getMainImageUrl() ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  {getMainImageUrl() ? (
+                    <>
+                      <img
+                        src={getMainImageUrl()!}
+                        alt="Main Image"
+                        className="w-full h-full object-cover"
+                      />
+                      {selectedVideoInputType === 'main' && (
+                        <div className="absolute inset-0 bg-indigo-500 bg-opacity-30 flex items-center justify-center">
+                          <Check className="w-8 h-8 text-white" />
+                        </div>
+                      )}
+                      <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-sm font-medium p-2 text-center">
+                        MAIN IMAGE (Image to Video)
+                      </div>
+                    </>
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400 text-sm">
+                      No Main Image
+                    </div>
+                  )}
+                </div>
+
+                {/* Start & End Frame - Frames to Video */}
+                <div
+                  onClick={() => {
+                    if (startFrame && endFrame) {
+                      setSelectedVideoInputType('start-end');
+                    } else {
+                      alert('Both start frame and end frame are required for frames-to-video generation.');
+                    }
+                  }}
+                  className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video ${
+                    selectedVideoInputType === 'start-end' ? 'border-indigo-500' : 'border-gray-300'
+                  } ${!startFrame || !endFrame ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  {startFrame && endFrame ? (
+                    <div className="w-full h-full grid grid-cols-2">
+                      <div className="relative">
+                        <img
+                          src={startFrame}
+                          alt="Start Frame"
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-xs p-1 text-center">
+                          START
+                        </div>
+                      </div>
+                      <div className="relative">
+                        <img
+                          src={endFrame}
+                          alt="End Frame"
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-xs p-1 text-center">
+                          END
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400 text-sm">
+                      {!startFrame && !endFrame ? 'No Frames' : !startFrame ? 'No Start Frame' : 'No End Frame'}
+                    </div>
+                  )}
+                  {selectedVideoInputType === 'start-end' && (
+                    <div className="absolute inset-0 bg-indigo-500 bg-opacity-30 flex items-center justify-center pointer-events-none">
+                      <Check className="w-8 h-8 text-white" />
+                    </div>
+                  )}
+                  <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-sm font-medium p-2 text-center pointer-events-none">
+                    START & END FRAME (Frames to Video)
                   </div>
-                )}
+                </div>
+
+                {/* Reference Video - Placeholder */}
+                <div
+                  onClick={() => {
+                    alert('Reference video generation is not yet implemented.');
+                  }}
+                  className="relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video border-gray-300 opacity-50 cursor-not-allowed"
+                >
+                  {referenceVideo ? (
+                    <>
+                      <video
+                        src={referenceVideo}
+                        className="w-full h-full object-cover"
+                        muted
+                      />
+                      <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-sm font-medium p-2 text-center">
+                        REFERENCE VIDEO (Coming Soon)
+                      </div>
+                    </>
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400 text-sm">
+                      No Reference Video
+                    </div>
+                  )}
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Reference Image</label>
-                {referenceImage || initialImageUrl ? (
-                  <img src={referenceImage || initialImageUrl} alt="Reference" className="w-full aspect-video object-cover rounded border" />
-                ) : (
-                  <div className="w-full aspect-video border-2 border-dashed border-gray-300 rounded flex items-center justify-center text-sm text-gray-500">
-                    No reference image
-                  </div>
-                )}
-              </div>
+              {!selectedVideoInputType && (
+                <p className="text-xs text-red-500 mt-1">Please select an input type</p>
+              )}
+              {selectedVideoInputType === 'main' && !getMainImageUrl() && (
+                <p className="text-xs text-amber-500 mt-1">Main image is required for image-to-video generation</p>
+              )}
+              {selectedVideoInputType === 'start-end' && (!startFrame || !endFrame) && (
+                <p className="text-xs text-amber-500 mt-1">Both start and end frames are required for frames-to-video generation</p>
+              )}
             </div>
 
             {/* Prompt */}
@@ -1752,22 +2566,174 @@ export function ImageGenerationDialog({
                 onChange={(e) => setVideoPrompt(e.target.value)}
                 rows={4}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none"
-                placeholder="Enter video generation prompt..."
+                placeholder="Enter video generation prompt (pre-populated with audio text)..."
               />
             </div>
 
             {/* Generate Button */}
-            <div className="flex items-center justify-end">
+            <div className="flex items-center justify-end gap-2">
               <Button
                 onClick={() => {
-                  // Placeholder - video generation will be implemented later
-                  alert('Video generation will be implemented soon');
                   setShowVideoGenerationModal(false);
+                  setSelectedVideoInputType(null);
                 }}
-                className="bg-red-600 hover:bg-red-700"
+                className="bg-gray-300 hover:bg-gray-400 text-gray-700"
               >
-                <Clapperboard className="w-4 h-4 mr-2" />
-                Generate
+                Cancel
+              </Button>
+              <Button
+                onClick={async () => {
+                  if (!selectedVideoInputType) {
+                    alert('Please select an input type');
+                    return;
+                  }
+                  
+                  if (selectedVideoInputType === 'main' && !getMainImageUrl()) {
+                    alert('Main image is required for image-to-video generation');
+                    return;
+                  }
+                  
+                  if (selectedVideoInputType === 'start-end' && (!startFrame || !endFrame)) {
+                    alert('Both start and end frames are required for frames-to-video generation');
+                    return;
+                  }
+                  
+                  if (selectedVideoInputType === 'reference-video') {
+                    alert('Reference video generation is not yet implemented');
+                    return;
+                  }
+                  
+                  if (!videoPrompt.trim()) {
+                    alert('Please enter a prompt');
+                    return;
+                  }
+                  
+                  setIsGeneratingVideo(true);
+                  isPerformingOperation.current = true;
+                  
+                  try {
+                    let requestBody: any = {
+                      prompt: videoPrompt,
+                      model: videoModel,
+                      episodeId,
+                    };
+                    
+                    // Determine generation type and set appropriate parameters
+                    if (selectedVideoInputType === 'main') {
+                      // Image to video
+                      requestBody.type = 'image-to-video';
+                      requestBody.imageUrl = getMainImageUrl();
+                    } else if (selectedVideoInputType === 'start-end') {
+                      // Frames to video
+                      requestBody.type = 'frames-to-video';
+                      requestBody.startFrameUrl = startFrame;
+                      requestBody.endFrameUrl = endFrame;
+                    }
+                    requestBody.resolution = videoResolution;
+                    requestBody.duration = videoDuration;
+                    
+                    const response = await fetch('/api/gemini/generate-video', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(requestBody),
+                    });
+                    
+                    if (!response.ok) {
+                      const errorData = await response.json();
+                      throw new Error(errorData.error || 'Video generation failed');
+                    }
+                    
+                    const data = await response.json();
+                    
+                    if (data.videoUrl) {
+                      // Add generated video to state immediately
+                      const newVideo = {
+                        id: `gen-vid-${Date.now()}`,
+                        videoUrl: data.videoUrl,
+                        prompt: videoPrompt,
+                        createdAt: new Date(),
+                      };
+                      
+                      // Update state immediately
+                      setGeneratedVideos(prev => {
+                        const updated = [...prev, newVideo];
+                        console.log('✅ Video added to state:', newVideo);
+                        return updated;
+                      });
+                      
+                      // Set as main video if no main video exists
+                      const shouldSetAsMain = !mainVideoId;
+                      if (shouldSetAsMain) {
+                        setMainVideoId(newVideo.id);
+                      }
+                      
+                      // Save thread with new video - use longer timeout to ensure state is updated
+                      setTimeout(async () => {
+                        try {
+                          // Create thread with updated state including the new video
+                          const thread = createThreadFromState();
+                          // Ensure mainVideoId is set if we just added the first video
+                          if (shouldSetAsMain) {
+                            thread.mainVideoId = newVideo.id;
+                          }
+                          // Ensure the new video is in the thread
+                          if (!thread.generatedVideos || !thread.generatedVideos.find(v => v.id === newVideo.id)) {
+                            thread.generatedVideos = [
+                              ...(thread.generatedVideos || []),
+                              {
+                                id: newVideo.id,
+                                videoUrl: newVideo.videoUrl,
+                                prompt: newVideo.prompt,
+                                createdAt: newVideo.createdAt,
+                              }
+                            ];
+                          }
+                          const mainImageUrl = getMainImageUrl();
+                          if (mainImageUrl) {
+                            onImageGenerated(mainImageUrl, thread);
+                          } else {
+                            const imageToUse = startFrame || endFrame || referenceImage || initialImageUrl || generatedImages[0]?.imageUrl || uploadedImages[0]?.imageUrl;
+                            onImageGenerated(imageToUse || '', thread);
+                          }
+                          console.log('✅ Thread saved with video:', newVideo.id);
+                        } catch (saveError) {
+                          console.error('❌ Error saving thread:', saveError);
+                        }
+                      }, 500); // Increased timeout to ensure state is fully updated
+                      
+                      // Close modal
+                      setShowVideoGenerationModal(false);
+                      setSelectedVideoInputType(null);
+                      setVideoPrompt(''); // Reset prompt
+                    } else {
+                      throw new Error('No video URL in response');
+                    }
+                  } catch (error) {
+                    console.error('Video generation error:', error);
+                    alert(error instanceof Error ? error.message : 'Failed to generate video. Please try again.');
+                  } finally {
+                    setIsGeneratingVideo(false);
+                    setTimeout(() => {
+                      isPerformingOperation.current = false;
+                    }, 200);
+                  }
+                }}
+                disabled={isGeneratingVideo || !selectedVideoInputType || !videoPrompt.trim() || 
+                  (selectedVideoInputType === 'main' && !getMainImageUrl()) ||
+                  (selectedVideoInputType === 'start-end' && (!startFrame || !endFrame))}
+                className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                {isGeneratingVideo ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Clapperboard className="w-4 h-4 mr-2" />
+                    Generate
+                  </>
+                )}
               </Button>
             </div>
           </div>
@@ -1993,6 +2959,433 @@ export function ImageGenerationDialog({
                     </div>
                   );
                 })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Enlarged Content Modal */}
+      {enlargedContent && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[70]" onClick={() => setEnlargedContent(null)}>
+          <div className="relative max-w-4xl max-h-[90vh] p-4">
+            <button
+              onClick={() => setEnlargedContent(null)}
+              className="absolute top-2 right-2 bg-black bg-opacity-50 text-white rounded-full p-2 hover:bg-opacity-75 z-10"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            {enlargedContent.type === 'image' ? (
+              <img
+                src={enlargedContent.url}
+                alt="Enlarged"
+                className="max-w-full max-h-full object-contain rounded-lg"
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <video
+                src={enlargedContent.url}
+                controls
+                className="max-w-full max-h-full object-contain rounded-lg"
+                onClick={(e) => e.stopPropagation()}
+              />
+            )}
+            {/* Select as Main buttons */}
+            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2">
+              {enlargedContent.type === 'image' && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Find which image this is
+                    const uploadedImg = uploadedImages.find(img => img.imageUrl === enlargedContent.url);
+                    const generatedImg = generatedImages.find(img => img.imageUrl === enlargedContent.url);
+                    if (uploadedImg) {
+                      handleToggleMain(`uploaded-image-${uploadedImg.id}`);
+                    } else if (generatedImg) {
+                      handleToggleMain(generatedImg.id);
+                    }
+                    setEnlargedContent(null);
+                  }}
+                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                >
+                  Select as Main Image
+                </button>
+              )}
+              {enlargedContent.type === 'video' && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Find which video this is
+                    const uploadedVid = uploadedVideos.find(vid => vid.videoUrl === enlargedContent.url);
+                    const generatedVid = generatedVideos.find(vid => vid.videoUrl === enlargedContent.url);
+                    if (uploadedVid) {
+                      handleToggleMainVideo(`uploaded-video-${uploadedVid.id}`);
+                    } else if (generatedVid) {
+                      handleToggleMainVideo(generatedVid.id);
+                    }
+                    setEnlargedContent(null);
+                  }}
+                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                >
+                  Select as Main Video
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[80]">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="flex-shrink-0">
+                <X className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-medium text-gray-900">Confirm Deletion</h3>
+                <p className="text-sm text-gray-500">
+                  Are you sure you want to delete this {deleteConfirm.type}? This action cannot be undone.
+                </p>
+              </div>
+            </div>
+            
+            <div className="mb-4">
+              {deleteConfirm.type === 'image' ? (
+                <img
+                  src={deleteConfirm.url}
+                  alt="Preview"
+                  className="w-full aspect-video object-cover rounded border"
+                />
+              ) : (
+                <video
+                  src={deleteConfirm.url}
+                  className="w-full aspect-video object-cover rounded border"
+                  muted
+                />
+              )}
+            </div>
+            
+            <div className="flex gap-2">
+              <button
+                onClick={async () => {
+                  const confirmData = deleteConfirm;
+                  setDeleteConfirm(null);
+                  
+                  // Set flag to prevent useEffect from reloading
+                  isPerformingOperation.current = true;
+                  
+                  if (confirmData.type === 'image') {
+                    // Check if it's an uploaded image or generated image
+                    const uploadedImg = uploadedImages.find(img => img.id === confirmData.id);
+                    if (uploadedImg) {
+                      // Remove from uploaded images
+                      const newUploadedImages = uploadedImages.filter(img => img.id !== confirmData.id);
+                      setUploadedImages(newUploadedImages);
+                      // If this was the main image, clear mainImageId
+                      if (mainImageId === `uploaded-image-${confirmData.id}`) {
+                        setMainImageId(null);
+                      }
+                      // Save immediately with updated arrays
+                      const allImagesForThread = [
+                        ...newUploadedImages.map(img => ({
+                          id: img.id,
+                          imageUrl: img.imageUrl,
+                          prompt: 'Uploaded image',
+                          style: selectedStyle as 'storyboard' | '3d-render',
+                          createdAt: img.createdAt,
+                        })),
+                        ...generatedImages.map(img => ({
+                          id: img.id,
+                          imageUrl: img.imageUrl,
+                          prompt: img.prompt,
+                          style: selectedStyle as 'storyboard' | '3d-render',
+                          createdAt: img.createdAt,
+                        })),
+                      ];
+                      const allVideosForThread = [
+                        ...uploadedVideos.map(vid => ({
+                          id: vid.id,
+                          videoUrl: vid.videoUrl,
+                          prompt: 'Uploaded video',
+                          createdAt: vid.createdAt,
+                        })),
+                        ...generatedVideos.map(vid => ({
+                          id: vid.id,
+                          videoUrl: vid.videoUrl,
+                          prompt: vid.prompt,
+                          createdAt: vid.createdAt,
+                        })),
+                      ];
+                      const thread: AVShotImageGenerationThread = {
+                        id: existingThread?.id || `thread-${Date.now()}`,
+                        selectedAssets: selectedAssets.map(a => ({
+                          id: a.id,
+                          type: a.type,
+                          name: a.name,
+                        })),
+                        sketchImage: sketchImage || undefined,
+                        startFrame: startFrame || undefined,
+                        endFrame: endFrame || undefined,
+                        referenceImage: referenceImage || undefined,
+                        referenceVideo: referenceVideo || undefined,
+                        mainImageId: mainImageId === `uploaded-image-${confirmData.id}` ? null : mainImageId,
+                        mainVideoId: mainVideoId || undefined,
+                        messages: messages,
+                        generatedImages: allImagesForThread,
+                        generatedVideos: allVideosForThread.length > 0 ? allVideosForThread : undefined,
+                        selectedImageId: selectedImageId || undefined,
+                        createdAt: existingThread?.createdAt || new Date(),
+                        updatedAt: new Date(),
+                      };
+                      const mainImageUrl = mainImageId && mainImageId !== `uploaded-image-${confirmData.id}` 
+                        ? getMainImageUrl() 
+                        : (newUploadedImages[0]?.imageUrl || generatedImages[0]?.imageUrl || startFrame || endFrame || referenceImage || initialImageUrl);
+                      if (mainImageUrl) {
+                        onImageGenerated(mainImageUrl, thread);
+                      } else {
+                        onImageGenerated('', thread);
+                      }
+                    } else {
+                      const genImg = generatedImages.find(img => img.id === confirmData.id);
+                      if (genImg) {
+                        // Remove from generated images
+                        const newGeneratedImages = generatedImages.filter(img => img.id !== confirmData.id);
+                        setGeneratedImages(newGeneratedImages);
+                        // If this was the main image, clear mainImageId
+                        if (mainImageId === confirmData.id) {
+                          setMainImageId(null);
+                        }
+                        // Save immediately with updated arrays
+                        const allImagesForThread = [
+                          ...uploadedImages.map(img => ({
+                            id: img.id,
+                            imageUrl: img.imageUrl,
+                            prompt: 'Uploaded image',
+                            style: selectedStyle as 'storyboard' | '3d-render',
+                            createdAt: img.createdAt,
+                          })),
+                          ...newGeneratedImages.map(img => ({
+                            id: img.id,
+                            imageUrl: img.imageUrl,
+                            prompt: img.prompt,
+                            style: selectedStyle as 'storyboard' | '3d-render',
+                            createdAt: img.createdAt,
+                          })),
+                        ];
+                        const allVideosForThread = [
+                          ...uploadedVideos.map(vid => ({
+                            id: vid.id,
+                            videoUrl: vid.videoUrl,
+                            prompt: 'Uploaded video',
+                            createdAt: vid.createdAt,
+                          })),
+                          ...generatedVideos.map(vid => ({
+                            id: vid.id,
+                            videoUrl: vid.videoUrl,
+                            prompt: vid.prompt,
+                            createdAt: vid.createdAt,
+                          })),
+                        ];
+                        const thread: AVShotImageGenerationThread = {
+                          id: existingThread?.id || `thread-${Date.now()}`,
+                          selectedAssets: selectedAssets.map(a => ({
+                            id: a.id,
+                            type: a.type,
+                            name: a.name,
+                          })),
+                          sketchImage: sketchImage || undefined,
+                          startFrame: startFrame || undefined,
+                          endFrame: endFrame || undefined,
+                          referenceImage: referenceImage || undefined,
+                          referenceVideo: referenceVideo || undefined,
+                          mainImageId: mainImageId === confirmData.id ? null : mainImageId,
+                          mainVideoId: mainVideoId || undefined,
+                          messages: messages,
+                          generatedImages: allImagesForThread,
+                          generatedVideos: allVideosForThread.length > 0 ? allVideosForThread : undefined,
+                          selectedImageId: selectedImageId || undefined,
+                          createdAt: existingThread?.createdAt || new Date(),
+                          updatedAt: new Date(),
+                        };
+                        const mainImageUrl = mainImageId && mainImageId !== confirmData.id
+                          ? getMainImageUrl()
+                          : (newGeneratedImages[0]?.imageUrl || uploadedImages[0]?.imageUrl || startFrame || endFrame || referenceImage || initialImageUrl);
+                        if (mainImageUrl) {
+                          onImageGenerated(mainImageUrl, thread);
+                        } else {
+                          onImageGenerated('', thread);
+                        }
+                      }
+                    }
+                  } else {
+                    // Check if it's an uploaded video or generated video
+                    const uploadedVid = uploadedVideos.find(vid => vid.id === confirmData.id);
+                    if (uploadedVid) {
+                      // Remove from uploaded videos
+                      const newUploadedVideos = uploadedVideos.filter(vid => vid.id !== confirmData.id);
+                      setUploadedVideos(newUploadedVideos);
+                      // If this was the main video, clear mainVideoId
+                      if (mainVideoId === `uploaded-video-${confirmData.id}`) {
+                        setMainVideoId(null);
+                      }
+                      // Save immediately with updated arrays
+                      const allImagesForThread = [
+                        ...uploadedImages.map(img => ({
+                          id: img.id,
+                          imageUrl: img.imageUrl,
+                          prompt: 'Uploaded image',
+                          style: selectedStyle as 'storyboard' | '3d-render',
+                          createdAt: img.createdAt,
+                        })),
+                        ...generatedImages.map(img => ({
+                          id: img.id,
+                          imageUrl: img.imageUrl,
+                          prompt: img.prompt,
+                          style: selectedStyle as 'storyboard' | '3d-render',
+                          createdAt: img.createdAt,
+                        })),
+                      ];
+                      const allVideosForThread = [
+                        ...newUploadedVideos.map(vid => ({
+                          id: vid.id,
+                          videoUrl: vid.videoUrl,
+                          prompt: 'Uploaded video',
+                          createdAt: vid.createdAt,
+                        })),
+                        ...generatedVideos.map(vid => ({
+                          id: vid.id,
+                          videoUrl: vid.videoUrl,
+                          prompt: vid.prompt,
+                          createdAt: vid.createdAt,
+                        })),
+                      ];
+                      const thread: AVShotImageGenerationThread = {
+                        id: existingThread?.id || `thread-${Date.now()}`,
+                        selectedAssets: selectedAssets.map(a => ({
+                          id: a.id,
+                          type: a.type,
+                          name: a.name,
+                        })),
+                        sketchImage: sketchImage || undefined,
+                        startFrame: startFrame || undefined,
+                        endFrame: endFrame || undefined,
+                        referenceImage: referenceImage || undefined,
+                        referenceVideo: referenceVideo || undefined,
+                        mainImageId: mainImageId || undefined,
+                        mainVideoId: mainVideoId === `uploaded-video-${confirmData.id}` ? null : mainVideoId,
+                        messages: messages,
+                        generatedImages: allImagesForThread,
+                        generatedVideos: allVideosForThread.length > 0 ? allVideosForThread : undefined,
+                        selectedImageId: selectedImageId || undefined,
+                        createdAt: existingThread?.createdAt || new Date(),
+                        updatedAt: new Date(),
+                      };
+                      const mainImageUrl = getMainImageUrl();
+                      if (mainImageUrl) {
+                        onImageGenerated(mainImageUrl, thread);
+                      } else {
+                        const imageToUse = startFrame || endFrame || referenceImage || initialImageUrl || 
+                                          generatedImages[0]?.imageUrl || uploadedImages[0]?.imageUrl;
+                        if (imageToUse) {
+                          onImageGenerated(imageToUse, thread);
+                        } else {
+                          onImageGenerated('', thread);
+                        }
+                      }
+                    } else {
+                      const genVid = generatedVideos.find(vid => vid.id === confirmData.id);
+                      if (genVid) {
+                        // Remove from generated videos
+                        const newGeneratedVideos = generatedVideos.filter(vid => vid.id !== confirmData.id);
+                        setGeneratedVideos(newGeneratedVideos);
+                        // If this was the main video, clear mainVideoId
+                        if (mainVideoId === confirmData.id) {
+                          setMainVideoId(null);
+                        }
+                        // Save immediately with updated arrays
+                        const allImagesForThread = [
+                          ...uploadedImages.map(img => ({
+                            id: img.id,
+                            imageUrl: img.imageUrl,
+                            prompt: 'Uploaded image',
+                            style: selectedStyle as 'storyboard' | '3d-render',
+                            createdAt: img.createdAt,
+                          })),
+                          ...generatedImages.map(img => ({
+                            id: img.id,
+                            imageUrl: img.imageUrl,
+                            prompt: img.prompt,
+                            style: selectedStyle as 'storyboard' | '3d-render',
+                            createdAt: img.createdAt,
+                          })),
+                        ];
+                        const allVideosForThread = [
+                          ...uploadedVideos.map(vid => ({
+                            id: vid.id,
+                            videoUrl: vid.videoUrl,
+                            prompt: 'Uploaded video',
+                            createdAt: vid.createdAt,
+                          })),
+                          ...newGeneratedVideos.map(vid => ({
+                            id: vid.id,
+                            videoUrl: vid.videoUrl,
+                            prompt: vid.prompt,
+                            createdAt: vid.createdAt,
+                          })),
+                        ];
+                        const thread: AVShotImageGenerationThread = {
+                          id: existingThread?.id || `thread-${Date.now()}`,
+                          selectedAssets: selectedAssets.map(a => ({
+                            id: a.id,
+                            type: a.type,
+                            name: a.name,
+                          })),
+                          sketchImage: sketchImage || undefined,
+                          startFrame: startFrame || undefined,
+                          endFrame: endFrame || undefined,
+                          referenceImage: referenceImage || undefined,
+                          referenceVideo: referenceVideo || undefined,
+                          mainImageId: mainImageId || undefined,
+                          mainVideoId: mainVideoId === confirmData.id ? null : mainVideoId,
+                          messages: messages,
+                          generatedImages: allImagesForThread,
+                          generatedVideos: allVideosForThread.length > 0 ? allVideosForThread : undefined,
+                          selectedImageId: selectedImageId || undefined,
+                          createdAt: existingThread?.createdAt || new Date(),
+                          updatedAt: new Date(),
+                        };
+                        const mainImageUrl = getMainImageUrl();
+                        if (mainImageUrl) {
+                          onImageGenerated(mainImageUrl, thread);
+                        } else {
+                          const imageToUse = startFrame || endFrame || referenceImage || initialImageUrl || 
+                                            generatedImages[0]?.imageUrl || uploadedImages[0]?.imageUrl;
+                          if (imageToUse) {
+                            onImageGenerated(imageToUse, thread);
+                          } else {
+                            onImageGenerated('', thread);
+                          }
+                        }
+                      }
+                    }
+                  }
+                  
+                  // Clear flag after operation completes
+                  setTimeout(() => {
+                    isPerformingOperation.current = false;
+                  }, 100);
+                }}
+                className="flex-1 bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+              >
+                Delete
+              </button>
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+              >
+                Cancel
+              </button>
             </div>
           </div>
         </div>

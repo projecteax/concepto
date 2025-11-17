@@ -22,7 +22,9 @@ import {
   Save,
   Download,
   Key,
-  Package
+  Package,
+  Video,
+  PlusCircle
 } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import CommentThread from './CommentThread';
@@ -66,6 +68,7 @@ export function AVScriptEditor({
   const [showAddSegment, setShowAddSegment] = useState(false);
   const [newSegmentTitle, setNewSegmentTitle] = useState('');
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
+  const [enlargedVideo, setEnlargedVideo] = useState<string | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
     type: 'segment' | 'shot' | 'image';
     id: string;
@@ -175,11 +178,13 @@ export function AVScriptEditor({
     let needsUpdate = false;
     const updatedSegments = script.segments.map(segment => {
       // First, collect all existing take numbers in this segment
+      // Handle both formats: SC01T01 and SC01T01_image
       const existingTakes = segment.shots
         .map(s => s.take)
         .filter(take => take && take.startsWith(`SC${segment.segmentNumber.toString().padStart(2, '0')}T`))
         .map(take => {
-          const match = take?.match(/SC\d+T(\d+)_image/);
+          // Match SC01T01 or SC01T01_image format
+          const match = take?.match(/SC\d+T(\d+)(?:_image)?$/);
           return match ? parseInt(match[1], 10) : 0;
         });
       
@@ -192,12 +197,22 @@ export function AVScriptEditor({
           maxTakeNumber += 1;
           const takeNumber = maxTakeNumber.toString().padStart(2, '0');
           const sceneNumber = segment.segmentNumber.toString().padStart(2, '0');
-          const take = `SC${sceneNumber}T${takeNumber}_image`;
+          const take = `SC${sceneNumber}T${takeNumber}`;
           
           return {
             ...shot,
             take: take,
           };
+        } else {
+          // Remove _image suffix if present
+          const cleanedTake = shot.take.replace(/_image$/, '');
+          if (cleanedTake !== shot.take) {
+            needsUpdate = true;
+            return {
+              ...shot,
+              take: cleanedTake,
+            };
+          }
         }
         return shot;
       });
@@ -350,19 +365,20 @@ export function AVScriptEditor({
     setShowAddSegment(false);
   };
 
-  const handleAddShot = (segmentId: string) => {
+  // Insert a new shot at a specific position (between existing shots)
+  const handleInsertShot = (segmentId: string, afterIndex: number) => {
     const segment = script.segments.find(s => s.id === segmentId);
     if (!segment) return;
 
     // Generate unique take number for this scene
-    // Format: SC{segmentNumber}T{takeNumber}_image
+    // Format: SC{segmentNumber}T{takeNumber}
     // Find the highest take number in this segment
     const existingTakes = segment.shots
       .map(shot => shot.take)
       .filter(take => take && take.startsWith(`SC${segment.segmentNumber.toString().padStart(2, '0')}T`))
       .map(take => {
-        // Extract take number from format SC01T03_image
-        const match = take.match(/SC\d+T(\d+)_image/);
+        // Extract take number from format SC01T03 or SC01T03_image
+        const match = take.match(/SC\d+T(\d+)(?:_image)?$/);
         return match ? parseInt(match[1], 10) : 0;
       });
     
@@ -372,7 +388,71 @@ export function AVScriptEditor({
     
     const takeNumber = nextTakeNumber.toString().padStart(2, '0');
     const sceneNumber = segment.segmentNumber.toString().padStart(2, '0');
-    const take = `SC${sceneNumber}T${takeNumber}_image`;
+    const take = `SC${sceneNumber}T${takeNumber}`;
+
+    const newShot: AVShot = {
+      id: `shot-${Date.now()}`,
+      segmentId,
+      shotNumber: 0, // Will be recalculated below
+      take: take,
+      audio: '',
+      visual: '',
+      duration: 0,
+      wordCount: 0,
+      runtime: 0,
+      order: afterIndex + 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    // Insert the new shot after the specified index
+    const shots = [...segment.shots];
+    shots.splice(afterIndex + 1, 0, newShot);
+
+    // Update order and shot numbers for all shots
+    const updatedShots = shots.map((shot, index) => ({
+      ...shot,
+      order: index,
+      shotNumber: segment.segmentNumber * 100 + (index + 1),
+    }));
+
+    const updatedScript = {
+      ...script,
+      segments: script.segments.map(seg => 
+        seg.id === segmentId 
+          ? { ...seg, shots: updatedShots, updatedAt: new Date() }
+          : seg
+      ),
+      updatedAt: new Date(),
+    };
+
+    setScript(updatedScript);
+    // Don't save immediately - let autosave handle it
+  };
+
+  const handleAddShot = (segmentId: string) => {
+    const segment = script.segments.find(s => s.id === segmentId);
+    if (!segment) return;
+
+    // Generate unique take number for this scene
+    // Format: SC{segmentNumber}T{takeNumber}
+    // Find the highest take number in this segment
+    const existingTakes = segment.shots
+      .map(shot => shot.take)
+      .filter(take => take && take.startsWith(`SC${segment.segmentNumber.toString().padStart(2, '0')}T`))
+      .map(take => {
+        // Extract take number from format SC01T03 or SC01T03_image
+        const match = take.match(/SC\d+T(\d+)(?:_image)?$/);
+        return match ? parseInt(match[1], 10) : 0;
+      });
+    
+    const nextTakeNumber = existingTakes.length > 0 
+      ? Math.max(...existingTakes) + 1 
+      : 1;
+    
+    const takeNumber = nextTakeNumber.toString().padStart(2, '0');
+    const sceneNumber = segment.segmentNumber.toString().padStart(2, '0');
+    const take = `SC${sceneNumber}T${takeNumber}`;
 
     const newShot: AVShot = {
       id: `shot-${Date.now()}`,
@@ -481,55 +561,33 @@ export function AVScriptEditor({
     }
   };
 
-  const handleDeleteImage = async (segmentId: string, shotId: string) => {
-    const updatedScript = {
-      ...script,
-      segments: script.segments.map(segment => 
-        segment.id === segmentId 
-          ? {
-              ...segment,
-              shots: segment.shots.map(shot => 
-                shot.id === shotId 
-                  ? { 
-                      ...shot, 
-                      imageUrl: undefined,
-                      imageGenerationThread: undefined, // Clear conversation thread when deleting image
-                      updatedAt: new Date(),
-                    }
-                  : shot
-              ),
-              updatedAt: new Date(),
-            }
-          : segment
-      ),
-    };
-    setScript(updatedScript);
-    setDeleteConfirmation(null);
-    // Save immediately for deletions (critical operation)
-    try {
-      if (onSaveImmediately) {
-        await onSaveImmediately(updatedScript);
-      } else {
-        await onSave(updatedScript);
-      }
-      setLastSavedAt(Date.now());
-    } catch (error) {
-      console.error('Error saving after image deletion:', error);
-    }
-  };
+  // handleDeleteImage function removed - images can only be deleted from the popup dialog
+  // Images should be deleted through the ImageGenerationDialog, not directly from the AV script
 
 
   const [draggedShot, setDraggedShot] = useState<{shot: AVShot, segmentId: string, index: number} | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [originalDragIndex, setOriginalDragIndex] = useState<number | null>(null);
+
+  // Handle Escape key to cancel drag
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && draggedShot) {
+        setDraggedShot(null);
+        setDragOverIndex(null);
+        setOriginalDragIndex(null);
+      }
+    };
+    
+    if (draggedShot) {
+      window.addEventListener('keydown', handleEscape);
+      return () => window.removeEventListener('keydown', handleEscape);
+    }
+  }, [draggedShot]);
 
   const handleDragStart = (e: React.DragEvent, shot: AVShot, segmentId: string, index: number) => {
-    // Prevent dragging if clicking on interactive elements (buttons, inputs, etc.)
-    const target = e.target as HTMLElement;
-    if (target.closest('button, input, textarea, select, [role="button"]')) {
-      e.preventDefault();
-      return;
-    }
     setDraggedShot({ shot, segmentId, index });
+    setOriginalDragIndex(index);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', shot.id);
   };
@@ -550,6 +608,7 @@ export function AVScriptEditor({
     if (!draggedShot || draggedShot.segmentId !== segmentId) {
       setDraggedShot(null);
       setDragOverIndex(null);
+      setOriginalDragIndex(null);
       return;
     }
 
@@ -557,6 +616,7 @@ export function AVScriptEditor({
     if (!segment) {
       setDraggedShot(null);
       setDragOverIndex(null);
+      setOriginalDragIndex(null);
       return;
     }
 
@@ -591,6 +651,18 @@ export function AVScriptEditor({
     // Don't save immediately - let autosave handle it
     setDraggedShot(null);
     setDragOverIndex(null);
+    setOriginalDragIndex(null);
+  };
+
+  // Handle drag end - if drag was cancelled (Escape), restore original position
+  const handleDragEnd = () => {
+    if (draggedShot && originalDragIndex !== null) {
+      // If we're still dragging and Escape was pressed, the Escape handler already cleared it
+      // But if drag ended without drop, we should also clear
+      setDraggedShot(null);
+      setDragOverIndex(null);
+      setOriginalDragIndex(null);
+    }
   };
 
   const calculateWordCount = (text: string): number => {
@@ -974,60 +1046,87 @@ export function AVScriptEditor({
             {/* Shots Table */}
             <div className="border border-gray-200 rounded-lg overflow-hidden">
               <div className="grid grid-cols-12 bg-gray-50 border-b border-gray-200">
-                <div className="col-span-1 px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Row</div>
-                <div className="col-span-1 px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Take</div>
+                <div className="col-span-1 px-2 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Row</div>
+                <div className="col-span-1 px-1 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Take</div>
                 <div className="col-span-2 px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Audio</div>
-                <div className="col-span-3 px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Visual</div>
+                <div className="col-span-2 px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Visual</div>
                 <div className="col-span-2 px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Image</div>
-                <div className="col-span-3 px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</div>
+                <div className="col-span-2 px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Video</div>
+                <div className="col-span-2 px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</div>
               </div>
 
               <div className="min-h-[200px] bg-white">
                 {segment.shots.map((shot, shotIndex) => (
-                  <div
-                    key={shot.id}
-                    draggable={!isAnyPopupOpen}
-                    onDragStart={(e) => {
-                      if (isAnyPopupOpen) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        return;
-                      }
-                      handleDragStart(e, shot, segment.id, shotIndex);
-                    }}
-                    onDragOver={(e) => {
-                      if (isAnyPopupOpen) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        return;
-                      }
-                      handleDragOver(e, shotIndex);
-                    }}
-                    onDragLeave={handleDragLeave}
-                    onDrop={(e) => {
-                      if (isAnyPopupOpen) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        return;
-                      }
-                      handleDrop(e, shotIndex, segment.id);
-                    }}
-                    className={`transition-all duration-200 ${
-                      draggedShot?.shot.id === shot.id 
-                        ? 'opacity-50 bg-blue-100 shadow-lg transform scale-105' 
-                        : dragOverIndex === shotIndex 
-                          ? 'bg-blue-50 border-2 border-blue-300 border-dashed' 
-                          : 'hover:bg-gray-50'
-                    }`}
-                  >
-                    <ShotRow
+                  <React.Fragment key={shot.id}>
+                    <div
+                      onDragOver={(e) => {
+                        if (isAnyPopupOpen || !draggedShot) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          return;
+                        }
+                        handleDragOver(e, shotIndex);
+                      }}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => {
+                        if (isAnyPopupOpen || !draggedShot) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          return;
+                        }
+                        handleDrop(e, shotIndex, segment.id);
+                      }}
+                      onDragEnd={handleDragEnd}
+                      className={`transition-all duration-200 ${
+                        draggedShot?.shot.id === shot.id 
+                          ? 'opacity-50 bg-blue-100 shadow-lg transform scale-105' 
+                          : dragOverIndex === shotIndex 
+                            ? 'bg-blue-50 border-2 border-blue-300 border-dashed' 
+                            : 'hover:bg-gray-50'
+                      }`}
+                    >
+                      <ShotRow
                       shot={shot}
                       segmentNumber={segment.segmentNumber}
                       shotIndex={shotIndex}
+                      segmentId={segment.id}
                       onUpdate={(updates) => handleUpdateShot(segment.id, shot.id, updates)}
+                      onDragStart={handleDragStart}
+                      isAnyPopupOpen={isAnyPopupOpen}
                       onImageUpload={async (file) => {
                         const result = await uploadFile(file, `episodes/${episodeId}/av-script/storyboards/`);
                         if (result) {
+                          // Create or update the thread to include the uploaded image
+                          const uploadedImgId = `uploaded-img-${Date.now()}`;
+                          const uploadedImageMainId = `uploaded-image-${uploadedImgId}`;
+                          const existingThread = shot.imageGenerationThread;
+                          const newThread: AVShotImageGenerationThread = {
+                            id: existingThread?.id || `thread-${Date.now()}`,
+                            selectedAssets: existingThread?.selectedAssets || [],
+                            sketchImage: existingThread?.sketchImage,
+                            startFrame: existingThread?.startFrame,
+                            endFrame: existingThread?.endFrame,
+                            referenceImage: existingThread?.referenceImage,
+                            referenceVideo: existingThread?.referenceVideo,
+                            mainImageId: uploadedImageMainId, // Set uploaded image as main
+                            mainVideoId: existingThread?.mainVideoId,
+                            messages: existingThread?.messages || [],
+                            generatedImages: [
+                              ...(existingThread?.generatedImages || []),
+                              {
+                                id: uploadedImgId,
+                                imageUrl: result.url,
+                                prompt: 'Uploaded image',
+                                style: 'storyboard',
+                                createdAt: new Date(),
+                              }
+                            ],
+                            generatedVideos: existingThread?.generatedVideos,
+                            selectedImageId: existingThread?.selectedImageId,
+                            createdAt: existingThread?.createdAt || new Date(),
+                            updatedAt: new Date(),
+                          };
+
                           const updatedScript = {
                             ...script,
                             segments: script.segments.map(seg => 
@@ -1039,6 +1138,7 @@ export function AVScriptEditor({
                                         ? { 
                                             ...s, 
                                             imageUrl: result.url,
+                                            imageGenerationThread: newThread,
                                             updatedAt: new Date(),
                                           }
                                         : s
@@ -1049,7 +1149,87 @@ export function AVScriptEditor({
                             ),
                           };
                           setScript(updatedScript);
-                          // Don't save immediately - let autosave handle it
+                          
+                          // Save immediately to ensure image is persisted
+                          try {
+                            if (onSaveImmediately) {
+                              await onSaveImmediately(updatedScript);
+                            } else {
+                              await onSave(updatedScript);
+                            }
+                            setLastSavedAt(Date.now());
+                          } catch (error) {
+                            console.error('Error saving after image upload:', error);
+                          }
+                        }
+                      }}
+                      onVideoUpload={async (file) => {
+                        // Show progress - we'll track this in the component
+                        const result = await uploadFile(file, `episodes/${episodeId}/av-script/videos/`);
+                        if (result) {
+                          // Create or update the thread to include the uploaded video
+                          const uploadedVidId = `uploaded-vid-${Date.now()}`;
+                          const existingThread = shot.imageGenerationThread;
+                          const newThread: AVShotImageGenerationThread = {
+                            id: existingThread?.id || `thread-${Date.now()}`,
+                            selectedAssets: existingThread?.selectedAssets || [],
+                            sketchImage: existingThread?.sketchImage,
+                            startFrame: existingThread?.startFrame,
+                            endFrame: existingThread?.endFrame,
+                            referenceImage: existingThread?.referenceImage,
+                            referenceVideo: existingThread?.referenceVideo,
+                            mainImageId: existingThread?.mainImageId,
+                            mainVideoId: uploadedVidId, // Set uploaded video as main
+                            messages: existingThread?.messages || [],
+                            generatedImages: existingThread?.generatedImages || [],
+                            generatedVideos: [
+                              ...(existingThread?.generatedVideos || []),
+                              {
+                                id: uploadedVidId,
+                                videoUrl: result.url,
+                                prompt: 'Uploaded video',
+                                createdAt: new Date(),
+                              }
+                            ],
+                            selectedImageId: existingThread?.selectedImageId,
+                            createdAt: existingThread?.createdAt || new Date(),
+                            updatedAt: new Date(),
+                          };
+
+                          const updatedScript = {
+                            ...script,
+                            segments: script.segments.map(seg => 
+                              seg.id === segment.id
+                                ? {
+                                    ...seg,
+                                    shots: seg.shots.map(s => 
+                                      s.id === shot.id
+                                        ? { 
+                                            ...s, 
+                                            videoUrl: result.url,
+                                            imageGenerationThread: newThread,
+                                            updatedAt: new Date(),
+                                          }
+                                        : s
+                                    ),
+                                    updatedAt: new Date(),
+                                  }
+                                : seg
+                            ),
+                          };
+                          setScript(updatedScript);
+                          
+                          // Save immediately to ensure video is persisted
+                          try {
+                            if (onSaveImmediately) {
+                              await onSaveImmediately(updatedScript);
+                            } else {
+                              await onSave(updatedScript);
+                            }
+                            setLastSavedAt(Date.now());
+                          } catch (error) {
+                            console.error('Error saving after video upload:', error);
+                          }
                         }
                       }}
                       onImageGenerate={() => {
@@ -1057,18 +1237,14 @@ export function AVScriptEditor({
                         setShowImageGenerationDialog(true);
                       }}
                       onEnlargeImage={setEnlargedImage}
+                      onEnlargeVideo={setEnlargedVideo}
                       onDeleteShot={() => setDeleteConfirmation({
                         type: 'shot',
                         id: shot.id,
                         segmentId: segment.id,
                         title: `Shot ${formatShotNumber(segment.segmentNumber, shotIndex + 1)}`
                       })}
-                      onDeleteImage={() => setDeleteConfirmation({
-                        type: 'image',
-                        id: shot.id,
-                        segmentId: segment.id,
-                        title: `Image for Shot ${formatShotNumber(segment.segmentNumber, shotIndex + 1)}`
-                      })}
+                      // onDeleteImage removed - images can only be deleted from the popup dialog
                       formatDuration={formatDuration}
                       formatShotNumber={formatShotNumber}
                       onAudioUpload={async (file, audioFileId, voiceId, voiceName) => {
@@ -1200,6 +1376,29 @@ export function AVScriptEditor({
                       onPopupStateChange={(isOpen) => setIsAnyPopupOpen(isOpen)}
                     />
                   </div>
+                  
+                  {/* Insert Row Button - appears between rows */}
+                  {shotIndex < segment.shots.length - 1 && (
+                    <div className="grid grid-cols-12 border-t border-gray-100">
+                      {/* Empty cells for spacing - aligns with Take column */}
+                      <div className="col-span-1"></div>
+                      <div className="col-span-1 flex items-center justify-center py-1">
+                        <button
+                          onClick={() => handleInsertShot(segment.id, shotIndex)}
+                          className="group relative flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 hover:bg-indigo-100 transition-colors"
+                          title={`Insert row after ${formatShotNumber(segment.segmentNumber, shotIndex + 1)}`}
+                        >
+                          <PlusCircle className="w-4 h-4 text-gray-400 group-hover:text-indigo-600" />
+                          {/* Connecting line above */}
+                          <div className="absolute -top-1 left-1/2 transform -translate-x-1/2 w-0.5 h-1 bg-gray-200"></div>
+                          {/* Connecting line below */}
+                          <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-0.5 h-1 bg-gray-200"></div>
+                        </button>
+                      </div>
+                      <div className="col-span-10"></div>
+                    </div>
+                  )}
+                </React.Fragment>
                 ))}
                 {segment.shots.length === 0 && (
                   <div className="flex items-center justify-center h-32 text-gray-500 border-2 border-dashed border-gray-300 rounded-lg">
@@ -1297,6 +1496,25 @@ export function AVScriptEditor({
         </div>
       )}
 
+      {enlargedVideo && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50" onClick={() => setEnlargedVideo(null)}>
+          <div className="relative max-w-4xl max-h-[90vh] p-4">
+            <button
+              onClick={() => setEnlargedVideo(null)}
+              className="absolute top-2 right-2 bg-black bg-opacity-50 text-white rounded-full p-2 hover:bg-opacity-75 z-10"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <video
+              src={enlargedVideo}
+              controls
+              className="max-w-full max-h-full object-contain rounded-lg"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Image Generation Dialog */}
       {showImageGenerationDialog && currentShotForGeneration && (() => {
         const segment = script.segments.find(s => s.id === currentShotForGeneration.segmentId);
@@ -1314,6 +1532,27 @@ export function AVScriptEditor({
             existingThread={shot?.imageGenerationThread}
             onImageGenerated={async (imageUrl, thread) => {
               if (segment && shot) {
+                // Extract videoUrl from thread if mainVideoId is set
+                let videoUrl: string | undefined = undefined;
+                if (thread.mainVideoId) {
+                  if (thread.mainVideoId === 'referenceVideo') {
+                    videoUrl = thread.referenceVideo;
+                  } else if (thread.generatedVideos) {
+                    // Handle both uploaded videos (uploaded-video-{id}) and generated videos (direct id)
+                    let mainVideo = thread.generatedVideos.find(v => v.id === thread.mainVideoId);
+                    // If not found, try to match by removing the 'uploaded-video-' prefix for uploaded videos
+                    if (!mainVideo && thread.mainVideoId.startsWith('uploaded-video-')) {
+                      const actualId = thread.mainVideoId.replace('uploaded-video-', '');
+                      mainVideo = thread.generatedVideos.find(v => v.id === actualId);
+                    }
+                    videoUrl = mainVideo?.videoUrl;
+                  }
+                } else if (thread.generatedVideos && thread.generatedVideos.length > 0) {
+                  // If no main video is explicitly set but videos exist, try to preserve the first one
+                  // This handles the case where dialog is closed without explicitly selecting a main video
+                  videoUrl = thread.generatedVideos[0]?.videoUrl;
+                }
+                
                 const updatedScript = {
                   ...script,
                   segments: script.segments.map(seg =>
@@ -1325,6 +1564,7 @@ export function AVScriptEditor({
                             ? {
                                 ...s,
                                 imageUrl,
+                                videoUrl,
                                 imageGenerationThread: thread,
                                 updatedAt: new Date(),
                               }
@@ -1338,9 +1578,9 @@ export function AVScriptEditor({
               };
               setScript(updatedScript);
               
-              // Save immediately to ensure image is persisted
+              // Save immediately to ensure image and video are persisted
               try {
-                console.log('Saving image to AV script:', { imageUrl, shotId: shot.id });
+                console.log('Saving image and video to AV script:', { imageUrl, videoUrl, shotId: shot.id });
                 // Use immediate save if available, otherwise use regular save
                 if (onSaveImmediately) {
                   await onSaveImmediately(updatedScript);
@@ -1348,10 +1588,10 @@ export function AVScriptEditor({
                   await onSave(updatedScript);
                 }
                 setLastSavedAt(Date.now());
-                console.log('Image saved successfully');
+                console.log('Image and video saved successfully');
               } catch (error) {
-                console.error('Error saving image:', error);
-                alert('Failed to save image. Please try again.');
+                console.error('Error saving image/video:', error);
+                alert('Failed to save image/video. Please try again.');
               }
             }
           }}
@@ -1375,6 +1615,11 @@ export function AVScriptEditor({
           globalAssets={globalAssets}
           episodeId={episodeId}
           showId={showId}
+          audioText={(() => {
+            const segment = script.segments.find(s => s.id === currentShotForGeneration.segmentId);
+            const shot = segment?.shots.find(s => s.id === currentShotForGeneration.shotId);
+            return shot?.audio || '';
+          })()}
           />
         );
       })()}
@@ -1436,11 +1681,7 @@ export function AVScriptEditor({
                   This will delete the shot row. This action cannot be undone.
                 </p>
               )}
-              {deleteConfirmation?.type === 'image' && (
-                <p className="text-sm text-red-600">
-                  This will remove the image from the shot. This action cannot be undone.
-                </p>
-              )}
+              {/* Image deletion confirmation removed - images can only be deleted from the popup dialog */}
             </div>
 
             <div className="flex space-x-3">
@@ -1450,9 +1691,8 @@ export function AVScriptEditor({
                     handleDeleteSegment(deleteConfirmation.id);
                   } else if (deleteConfirmation?.type === 'shot' && deleteConfirmation?.segmentId) {
                     handleDeleteShot(deleteConfirmation.segmentId, deleteConfirmation.id);
-                  } else if (deleteConfirmation?.type === 'image' && deleteConfirmation?.segmentId) {
-                    handleDeleteImage(deleteConfirmation.segmentId, deleteConfirmation.id);
                   }
+                  // Image deletion case removed - images can only be deleted from the popup dialog
                 }}
                 className="flex-1 bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
               >
@@ -1472,42 +1712,87 @@ export function AVScriptEditor({
   );
 }
 
+// Auto-resize textarea component
+interface AutoResizeTextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  placeholder?: string;
+  className?: string;
+}
+
+function AutoResizeTextarea({ value, onChange, placeholder, className, ...props }: AutoResizeTextareaProps) {
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+
+  React.useEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      // Reset height to auto to get the correct scrollHeight
+      textarea.style.height = 'auto';
+      // Set height to scrollHeight to fit content
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  }, [value]);
+
+  return (
+    <textarea
+      ref={textareaRef}
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      className={className}
+      style={{ minHeight: '2.5rem', overflow: 'hidden' }}
+      {...props}
+    />
+  );
+}
+
 // Shot Row Component
 interface ShotRowProps {
   shot: AVShot;
   segmentNumber: number;
   shotIndex: number;
+  segmentId: string;
   onUpdate: (updates: Partial<AVShot>) => void;
   onImageUpload: (file: File) => Promise<void>;
+  onVideoUpload: (file: File) => Promise<void>;
   onEnlargeImage: (imageUrl: string) => void;
+  onEnlargeVideo?: (videoUrl: string) => void;
   onDeleteShot: () => void;
-  onDeleteImage: () => void;
+  // onDeleteImage removed - images can only be deleted from the popup dialog
   formatDuration: (seconds: number) => string;
   formatShotNumber: (segmentNumber: number, shotNumber: number) => string;
   onAudioUpload: (file: File, audioFileId: string, voiceId: string, voiceName: string) => Promise<void>;
   onAudioGenerate: (text: string, voiceId: string, voiceName: string) => Promise<void>;
   onImageGenerate?: () => void;
   onPopupStateChange?: (isOpen: boolean) => void;
+  onDragStart?: (e: React.DragEvent, shot: AVShot, segmentId: string, index: number) => void;
+  isAnyPopupOpen?: boolean;
 }
 
 function ShotRow({ 
   shot, 
   segmentNumber, 
-  shotIndex, 
+  shotIndex,
+  segmentId,
   onUpdate, 
   onImageUpload,
+  onVideoUpload,
   onEnlargeImage,
+  onEnlargeVideo,
   onDeleteShot,
-  onDeleteImage,
+  // onDeleteImage removed - images can only be deleted from the popup dialog
   formatDuration,
   formatShotNumber,
   onAudioUpload,
   onAudioGenerate,
   onImageGenerate,
-  onPopupStateChange
+  onPopupStateChange,
+  onDragStart,
+  isAnyPopupOpen = false
 }: ShotRowProps) {
   const [showAudioPopup, setShowAudioPopup] = useState(false);
   const [showEnhanceDialog, setShowEnhanceDialog] = useState(false);
+  const [videoUploadProgress, setVideoUploadProgress] = useState<number | null>(null);
   
   // Notify parent when popup state changes
   useEffect(() => {
@@ -1713,58 +1998,52 @@ function ShotRow({
   return (
     <div className="grid grid-cols-12 border-b border-gray-200 hover:bg-gray-50">
       {/* Row Number */}
-      <div className="col-span-1 px-4 py-3 flex items-center">
-        <div>
-          <GripVertical className="w-4 h-4 text-gray-400 mr-2 cursor-grab hover:text-gray-600" />
-        </div>
-        <div className="flex flex-col">
+      <div className="col-span-1 px-2 py-3 flex flex-col">
+        <div className="flex items-center mb-1">
+          <div
+            draggable={!isAnyPopupOpen && !!onDragStart}
+            onDragStart={(e) => {
+              if (isAnyPopupOpen || !onDragStart) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+              }
+              onDragStart(e, shot, segmentId, shotIndex);
+            }}
+            className="cursor-grab active:cursor-grabbing mr-1"
+            title="Drag to reorder"
+          >
+            <GripVertical className="w-4 h-4 text-gray-400 hover:text-gray-600" />
+          </div>
           <div className="text-sm font-medium text-gray-900">
             {formatShotNumber(segmentNumber, shotIndex + 1)}
           </div>
-          <div className="text-xs text-gray-500">
-            {shot.wordCount} words {formatDuration(shot.runtime)} RT
-          </div>
         </div>
+        <div className="text-xs text-gray-500 mb-1">
+          {shot.wordCount} words {formatDuration(shot.runtime)} RT
+        </div>
+        <CommentThread 
+          targetType="av-shot" 
+          targetId={shot.id}
+          className="inline-block"
+        />
       </div>
 
       {/* Take */}
-      <div className="col-span-1 px-4 py-3 flex items-center">
-        <div className="text-sm font-mono font-medium text-gray-900">
-          {shot.take || `SC${segmentNumber.toString().padStart(2, '0')}T01_image`}
+      <div className="col-span-1 px-1 py-3 flex items-center">
+        <div className="text-xs font-mono font-medium text-gray-900">
+          {shot.take || `SC${segmentNumber.toString().padStart(2, '0')}T01`}
         </div>
       </div>
 
       {/* Audio */}
       <div className="col-span-2 px-4 py-3">
-        <div className="relative">
-          <textarea
-            value={shot.audio}
-            onChange={(e) => onUpdate({ audio: e.target.value })}
-            placeholder="Audio..."
-            className="w-full h-20 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none relative z-10 bg-transparent"
-            style={{ color: 'transparent', caretColor: '#000' }}
-          />
-          <div 
-            className="absolute inset-0 px-2 py-1 text-sm pointer-events-none overflow-hidden"
-            style={{
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-              color: '#000',
-              border: '1px solid transparent',
-              borderRadius: '0.25rem',
-            }}
-          >
-            {shot.audio.split(/(\[[^\]]+\])/g).map((part, index) => {
-              if (part.startsWith('[') && part.endsWith(']')) {
-                return <span key={index} className="text-gray-400">{part}</span>;
-              }
-              return <span key={index}>{part}</span>;
-            })}
-            {!shot.audio && (
-              <span className="text-gray-400">Audio...</span>
-            )}
-          </div>
-        </div>
+        <AutoResizeTextarea
+          value={shot.audio}
+          onChange={(e) => onUpdate({ audio: e.target.value })}
+          placeholder="Audio..."
+          className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none"
+        />
         {/* Audio Controls */}
         <div className="mt-2 flex items-center gap-2 flex-wrap">
           <button
@@ -2079,12 +2358,12 @@ function ShotRow({
       </div>
 
       {/* Visual */}
-      <div className="col-span-3 px-4 py-3">
-        <textarea
+      <div className="col-span-2 px-4 py-3">
+        <AutoResizeTextarea
           value={shot.visual}
           onChange={(e) => onUpdate({ visual: e.target.value })}
           placeholder="Visual..."
-          className="w-full h-20 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none"
+          className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none"
         />
       </div>
 
@@ -2109,16 +2388,7 @@ function ShotRow({
                   }
                 }}
               />
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteImage();
-                }}
-                className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 hover:bg-red-600"
-                title="Delete image"
-              >
-                ×
-              </button>
+              {/* Delete button removed - images can only be deleted from the popup dialog */}
               <div className="absolute top-1 left-1 flex gap-1 opacity-0 group-hover:opacity-100">
                 {shot.imageGenerationThread && onImageGenerate && (
                   <button
@@ -2171,8 +2441,127 @@ function ShotRow({
         </div>
       </div>
 
+      {/* Video */}
+      <div className="col-span-2 px-4 py-3">
+        <div className="relative">
+          {shot.videoUrl ? (
+            <div className="relative group">
+              <video
+                src={shot.videoUrl}
+                className="w-full aspect-video object-cover rounded border cursor-pointer hover:opacity-90 transition-opacity"
+                onClick={() => {
+                  // If video generation thread exists, open dialog, otherwise enlarge
+                  if (shot.imageGenerationThread && onImageGenerate) {
+                    onImageGenerate();
+                  } else if (onEnlargeVideo) {
+                    onEnlargeVideo(shot.videoUrl!);
+                  }
+                }}
+                controls={false}
+                muted
+              />
+              {/* Video camera icon to indicate this is a video */}
+              <div className="absolute bottom-1 right-1 bg-black bg-opacity-60 rounded-full p-1.5 pointer-events-none z-10">
+                <Video className="w-3 h-3 text-white" />
+              </div>
+              {/* Delete button removed - videos can only be deleted from the popup dialog */}
+              <div className="absolute top-1 left-1 flex gap-1 opacity-0 group-hover:opacity-100">
+                {shot.imageGenerationThread && onImageGenerate && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onImageGenerate();
+                    }}
+                    className="bg-indigo-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-indigo-600"
+                    title="Edit/Continue generation"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                  </button>
+                )}
+                {onEnlargeVideo && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEnlargeVideo(shot.videoUrl!);
+                    }}
+                    className="bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-blue-600"
+                    title="Enlarge video"
+                  >
+                    <ZoomIn className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <label className="flex flex-col items-center justify-center w-full aspect-video border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 relative">
+                {videoUploadProgress !== null ? (
+                  <>
+                    <Video className="w-6 h-6 text-gray-400 mb-1" />
+                    <span className="text-xs text-gray-500 mb-2">{videoUploadProgress}%</span>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div 
+                        className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${videoUploadProgress}%` }}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Video className="w-6 h-6 text-gray-400 mb-1" />
+                    <span className="text-xs text-gray-500">Upload</span>
+                  </>
+                )}
+                <input
+                  type="file"
+                  accept="video/*"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setVideoUploadProgress(0);
+                      // Simulate progress since useS3Upload doesn't provide real-time progress
+                      const progressInterval = setInterval(() => {
+                        setVideoUploadProgress(prev => {
+                          if (prev === null) return 0;
+                          if (prev >= 90) {
+                            clearInterval(progressInterval);
+                            return prev;
+                          }
+                          return prev + 10;
+                        });
+                      }, 200);
+                      try {
+                        await onVideoUpload(file);
+                        setVideoUploadProgress(100);
+                        setTimeout(() => setVideoUploadProgress(null), 500);
+                      } catch (error) {
+                        setVideoUploadProgress(null);
+                      } finally {
+                        clearInterval(progressInterval);
+                      }
+                    }
+                  }}
+                  className="hidden"
+                  disabled={videoUploadProgress !== null}
+                />
+              </label>
+              {onImageGenerate && (
+                <button
+                  onClick={onImageGenerate}
+                  className="flex items-center justify-center gap-1 px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                  title="Generate video with AI"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  Generate
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Duration & Actions */}
-      <div className="col-span-3 px-4 py-3">
+      <div className="col-span-2 px-4 py-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <label className="text-xs font-medium text-gray-700">Duration:</label>
@@ -2201,11 +2590,6 @@ function ShotRow({
               }}
               className="w-20 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               placeholder="00:00:00"
-            />
-            <CommentThread 
-              targetType="av-shot" 
-              targetId={shot.id}
-              className="inline-block"
             />
           </div>
           <button

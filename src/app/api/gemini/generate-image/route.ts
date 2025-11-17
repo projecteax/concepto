@@ -271,7 +271,8 @@ export async function POST(request: NextRequest) {
         type: imageData.mimeType || 'image/png' 
       });
       
-      const fileKey = `episodes/${episodeId}/av-script/generated/${Date.now()}-${style}.png`;
+      const timestamp = Date.now();
+      const fileKey = `episodes/${episodeId}/av-script/generated/${timestamp}-${style}.png`;
       const uploadResult = await uploadToS3(file, fileKey);
       
       if (!uploadResult) {
@@ -279,6 +280,16 @@ export async function POST(request: NextRequest) {
           { error: 'Failed to upload generated image' },
           { status: 500 }
         );
+      }
+
+      // Also save to backup folder (separate backup, no Firebase connection)
+      try {
+        const backupKey = `concepto-app/AIbackups/images/${timestamp}-${Math.random().toString(36).substring(7)}.png`;
+        await uploadToS3(file, backupKey);
+        console.log('✅ Image backup saved to:', backupKey);
+      } catch (backupError) {
+        // Log but don't fail the request if backup fails
+        console.warn('⚠️ Failed to save image backup (non-critical):', backupError);
       }
 
       return NextResponse.json({
