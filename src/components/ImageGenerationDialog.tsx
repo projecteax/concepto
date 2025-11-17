@@ -255,8 +255,8 @@ export function ImageGenerationDialog({
         const allVideos = existingThread.generatedVideos || [];
         // Separate uploaded items from generated ones and deduplicate by URL
         // First, collect all unique URLs to avoid duplicates
-        const uploadedImgsMap = new Map<string, { id: string; imageUrl: string; createdAt: any }>();
-        const uploadedVidsMap = new Map<string, { id: string; videoUrl: string; createdAt: any }>();
+        const uploadedImgsMap = new Map<string, { id: string; imageUrl: string; createdAt: Date | string | number }>();
+        const uploadedVidsMap = new Map<string, { id: string; videoUrl: string; createdAt: Date | string | number }>();
         const genImagesMap = new Map<string, typeof allImages[0]>();
         const genVideosMap = new Map<string, typeof allVideos[0]>();
         
@@ -304,7 +304,7 @@ export function ImageGenerationDialog({
         const genImages = Array.from(genImagesMap.values());
         const genVideos = Array.from(genVideosMap.values());
         // Helper to convert date to Date object
-        const toDate = (date: any): Date => {
+        const toDate = (date: Date | string | number | undefined): Date => {
           if (date instanceof Date) return date;
           if (typeof date === 'string') return new Date(date);
           if (date?.toDate) return date.toDate(); // Firestore Timestamp
@@ -2199,7 +2199,7 @@ export function ImageGenerationDialog({
                             ].map(img => ({
                               id: img.id,
                               imageUrl: img.imageUrl,
-                              prompt: (img as any).prompt || 'Uploaded image',
+                              prompt: ('prompt' in img && typeof img.prompt === 'string') ? img.prompt : 'Uploaded image',
                               style: selectedStyle as 'storyboard' | '3d-render',
                               createdAt: img.createdAt,
                             }));
@@ -2291,7 +2291,7 @@ export function ImageGenerationDialog({
                             ].map(vid => ({
                               id: vid.id,
                               videoUrl: vid.videoUrl,
-                              prompt: (vid as any).prompt || 'Uploaded video',
+                              prompt: ('prompt' in vid && typeof vid.prompt === 'string') ? vid.prompt : 'Uploaded video',
                               createdAt: vid.createdAt,
                             }));
                             
@@ -2612,7 +2612,18 @@ export function ImageGenerationDialog({
                   isPerformingOperation.current = true;
                   
                   try {
-                    let requestBody: any = {
+                    interface VideoRequestBody {
+                      prompt: string;
+                      model: string;
+                      episodeId: string;
+                      type?: 'image-to-video' | 'frames-to-video';
+                      imageUrl?: string;
+                      startFrameUrl?: string;
+                      endFrameUrl?: string;
+                      resolution?: '720p' | '1080p';
+                      duration?: 4 | 6 | 8;
+                    }
+                    const requestBody: VideoRequestBody = {
                       prompt: videoPrompt,
                       model: videoModel,
                       episodeId,

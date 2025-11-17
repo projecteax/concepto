@@ -21,11 +21,9 @@ export async function POST(request: NextRequest) {
       resolution?: '720p' | '1080p';
       duration?: 4 | 6 | 8;
     };
-    
-    const { prompt, type, imageUrl, startFrameUrl, endFrameUrl, model, episodeId, resolution = '720p', duration = 8 } = body;
 
     // Check if model is SORA (OpenAI) or Veo (Google)
-    const isSora = model.startsWith('sora');
+    const isSora = body.model.startsWith('sora');
     
     if (isSora) {
       // Handle SORA video generation
@@ -186,7 +184,11 @@ async function handleSoraGeneration(body: {
     const maxAttempts = 120; // 20 minutes max (120 * 10 seconds) - SORA can take longer
     
     // Initial status check
-    let statusData: any = videoData;
+    interface VideoStatusData {
+      status?: string;
+      error?: { message?: string };
+    }
+    let statusData: VideoStatusData = videoData;
     videoStatus = statusData.status || 'queued';
     console.log(`Initial SORA video status: ${videoStatus}`);
 
@@ -342,12 +344,22 @@ async function handleVeoGeneration(body: {
     
     // Build request body according to Veo API structure
     // Resolution parameter should be in parameters object, not directly in instance
-    const instance: any = {
+    interface VeoInstance {
+      prompt: string;
+      image?: { bytesBase64Encoded: string; mimeType: string };
+      firstFrame?: { bytesBase64Encoded: string; mimeType: string };
+      lastFrame?: { bytesBase64Encoded: string; mimeType: string };
+    }
+    const instance: VeoInstance = {
       prompt: prompt,
     };
     
     // Add parameters object with resolution and duration for Veo 3.1 models
-    const parameters: any = {
+    interface VeoParameters {
+      resolution: '720p' | '1080p';
+      durationSeconds: 4 | 6 | 8;
+    }
+    const parameters: VeoParameters = {
       resolution: resolution, // 720p or 1080p
       durationSeconds: duration, // 4, 6, or 8 seconds
     };
@@ -399,7 +411,11 @@ async function handleVeoGeneration(body: {
       };
     }
 
-    const requestBody: any = {
+    interface VeoRequestBody {
+      instances: VeoInstance[];
+      parameters?: VeoParameters;
+    }
+    const requestBody: VeoRequestBody = {
       instances: [instance],
     };
     
@@ -434,7 +450,19 @@ async function handleVeoGeneration(body: {
 
       // Step 2: Poll the operation until it's complete
       let operationComplete = false;
-      let finalResponse: any = null;
+      interface VeoOperationResponse {
+        done?: boolean;
+        response?: {
+          generateVideoResponse?: {
+            generatedSamples?: Array<{
+              video?: { uri?: string };
+            }>;
+          };
+          videoUri?: string;
+        };
+        error?: { message?: string };
+      }
+      let finalResponse: VeoOperationResponse | null = null;
       const maxAttempts = 60; // 10 minutes max (60 * 10 seconds)
       let attempts = 0;
 
@@ -453,7 +481,7 @@ async function handleVeoGeneration(body: {
         }
 
         finalResponse = await statusResponse.json();
-        operationComplete = finalResponse.done === true;
+        operationComplete = finalResponse?.done === true;
         attempts++;
 
         if (!operationComplete) {
@@ -461,12 +489,14 @@ async function handleVeoGeneration(body: {
         }
       }
 
-      if (!operationComplete) {
+      if (!operationComplete || !finalResponse) {
         throw new Error('Video generation timed out after maximum attempts');
       }
 
       // Step 3: Extract video URI from the response
-      const videoUri = finalResponse?.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri;
+      // Try multiple possible response structures
+      const videoUri = finalResponse.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri 
+        || finalResponse.response?.videoUri;
       
       if (!videoUri) {
         console.error('No video URI in response:', JSON.stringify(finalResponse, null, 2));
