@@ -3162,7 +3162,7 @@ export function ImageGenerationDialog({
                         endFrame: endFrame || undefined,
                         referenceImage: referenceImage || undefined,
                         referenceVideo: referenceVideo || undefined,
-                        mainImageId: mainImageId === `uploaded-image-${confirmData.id}` ? null : mainImageId,
+                        mainImageId: mainImageId === `uploaded-image-${confirmData.id}` ? undefined : mainImageId || undefined,
                         mainVideoId: mainVideoId || undefined,
                         messages: messages,
                         generatedImages: allImagesForThread,
