@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { AVScript, AVSegment, AVShot, GlobalAsset, ScreenplayData } from '@/types';
+import { AVScript, AVSegment, AVShot, AVShotImageGenerationThread, GlobalAsset, ScreenplayData } from '@/types';
 import { 
   Plus, 
   Image as ImageIcon,
