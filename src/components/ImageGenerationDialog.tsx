@@ -304,11 +304,16 @@ export function ImageGenerationDialog({
         const genImages = Array.from(genImagesMap.values());
         const genVideos = Array.from(genVideosMap.values());
         // Helper to convert date to Date object
-        const toDate = (date: Date | string | number | undefined): Date => {
+        const toDate = (date: Date | string | number | undefined | { toDate?: () => Date; toMillis?: () => number }): Date => {
           if (date instanceof Date) return date;
           if (typeof date === 'string') return new Date(date);
-          if (date?.toDate) return date.toDate(); // Firestore Timestamp
-          if (date?.toMillis) return new Date(date.toMillis()); // Firestore Timestamp
+          if (typeof date === 'number') return new Date(date);
+          if (date && typeof date === 'object' && 'toDate' in date && typeof date.toDate === 'function') {
+            return date.toDate(); // Firestore Timestamp
+          }
+          if (date && typeof date === 'object' && 'toMillis' in date && typeof date.toMillis === 'function') {
+            return new Date(date.toMillis()); // Firestore Timestamp
+          }
           return new Date();
         };
 
@@ -1854,12 +1859,17 @@ export function ImageGenerationDialog({
                   {/* Generated Images */}
                   {generatedImages
                     .sort((a, b) => {
-                      const aTime = a.createdAt instanceof Date ? a.createdAt.getTime() : 
-                                   (typeof a.createdAt === 'string' ? new Date(a.createdAt).getTime() : 
-                                   (a.createdAt?.toMillis ? a.createdAt.toMillis() : 0));
-                      const bTime = b.createdAt instanceof Date ? b.createdAt.getTime() : 
-                                   (typeof b.createdAt === 'string' ? new Date(b.createdAt).getTime() : 
-                                   (b.createdAt?.toMillis ? b.createdAt.toMillis() : 0));
+                      const getTime = (date: Date | string | number | undefined | { toMillis?: () => number }): number => {
+                        if (date instanceof Date) return date.getTime();
+                        if (typeof date === 'string') return new Date(date).getTime();
+                        if (typeof date === 'number') return date;
+                        if (date && typeof date === 'object' && 'toMillis' in date && typeof date.toMillis === 'function') {
+                          return date.toMillis();
+                        }
+                        return 0;
+                      };
+                      const aTime = getTime(a.createdAt);
+                      const bTime = getTime(b.createdAt);
                       return bTime - aTime;
                     })
                     .map((img, idx) => (
@@ -1902,12 +1912,17 @@ export function ImageGenerationDialog({
                   {/* Generated Videos */}
                   {generatedVideos
                     .sort((a, b) => {
-                      const aTime = a.createdAt instanceof Date ? a.createdAt.getTime() : 
-                                   (typeof a.createdAt === 'string' ? new Date(a.createdAt).getTime() : 
-                                   (a.createdAt?.toMillis ? a.createdAt.toMillis() : 0));
-                      const bTime = b.createdAt instanceof Date ? b.createdAt.getTime() : 
-                                   (typeof b.createdAt === 'string' ? new Date(b.createdAt).getTime() : 
-                                   (b.createdAt?.toMillis ? b.createdAt.toMillis() : 0));
+                      const getTime = (date: Date | string | number | undefined | { toMillis?: () => number }): number => {
+                        if (date instanceof Date) return date.getTime();
+                        if (typeof date === 'string') return new Date(date).getTime();
+                        if (typeof date === 'number') return date;
+                        if (date && typeof date === 'object' && 'toMillis' in date && typeof date.toMillis === 'function') {
+                          return date.toMillis();
+                        }
+                        return 0;
+                      };
+                      const aTime = getTime(a.createdAt);
+                      const bTime = getTime(b.createdAt);
                       return bTime - aTime;
                     })
                     .map((vid, idx) => (
@@ -2633,12 +2648,19 @@ export function ImageGenerationDialog({
                     if (selectedVideoInputType === 'main') {
                       // Image to video
                       requestBody.type = 'image-to-video';
-                      requestBody.imageUrl = getMainImageUrl();
+                      const mainImageUrl = getMainImageUrl();
+                      if (mainImageUrl) {
+                        requestBody.imageUrl = mainImageUrl;
+                      }
                     } else if (selectedVideoInputType === 'start-end') {
                       // Frames to video
                       requestBody.type = 'frames-to-video';
-                      requestBody.startFrameUrl = startFrame;
-                      requestBody.endFrameUrl = endFrame;
+                      if (startFrame) {
+                        requestBody.startFrameUrl = startFrame;
+                      }
+                      if (endFrame) {
+                        requestBody.endFrameUrl = endFrame;
+                      }
                     }
                     requestBody.resolution = videoResolution;
                     requestBody.duration = videoDuration;
