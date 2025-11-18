@@ -473,7 +473,10 @@ class CONCEPTO_OT_SelectShot(Operator):
     shot_id: StringProperty()
     
     def execute(self, context):
-        context.scene.concepto_state.selected_shot_id = self.shot_id
+        state = context.scene.concepto_state
+        state.selected_shot_id = self.shot_id
+        # Update enum to reflect selection
+        state.selected_shot_enum = self.shot_id
         return {'FINISHED'}
 
 class CONCEPTO_OT_SelectImageType(Operator):
@@ -499,7 +502,12 @@ class CONCEPTO_OT_SelectSegment(Operator):
     segment_id: StringProperty()
     
     def execute(self, context):
-        context.scene.concepto_state.selected_segment_id = self.segment_id
+        state = context.scene.concepto_state
+        state.selected_segment_id = self.segment_id
+        state.selected_shot_id = ''  # Clear shot selection when segment changes
+        state.selected_shot_enum = 'NONE'  # Clear shot dropdown
+        # Update enum to reflect selection
+        state.selected_segment_enum = self.segment_id
         return {'FINISHED'}
 
 class CONCEPTO_OT_ViewShotImages(Operator):
