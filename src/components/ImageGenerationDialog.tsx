@@ -247,7 +247,7 @@ export function ImageGenerationDialog({
         // SYNC: If shot's current imageUrl/videoUrl doesn't match thread, update thread to match shot
         // This handles the case where Blender uploaded a new image directly to shot.imageUrl
         // but the thread still has the old image URLs
-        let syncedThread = { ...existingThread };
+        const syncedThread = { ...existingThread };
         let threadNeedsSync = false;
         
         // Check if shot's imageUrl matches any of the thread's image fields
