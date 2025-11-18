@@ -204,13 +204,17 @@ class CONCEPTO_OT_LoadEpisode(Operator):
                         take = shot.get('take', '')
                         if take:
                             # Remove _image suffix if present, then use the take number directly
-                            take_clean = take.replace('_image', '')
+                            take_clean = take.replace('_image', '').strip()
                             shot_item.shot_number = take_clean
+                            print(f"DEBUG: Shot {shot.get('id', 'unknown')} - Using take field: '{take}' -> '{take_clean}'")
                         else:
                             # Fallback for older shots without 'take' field
                             # Calculate take number from shot index within segment (1-based)
                             shot_index = shots.index(shot) + 1
                             shot_item.shot_number = f"SC{segment_number:02d}T{shot_index:02d}"
+                            print(f"DEBUG: Shot {shot.get('id', 'unknown')} - No take field, using fallback: '{shot_item.shot_number}'")
+                            print(f"DEBUG: Shot data keys: {list(shot.keys())}")
+                            print(f"DEBUG: Shot data: {shot}")
                         shot_item.audio = shot.get('audio', '')
                         shot_item.visual = shot.get('visual', '')
                         shot_item.main_image_url = shot.get('imageUrl', '')
