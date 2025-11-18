@@ -198,7 +198,7 @@ def update_segment_selection(self, context):
             state.selected_segment_id = self.selected_segment_enum
             # Clear shot selection when segment changes
             state.selected_shot_id = ''
-            self.selected_shot_enum = 'NONE'
+            state.selected_shot_enum = 'NONE'
 
 def update_shot_selection(self, context):
     """Update selected_shot_id when dropdown changes"""

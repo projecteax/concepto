@@ -141,22 +141,11 @@ class CONCEPTO_PT_SegmentSelector(Panel):
             
             # Display segments in a dropdown
             layout.separator()
-            layout.label(text="Select Segment:", icon='SCENE')
+            layout.label(text="Select Season:", icon='SCENE')
             
-            # Update enum to match current selection
-            if state.selected_segment_id and state.selected_segment_id not in [item[0] for item in state.selected_segment_enum]:
-                # Force refresh by setting to NONE first, then to selected
-                state.selected_segment_enum = 'NONE'
-            
-            # Show dropdown
+            # Show dropdown - always accessible
             row = layout.row()
             row.prop(state, "selected_segment_enum", text="")
-            
-            # Show current selection info
-            if state.selected_segment_id:
-                current_seg = unique_segments.get(state.selected_segment_id, {})
-                if current_seg:
-                    layout.label(text=f"✓ SC{current_seg.get('number', 0):02d}: {current_seg.get('title', '')}", icon='CHECKMARK')
         except:
             layout.label(text="Error parsing episode data", icon='ERROR')
 
@@ -191,12 +180,7 @@ class CONCEPTO_PT_ShotsList(Panel):
         
         layout.label(text=f"Select Shot ({len(filtered_shots)} available):", icon='CAMERA_DATA')
         
-        # Update enum to match current selection
-        if state.selected_shot_id and state.selected_shot_id not in [item[0] for item in state.selected_shot_enum]:
-            # Force refresh by setting to NONE first
-            state.selected_shot_enum = 'NONE'
-        
-        # Show dropdown
+        # Show dropdown - always accessible
         row = layout.row()
         row.prop(state, "selected_shot_enum", text="")
         
@@ -211,16 +195,39 @@ class CONCEPTO_PT_ShotsList(Panel):
             if selected_shot:
                 layout.separator()
                 box = layout.box()
-                box.label(text=f"✓ {selected_shot.shot_number}", icon='CHECKMARK')
+                box.label(text=f"Selected: {selected_shot.shot_number}", icon='CHECKMARK')
                 
-                # Visual text preview
+                # Visual description - full text display (not a button)
                 if selected_shot.visual:
-                    row = box.row()
-                    visual_text = selected_shot.visual[:100] + "..." if len(selected_shot.visual) > 100 else selected_shot.visual
-                    row.label(text=visual_text, icon='TEXT')
+                    layout.separator()
+                    layout.label(text="Visual Description:", icon='TEXT')
+                    # Use a box with word wrapping for long text
+                    desc_box = layout.box()
+                    # Split long text into multiple lines for better display
+                    visual_text = selected_shot.visual
+                    # Break into chunks of reasonable length for display
+                    words = visual_text.split()
+                    lines = []
+                    current_line = ""
+                    for word in words:
+                        if len(current_line) + len(word) + 1 < 60:  # Approx 60 chars per line
+                            current_line += (word + " ") if current_line else word
+                        else:
+                            if current_line:
+                                lines.append(current_line)
+                            current_line = word
+                    if current_line:
+                        lines.append(current_line)
+                    
+                    for line in lines:
+                        desc_box.label(text=line)
+                else:
+                    layout.separator()
+                    layout.label(text="Visual Description: (none)", icon='TEXT')
                 
                 # Main image indicator
-                row = box.row()
+                layout.separator()
+                row = layout.row()
                 if selected_shot.main_image_url:
                     row.label(text="Has image", icon='IMAGE_DATA')
                     op = row.operator("concepto.view_shot_images", text="View Images", icon='ZOOM_IN', emboss=True)
@@ -260,15 +267,31 @@ class CONCEPTO_PT_ShotImages(Panel):
         layout.label(text=f"Shot: {shot.shot_number}", icon='IMAGE_DATA')
         layout.separator()
         
-        # Visual text editor
-        box = layout.box()
-        box.label(text="Visual Description:", icon='TEXT')
-        row = box.row()
-        row.scale_y = 2.0
-        op = row.operator("concepto.edit_shot_visual", text=shot.visual[:100] + "..." if len(shot.visual) > 100 else shot.visual or "Click to edit", 
-                         emboss=True, icon='TEXT')
-        op.shot_id = shot.shot_id
-        op.current_visual = shot.visual
+        # Visual description - full text display (read-only for reference)
+        layout.label(text="Visual Description:", icon='TEXT')
+        if shot.visual:
+            # Use a box with word wrapping for long text
+            desc_box = layout.box()
+            # Split long text into multiple lines for better display
+            visual_text = shot.visual
+            # Break into chunks of reasonable length for display
+            words = visual_text.split()
+            lines = []
+            current_line = ""
+            for word in words:
+                if len(current_line) + len(word) + 1 < 60:  # Approx 60 chars per line
+                    current_line += (word + " ") if current_line else word
+                else:
+                    if current_line:
+                        lines.append(current_line)
+                    current_line = word
+            if current_line:
+                lines.append(current_line)
+            
+            for line in lines:
+                desc_box.label(text=line)
+        else:
+            layout.label(text="(none)", icon='INFO')
         
         layout.separator()
         
