@@ -203,23 +203,32 @@ class CONCEPTO_PT_ShotsList(Panel):
                 if selected_shot.visual:
                     # Use a box with word wrapping for long text
                     desc_box = layout.box()
-                    # Split long text into multiple lines - use shorter lines to prevent truncation
+                    # Split long text into multiple lines - max 24 chars per line, never break words
                     visual_text = selected_shot.visual
-                    # Break into chunks of shorter length to ensure no truncation
                     words = visual_text.split()
                     lines = []
                     current_line = ""
-                    # Use 45 chars max per line to prevent Blender label truncation
-                    max_line_length = 45
+                    max_line_length = 24  # Maximum 24 characters per line
+                    
                     for word in words:
-                        test_line = current_line + (" " if current_line else "") + word
-                        if len(test_line) <= max_line_length:
-                            current_line = test_line
+                        # Calculate what the line would look like with this word
+                        if current_line:
+                            test_line = current_line + " " + word
                         else:
+                            test_line = word
+                        
+                        # If adding this word would exceed the limit, start a new line
+                        if len(test_line) > max_line_length:
+                            # Save current line if it has content
                             if current_line:
                                 lines.append(current_line)
-                            # If a single word is longer than max, just add it anyway
-                            current_line = word if len(word) <= max_line_length else word[:max_line_length-3] + "..."
+                            # Start new line with this word (even if word is longer than max)
+                            current_line = word
+                        else:
+                            # Add word to current line
+                            current_line = test_line
+                    
+                    # Add the last line if it has content
                     if current_line:
                         lines.append(current_line)
                     
@@ -268,23 +277,32 @@ class CONCEPTO_PT_ShotImages(Panel):
         if shot.visual:
             # Use a box with word wrapping for long text
             desc_box = layout.box()
-            # Split long text into multiple lines - use shorter lines to prevent truncation
+            # Split long text into multiple lines - max 24 chars per line, never break words
             visual_text = shot.visual
-            # Break into chunks of shorter length to ensure no truncation
             words = visual_text.split()
             lines = []
             current_line = ""
-            # Use 45 chars max per line to prevent Blender label truncation
-            max_line_length = 45
+            max_line_length = 24  # Maximum 24 characters per line
+            
             for word in words:
-                test_line = current_line + (" " if current_line else "") + word
-                if len(test_line) <= max_line_length:
-                    current_line = test_line
+                # Calculate what the line would look like with this word
+                if current_line:
+                    test_line = current_line + " " + word
                 else:
+                    test_line = word
+                
+                # If adding this word would exceed the limit, start a new line
+                if len(test_line) > max_line_length:
+                    # Save current line if it has content
                     if current_line:
                         lines.append(current_line)
-                    # If a single word is longer than max, just add it anyway
-                    current_line = word if len(word) <= max_line_length else word[:max_line_length-3] + "..."
+                    # Start new line with this word (even if word is longer than max)
+                    current_line = word
+                else:
+                    # Add word to current line
+                    current_line = test_line
+            
+            # Add the last line if it has content
             if current_line:
                 lines.append(current_line)
             
