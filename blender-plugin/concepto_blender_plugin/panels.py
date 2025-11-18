@@ -196,49 +196,6 @@ class CONCEPTO_PT_ShotsList(Panel):
                 layout.separator()
                 box = layout.box()
                 box.label(text=f"Selected: {selected_shot.shot_number}", icon='CHECKMARK')
-                
-                # Visual description - full text display as simple text
-                layout.separator()
-                layout.label(text="Visual Description:", icon='TEXT')
-                if selected_shot.visual:
-                    # Use a box with word wrapping for long text
-                    desc_box = layout.box()
-                    # Split long text into multiple lines - max 24 chars per line, never break words
-                    visual_text = selected_shot.visual
-                    words = visual_text.split()
-                    lines = []
-                    current_line = ""
-                    max_line_length = 24  # Maximum 24 characters per line
-                    
-                    for word in words:
-                        # Calculate what the line would look like with this word
-                        if current_line:
-                            test_line = current_line + " " + word
-                        else:
-                            test_line = word
-                        
-                        # If adding this word would exceed the limit, start a new line
-                        if len(test_line) > max_line_length:
-                            # Save current line if it has content
-                            if current_line:
-                                lines.append(current_line)
-                            # Start new line with this word (even if word is longer than max)
-                            current_line = word
-                        else:
-                            # Add word to current line
-                            current_line = test_line
-                    
-                    # Add the last line if it has content
-                    if current_line:
-                        lines.append(current_line)
-                    
-                    # Display each line on its own row to prevent truncation
-                    for line in lines:
-                        row = desc_box.row()
-                        row.label(text=line)
-                else:
-                    desc_box = layout.box()
-                    desc_box.label(text="(none)", icon='INFO')
 
 class CONCEPTO_PT_ShotImages(Panel):
     """Shot Images Panel - Shows main/start/end frames"""
