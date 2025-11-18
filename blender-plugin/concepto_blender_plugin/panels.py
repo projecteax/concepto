@@ -203,24 +203,30 @@ class CONCEPTO_PT_ShotsList(Panel):
                 if selected_shot.visual:
                     # Use a box with word wrapping for long text
                     desc_box = layout.box()
-                    # Split long text into multiple lines for better display
+                    # Split long text into multiple lines - use shorter lines to prevent truncation
                     visual_text = selected_shot.visual
-                    # Break into chunks of reasonable length for display
+                    # Break into chunks of shorter length to ensure no truncation
                     words = visual_text.split()
                     lines = []
                     current_line = ""
+                    # Use 45 chars max per line to prevent Blender label truncation
+                    max_line_length = 45
                     for word in words:
-                        if len(current_line) + len(word) + 1 < 60:  # Approx 60 chars per line
-                            current_line += (word + " ") if current_line else word
+                        test_line = current_line + (" " if current_line else "") + word
+                        if len(test_line) <= max_line_length:
+                            current_line = test_line
                         else:
                             if current_line:
                                 lines.append(current_line)
-                            current_line = word
+                            # If a single word is longer than max, just add it anyway
+                            current_line = word if len(word) <= max_line_length else word[:max_line_length-3] + "..."
                     if current_line:
                         lines.append(current_line)
                     
+                    # Display each line on its own row to prevent truncation
                     for line in lines:
-                        desc_box.label(text=line)
+                        row = desc_box.row()
+                        row.label(text=line)
                 else:
                     desc_box = layout.box()
                     desc_box.label(text="(none)", icon='INFO')
@@ -262,24 +268,30 @@ class CONCEPTO_PT_ShotImages(Panel):
         if shot.visual:
             # Use a box with word wrapping for long text
             desc_box = layout.box()
-            # Split long text into multiple lines for better display
+            # Split long text into multiple lines - use shorter lines to prevent truncation
             visual_text = shot.visual
-            # Break into chunks of reasonable length for display
+            # Break into chunks of shorter length to ensure no truncation
             words = visual_text.split()
             lines = []
             current_line = ""
+            # Use 45 chars max per line to prevent Blender label truncation
+            max_line_length = 45
             for word in words:
-                if len(current_line) + len(word) + 1 < 60:  # Approx 60 chars per line
-                    current_line += (word + " ") if current_line else word
+                test_line = current_line + (" " if current_line else "") + word
+                if len(test_line) <= max_line_length:
+                    current_line = test_line
                 else:
                     if current_line:
                         lines.append(current_line)
-                    current_line = word
+                    # If a single word is longer than max, just add it anyway
+                    current_line = word if len(word) <= max_line_length else word[:max_line_length-3] + "..."
             if current_line:
                 lines.append(current_line)
             
+            # Display each line on its own row to prevent truncation
             for line in lines:
-                desc_box.label(text=line)
+                row = desc_box.row()
+                row.label(text=line)
         else:
             layout.label(text="(none)", icon='INFO')
         
