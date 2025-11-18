@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { uploadToS3 } from '@/lib/s3-service';
 import sharp from 'sharp';
+import { handleRunwayGeneration } from './runway-handler';
 
 // FormData is available in Node.js 18+ (Next.js uses Next.js 18+)
 // No need to import, it's a global in modern Node.js
@@ -8,24 +9,32 @@ import sharp from 'sharp';
 // Veo API endpoint - separate from Gemini API
 const VEO_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
+// Runway ML API endpoint (defined in runway-handler.ts)
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json() as {
-      prompt: string;
-      type: 'image-to-video' | 'frames-to-video';
+      prompt?: string;
+      type?: 'image-to-video' | 'frames-to-video' | 'character-performance';
       imageUrl?: string;
       startFrameUrl?: string;
       endFrameUrl?: string;
+      referenceVideoUrl?: string;
       model: string;
       episodeId: string;
       resolution?: '720p' | '1080p';
       duration?: 4 | 6 | 8;
+      runwayDuration?: number;
     };
 
-    // Check if model is SORA (OpenAI) or Veo (Google)
+    // Check which model is being used
     const isSora = body.model.startsWith('sora');
+    const isRunway = body.model.startsWith('runway');
     
-    if (isSora) {
+    if (isRunway) {
+      // Handle Runway ML video generation
+      return await handleRunwayGeneration(body);
+    } else if (isSora) {
       // Handle SORA video generation
       return await handleSoraGeneration(body);
     } else {
@@ -52,8 +61,8 @@ export async function POST(request: NextRequest) {
 }
 
 async function handleSoraGeneration(body: {
-  prompt: string;
-  type: 'image-to-video' | 'frames-to-video';
+  prompt?: string;
+  type?: 'image-to-video' | 'frames-to-video' | 'character-performance';
   imageUrl?: string;
   startFrameUrl?: string;
   endFrameUrl?: string;
@@ -62,7 +71,7 @@ async function handleSoraGeneration(body: {
   resolution?: '720p' | '1080p';
   duration?: 4 | 6 | 8;
 }) {
-  const { prompt, type, imageUrl, episodeId, resolution = '720p', duration = 8 } = body;
+  const { prompt = '', type = 'image-to-video', imageUrl, episodeId, resolution = '720p', duration = 8 } = body;
   
   // Check if OpenAI API key is configured
   const openaiApiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
@@ -281,8 +290,8 @@ async function handleSoraGeneration(body: {
 }
 
 async function handleVeoGeneration(body: {
-  prompt: string;
-  type: 'image-to-video' | 'frames-to-video';
+  prompt?: string;
+  type?: 'image-to-video' | 'frames-to-video' | 'character-performance';
   imageUrl?: string;
   startFrameUrl?: string;
   endFrameUrl?: string;
@@ -291,7 +300,7 @@ async function handleVeoGeneration(body: {
   resolution?: '720p' | '1080p';
   duration?: 4 | 6 | 8;
 }) {
-  const { prompt, type, imageUrl, startFrameUrl, endFrameUrl, model, episodeId, resolution = '720p', duration = 8 } = body;
+  const { prompt = '', type = 'image-to-video', imageUrl, startFrameUrl, endFrameUrl, model, episodeId, resolution = '720p', duration = 8 } = body;
   
   // Check if Veo API key is configured
   const veoApiKey = process.env.NEXT_PUBLIC_VEO_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY;

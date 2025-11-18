@@ -105,6 +105,7 @@ export function ImageGenerationDialog({
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [videoResolution, setVideoResolution] = useState<'720p' | '1080p'>('720p');
   const [videoDuration, setVideoDuration] = useState<4 | 6 | 8>(8);
+  const [runwayDuration, setRunwayDuration] = useState<number>(5); // For Runway ML (2-10 seconds)
   const [enlargedContent, setEnlargedContent] = useState<{ type: 'image' | 'video'; url: string } | null>(null);
   const [uploadedImages, setUploadedImages] = useState<Array<{ id: string; imageUrl: string; createdAt: Date }>>([]);
   const [uploadedVideos, setUploadedVideos] = useState<Array<{ id: string; videoUrl: string; createdAt: Date }>>([]);
@@ -2390,57 +2391,103 @@ export function ImageGenerationDialog({
                 <optgroup label="SORA (OpenAI)">
                   <option value="sora-2">SORA 2</option>
                 </optgroup>
+                <optgroup label="Runway ML">
+                  <option value="runway-gen4-turbo">Gen-4 Turbo</option>
+                  <option value="runway-act-two">Act Two</option>
+                </optgroup>
               </select>
               <p className="text-xs text-gray-500 mt-1">
                 {videoModel.startsWith('veo') 
                   ? 'Using Veo 3.1 models for video generation. Fast mode generates quicker, Pro mode provides higher quality. Note: Veo models require a paid tier Gemini API account.'
+                  : videoModel.startsWith('runway')
+                  ? videoModel === 'runway-gen4-turbo'
+                    ? 'Using Runway ML Gen-4 Turbo for image-to-video generation. Supports flexible duration (2-10 seconds) and 1280x720 resolution.'
+                    : 'Using Runway ML Act Two for character performance. Requires a main image (character) and reference video. Supports flexible duration (2-10 seconds) and 1280:720 ratio.'
                   : 'Using OpenAI SORA 2 for video generation. Supports text-to-video and image-to-video generation.'}
               </p>
             </div>
 
-            {/* Resolution Selection - Available for both Veo and SORA */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Video Resolution
-              </label>
-              <select
-                value={videoResolution}
-                onChange={(e) => setVideoResolution(e.target.value as '720p' | '1080p')}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-              >
-                <option value="720p">720p (1280x720 - Faster generation)</option>
-                <option value="1080p">1080p (1920x1080 - Higher quality)</option>
-              </select>
-              <p className="text-xs text-gray-500 mt-1">
-                Select the output resolution for the generated video. Both Veo and SORA models support this.
-              </p>
-            </div>
+            {/* Resolution Selection - Available for Veo and SORA, fixed for Runway */}
+            {!videoModel.startsWith('runway') && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Video Resolution
+                </label>
+                <select
+                  value={videoResolution}
+                  onChange={(e) => setVideoResolution(e.target.value as '720p' | '1080p')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                >
+                  <option value="720p">720p (1280x720 - Faster generation)</option>
+                  <option value="1080p">1080p (1920x1080 - Higher quality)</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Select the output resolution for the generated video. Both Veo and SORA models support this.
+                </p>
+              </div>
+            )}
+            {videoModel.startsWith('runway') && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Video Resolution
+                </label>
+                <div className="px-3 py-2 border border-gray-300 rounded-lg bg-gray-50">
+                  <span className="text-gray-700">1280x720 (Fixed for Runway ML models)</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Runway ML models use a fixed resolution of 1280x720 (16:9 ratio).
+                </p>
+              </div>
+            )}
 
             {/* Duration Selection */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Video Duration: {videoDuration}s
-              </label>
-              <div className="flex items-center gap-4">
-                {([4, 6, 8] as const).map((duration) => (
-                  <button
-                    key={duration}
-                    type="button"
-                    onClick={() => setVideoDuration(duration)}
-                    className={`flex-1 px-4 py-2 border-2 rounded-lg font-medium transition-colors ${
-                      videoDuration === duration
-                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                        : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
-                    }`}
-                  >
-                    {duration}s
-                  </button>
-                ))}
+            {videoModel.startsWith('runway') ? (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Video Duration: {runwayDuration}s
+                </label>
+                <input
+                  type="range"
+                  min="2"
+                  max="10"
+                  value={runwayDuration}
+                  onChange={(e) => setRunwayDuration(parseInt(e.target.value))}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>2s</span>
+                  <span>10s</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Select the duration of the generated video (2-10 seconds). Runway ML models support flexible durations.
+                </p>
               </div>
-              <p className="text-xs text-gray-500 mt-1">
-                Select the duration of the generated video. Available options: 4s, 6s, or 8s.
-              </p>
-            </div>
+            ) : (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Video Duration: {videoDuration}s
+                </label>
+                <div className="flex items-center gap-4">
+                  {([4, 6, 8] as const).map((duration) => (
+                    <button
+                      key={duration}
+                      type="button"
+                      onClick={() => setVideoDuration(duration)}
+                      className={`flex-1 px-4 py-2 border-2 rounded-lg font-medium transition-colors ${
+                        videoDuration === duration
+                          ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                          : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                      }`}
+                    >
+                      {duration}s
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Select the duration of the generated video. Available options: 4s, 6s, or 8s.
+                </p>
+              </div>
+            )}
 
             {/* Select Input Type */}
             <div className="mb-4">
@@ -2535,12 +2582,22 @@ export function ImageGenerationDialog({
                   </div>
                 </div>
 
-                {/* Reference Video - Placeholder */}
+                {/* Reference Video - For Act Two or Placeholder */}
                 <div
                   onClick={() => {
-                    alert('Reference video generation is not yet implemented.');
+                    if (videoModel === 'runway-act-two') {
+                      if (referenceVideo && getMainImageUrl()) {
+                        setSelectedVideoInputType('reference-video');
+                      } else {
+                        alert('Both main image and reference video are required for Act Two character performance.');
+                      }
+                    } else {
+                      alert('Reference video generation is not yet implemented for this model.');
+                    }
                   }}
-                  className="relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video border-gray-300 opacity-50 cursor-not-allowed"
+                  className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video ${
+                    selectedVideoInputType === 'reference-video' ? 'border-indigo-500' : 'border-gray-300'
+                  } ${videoModel === 'runway-act-two' && referenceVideo && getMainImageUrl() ? '' : 'opacity-50 cursor-not-allowed'}`}
                 >
                   {referenceVideo ? (
                     <>
@@ -2549,8 +2606,13 @@ export function ImageGenerationDialog({
                         className="w-full h-full object-cover"
                         muted
                       />
+                      {selectedVideoInputType === 'reference-video' && (
+                        <div className="absolute inset-0 bg-indigo-500 bg-opacity-30 flex items-center justify-center">
+                          <Check className="w-8 h-8 text-white" />
+                        </div>
+                      )}
                       <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-sm font-medium p-2 text-center">
-                        REFERENCE VIDEO (Coming Soon)
+                        {videoModel === 'runway-act-two' ? 'REFERENCE VIDEO (Act Two)' : 'REFERENCE VIDEO (Coming Soon)'}
                       </div>
                     </>
                   ) : (
@@ -2613,12 +2675,19 @@ export function ImageGenerationDialog({
                     return;
                   }
                   
-                  if (selectedVideoInputType === 'reference-video') {
-                    alert('Reference video generation is not yet implemented');
+                  if (selectedVideoInputType === 'reference-video' && videoModel !== 'runway-act-two') {
+                    alert('Reference video generation is not yet implemented for this model');
                     return;
                   }
                   
-                  if (!videoPrompt.trim()) {
+                  if (videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video') {
+                    if (!referenceVideo || !getMainImageUrl()) {
+                      alert('Both main image (character) and reference video are required for Act Two');
+                      return;
+                    }
+                  }
+                  
+                  if (!videoPrompt.trim() && !videoModel.startsWith('runway')) {
                     alert('Please enter a prompt');
                     return;
                   }
@@ -2628,29 +2697,52 @@ export function ImageGenerationDialog({
                   
                   try {
                     interface VideoRequestBody {
-                      prompt: string;
+                      prompt?: string;
                       model: string;
                       episodeId: string;
-                      type?: 'image-to-video' | 'frames-to-video';
+                      type?: 'image-to-video' | 'frames-to-video' | 'character-performance';
                       imageUrl?: string;
                       startFrameUrl?: string;
                       endFrameUrl?: string;
+                      referenceVideoUrl?: string;
                       resolution?: '720p' | '1080p';
                       duration?: 4 | 6 | 8;
+                      runwayDuration?: number;
                     }
                     const requestBody: VideoRequestBody = {
-                      prompt: videoPrompt,
                       model: videoModel,
                       episodeId,
                     };
                     
+                    // Add prompt for non-Runway models
+                    if (!videoModel.startsWith('runway')) {
+                      requestBody.prompt = videoPrompt;
+                    }
+                    
                     // Determine generation type and set appropriate parameters
-                    if (selectedVideoInputType === 'main') {
+                    if (videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video') {
+                      // Act Two character performance
+                      requestBody.type = 'character-performance';
+                      const mainImageUrl = getMainImageUrl();
+                      if (mainImageUrl) {
+                        requestBody.imageUrl = mainImageUrl;
+                      }
+                      if (referenceVideo) {
+                        requestBody.referenceVideoUrl = referenceVideo;
+                      }
+                      requestBody.runwayDuration = runwayDuration;
+                    } else if (selectedVideoInputType === 'main') {
                       // Image to video
                       requestBody.type = 'image-to-video';
                       const mainImageUrl = getMainImageUrl();
                       if (mainImageUrl) {
                         requestBody.imageUrl = mainImageUrl;
+                      }
+                      if (videoModel.startsWith('runway')) {
+                        requestBody.runwayDuration = runwayDuration;
+                      } else {
+                        requestBody.resolution = videoResolution;
+                        requestBody.duration = videoDuration;
                       }
                     } else if (selectedVideoInputType === 'start-end') {
                       // Frames to video
@@ -2661,9 +2753,9 @@ export function ImageGenerationDialog({
                       if (endFrame) {
                         requestBody.endFrameUrl = endFrame;
                       }
+                      requestBody.resolution = videoResolution;
+                      requestBody.duration = videoDuration;
                     }
-                    requestBody.resolution = videoResolution;
-                    requestBody.duration = videoDuration;
                     
                     const response = await fetch('/api/gemini/generate-video', {
                       method: 'POST',
@@ -3426,3 +3518,4 @@ export function ImageGenerationDialog({
     </>
   );
 }
+
