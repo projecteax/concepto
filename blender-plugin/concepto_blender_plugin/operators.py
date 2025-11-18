@@ -186,6 +186,12 @@ class CONCEPTO_OT_LoadEpisode(Operator):
                 # Clear existing shots
                 context.scene.concepto_shots.clear()
                 
+                # Reset selections
+                state.selected_segment_id = ''
+                state.selected_shot_id = ''
+                state.selected_segment_enum = 'NONE'
+                state.selected_shot_enum = 'NONE'
+                
                 # Populate shots from segments
                 av_script = episode_data.get('avScript', {})
                 segments = av_script.get('segments', [])

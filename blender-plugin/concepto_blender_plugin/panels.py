@@ -139,24 +139,24 @@ class CONCEPTO_PT_SegmentSelector(Panel):
                         'title': segment.get('title', ''),
                     }
             
-            # Display segments in a scrollable box
+            # Display segments in a dropdown
             layout.separator()
-            layout.label(text=f"Segments ({len(unique_segments)}):", icon='SCENE')
+            layout.label(text="Select Segment:", icon='SCENE')
             
-            # Use a box for better organization - segments are scrollable
-            box = layout.box()
-            for seg_id, seg_data in sorted(unique_segments.items(), key=lambda x: x[1]['number']):
-                row = box.row()
-                row.scale_y = 1.3
-                if state.selected_segment_id == seg_id:
-                    op = row.operator("concepto.select_segment", text=f"SC{seg_data['number']:02d}: {seg_data['title']}", 
-                                   emboss=True, depress=True)
-                    op.segment_id = seg_id
-                    row.label(text="✓", icon='CHECKMARK')
-                else:
-                    op = row.operator("concepto.select_segment", text=f"SC{seg_data['number']:02d}: {seg_data['title']}", 
-                                   emboss=False)
-                    op.segment_id = seg_id
+            # Update enum to match current selection
+            if state.selected_segment_id and state.selected_segment_id not in [item[0] for item in state.selected_segment_enum]:
+                # Force refresh by setting to NONE first, then to selected
+                state.selected_segment_enum = 'NONE'
+            
+            # Show dropdown
+            row = layout.row()
+            row.prop(state, "selected_segment_enum", text="")
+            
+            # Show current selection info
+            if state.selected_segment_id:
+                current_seg = unique_segments.get(state.selected_segment_id, {})
+                if current_seg:
+                    layout.label(text=f"✓ SC{current_seg.get('number', 0):02d}: {current_seg.get('title', '')}", icon='CHECKMARK')
         except:
             layout.label(text="Error parsing episode data", icon='ERROR')
 
@@ -189,70 +189,44 @@ class CONCEPTO_PT_ShotsList(Panel):
             layout.label(text="No shots found in this segment", icon='INFO')
             return
         
-        layout.label(text=f"Shots in selected segment ({len(filtered_shots)}):", icon='CAMERA_DATA')
+        layout.label(text=f"Select Shot ({len(filtered_shots)} available):", icon='CAMERA_DATA')
         
-        # Search/filter box
+        # Update enum to match current selection
+        if state.selected_shot_id and state.selected_shot_id not in [item[0] for item in state.selected_shot_enum]:
+            # Force refresh by setting to NONE first
+            state.selected_shot_enum = 'NONE'
+        
+        # Show dropdown
         row = layout.row()
-        row.prop(state, "shot_search", text="", icon='VIEWZOOM')
+        row.prop(state, "selected_shot_enum", text="")
         
-        # Apply search filter
-        if state.shot_search:
-            search_term = state.shot_search.lower()
-            filtered_shots = [s for s in filtered_shots if 
-                            search_term in s.shot_number.lower() or 
-                            search_term in s.visual.lower()]
-        
-        # Shots list with pagination
-        layout.separator()
-        
-        # Show shots in a scrollable list
-        # For performance, we'll show max 20 at a time
-        max_shots = 20
-        start_idx = state.shots_page * max_shots
-        end_idx = min(start_idx + max_shots, len(filtered_shots))
-        
-        for i in range(start_idx, end_idx):
-            shot = filtered_shots[i]
-            self.draw_shot_row(layout, shot, state.selected_shot_id == shot.shot_id)
-        
-        # Pagination
-        if len(filtered_shots) > max_shots:
-            row = layout.row()
-            if start_idx > 0:
-                op = row.operator("concepto.shots_page", text="< Prev", emboss=False)
-                op.direction = 'PREV'
-            row.label(text=f"Page {state.shots_page + 1}")
-            if end_idx < len(filtered_shots):
-                op = row.operator("concepto.shots_page", text="Next >", emboss=False)
-                op.direction = 'NEXT'
-    
-    def draw_shot_row(self, layout, shot, is_selected):
-        """Draw a single shot row - compact design for many shots"""
-        box = layout.box()
-        
-        # Shot number/name (clickable) - make it more prominent
-        row = box.row()
-        if is_selected:
-            row.label(text=shot.shot_number, icon='RESTRICT_SELECT_OFF')
-            row.label(text="✓ Selected", icon='CHECKMARK')
-        else:
-            op = row.operator("concepto.select_shot", text=shot.shot_number, emboss=True)
-            op.shot_id = shot.shot_id
-        
-        # Visual text preview (truncated)
-        if shot.visual:
-            row = box.row()
-            visual_text = shot.visual[:80] + "..." if len(shot.visual) > 80 else shot.visual
-            row.label(text=visual_text, icon='TEXT')
-        
-        # Main image indicator and view button
-        row = box.row()
-        if shot.main_image_url:
-            row.label(text="Has image", icon='IMAGE_DATA')
-            op = row.operator("concepto.view_shot_images", text="View Images", icon='ZOOM_IN', emboss=True)
-            op.shot_id = shot.shot_id
-        else:
-            row.label(text="No image", icon='IMAGE_DATA')
+        # Show selected shot info
+        if state.selected_shot_id:
+            selected_shot = None
+            for shot in filtered_shots:
+                if shot.shot_id == state.selected_shot_id:
+                    selected_shot = shot
+                    break
+            
+            if selected_shot:
+                layout.separator()
+                box = layout.box()
+                box.label(text=f"✓ {selected_shot.shot_number}", icon='CHECKMARK')
+                
+                # Visual text preview
+                if selected_shot.visual:
+                    row = box.row()
+                    visual_text = selected_shot.visual[:100] + "..." if len(selected_shot.visual) > 100 else selected_shot.visual
+                    row.label(text=visual_text, icon='TEXT')
+                
+                # Main image indicator
+                row = box.row()
+                if selected_shot.main_image_url:
+                    row.label(text="Has image", icon='IMAGE_DATA')
+                    op = row.operator("concepto.view_shot_images", text="View Images", icon='ZOOM_IN', emboss=True)
+                    op.shot_id = selected_shot.shot_id
+                else:
+                    row.label(text="No image", icon='IMAGE_DATA')
 
 class CONCEPTO_PT_ShotImages(Panel):
     """Shot Images Panel - Shows main/start/end frames"""

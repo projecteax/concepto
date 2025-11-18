@@ -127,6 +127,86 @@ class ConceptoShotData(PropertyGroup):
     segment_number: IntProperty(name="Segment Number")
     segment_title: StringProperty(name="Segment Title")
 
+def get_segment_items(self, context):
+    """Dynamic enum items for segment dropdown"""
+    items = [('NONE', "No Segment Selected", "Select a segment")]
+    
+    if not hasattr(context.scene, 'concepto_state'):
+        return items
+    
+    state = context.scene.concepto_state
+    if not state.episode_data:
+        return items
+    
+    try:
+        import json
+        episode_data = json.loads(state.episode_data)
+        av_script = episode_data.get('avScript', {})
+        segments = av_script.get('segments', [])
+        
+        unique_segments = {}
+        for segment in segments:
+            seg_id = segment.get('id', '')
+            if seg_id not in unique_segments:
+                unique_segments[seg_id] = {
+                    'id': seg_id,
+                    'number': segment.get('segmentNumber', 0),
+                    'title': segment.get('title', ''),
+                }
+        
+        sorted_segments = sorted(unique_segments.items(), key=lambda x: x[1]['number'])
+        for seg_id, seg_data in sorted_segments:
+            display_name = f"SC{seg_data['number']:02d}: {seg_data['title']}"
+            items.append((seg_id, display_name, f"Segment {seg_data['number']}: {seg_data['title']}"))
+    except:
+        pass
+    
+    return items
+
+def get_shot_items(self, context):
+    """Dynamic enum items for shot dropdown"""
+    items = [('NONE', "No Shot Selected", "Select a shot")]
+    
+    if not hasattr(context.scene, 'concepto_state') or not hasattr(context.scene, 'concepto_shots'):
+        return items
+    
+    state = context.scene.concepto_state
+    shots = context.scene.concepto_shots
+    
+    if not state.selected_segment_id:
+        return items
+    
+    filtered_shots = [s for s in shots if s.segment_id == state.selected_segment_id]
+    filtered_shots.sort(key=lambda x: (x.segment_number, x.shot_number))
+    
+    for shot in filtered_shots:
+        display_name = f"{shot.shot_number}"
+        if shot.visual:
+            visual_preview = shot.visual[:40] + "..." if len(shot.visual) > 40 else shot.visual
+            description = f"{shot.shot_number}: {visual_preview}"
+        else:
+            description = shot.shot_number
+        items.append((shot.shot_id, display_name, description))
+    
+    return items
+
+def update_segment_selection(self, context):
+    """Update selected_segment_id when dropdown changes"""
+    if hasattr(context.scene, 'concepto_state'):
+        state = context.scene.concepto_state
+        if self.selected_segment_enum != 'NONE':
+            state.selected_segment_id = self.selected_segment_enum
+            # Clear shot selection when segment changes
+            state.selected_shot_id = ''
+            self.selected_shot_enum = 'NONE'
+
+def update_shot_selection(self, context):
+    """Update selected_shot_id when dropdown changes"""
+    if hasattr(context.scene, 'concepto_state'):
+        state = context.scene.concepto_state
+        if self.selected_shot_enum != 'NONE':
+            state.selected_shot_id = self.selected_shot_enum
+
 class ConceptoPluginState(PropertyGroup):
     """Plugin state management"""
     
@@ -158,6 +238,20 @@ class ConceptoPluginState(PropertyGroup):
     # Search and pagination
     shot_search: StringProperty(name="Search Shots", default="", description="Search shots by name or number")
     shots_page: IntProperty(name="Shots Page", default=0, min=0, description="Current page of shots")
+    
+    # Dropdown selections
+    selected_segment_enum: EnumProperty(
+        name="Segment",
+        items=get_segment_items,
+        update=update_segment_selection,
+        description="Select a segment"
+    )
+    selected_shot_enum: EnumProperty(
+        name="Shot",
+        items=get_shot_items,
+        update=update_shot_selection,
+        description="Select a shot"
+    )
 
 # List of classes to register
 _classes = (
