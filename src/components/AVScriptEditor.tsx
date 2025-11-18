@@ -1530,6 +1530,8 @@ export function AVScriptEditor({
             }}
             initialImageUrl={initialImageUrl}
             existingThread={shot?.imageGenerationThread}
+            currentShotImageUrl={shot?.imageUrl}
+            currentShotVideoUrl={shot?.videoUrl}
             onImageGenerated={async (imageUrl, thread) => {
               if (segment && shot) {
                 // Extract videoUrl from thread if mainVideoId is set

@@ -16,7 +16,11 @@ import {
   Upload,
   Box,
   Video,
-  Clapperboard
+  Clapperboard,
+  Download,
+  ChevronRight,
+  ChevronLeft,
+  Star
 } from 'lucide-react';
 import { GlobalAsset, Character, AVShotImageGenerationThread } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -36,6 +40,8 @@ interface ImageGenerationDialogProps {
   existingThread?: AVShotImageGenerationThread;
   initialImageUrl?: string; // For uploaded images - opens chat with this image in prompt
   audioText?: string; // Audio text from AV script to pre-populate video prompt
+  currentShotImageUrl?: string; // Current shot's imageUrl (from Blender or other sources)
+  currentShotVideoUrl?: string; // Current shot's videoUrl (from Blender or other sources)
 }
 
 interface ChatMessage {
@@ -67,6 +73,8 @@ export function ImageGenerationDialog({
   existingThread,
   initialImageUrl,
   audioText,
+  currentShotImageUrl,
+  currentShotVideoUrl,
 }: ImageGenerationDialogProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -111,6 +119,13 @@ export function ImageGenerationDialog({
   const [uploadedVideos, setUploadedVideos] = useState<Array<{ id: string; videoUrl: string; createdAt: Date }>>([]);
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'image' | 'video'; id: string; url: string } | null>(null);
   const isPerformingOperation = useRef(false); // Flag to prevent reloading during operations
+  const lastLoadedThreadId = useRef<string | undefined>(undefined); // Track last loaded thread ID
+  const lastLoadedThreadUpdatedAt = useRef<Date | string | number | undefined>(undefined); // Track last loaded thread updatedAt
+  const lastLoadedStartFrame = useRef<string | null>(null); // Track last loaded startFrame URL
+  const lastLoadedEndFrame = useRef<string | null>(null); // Track last loaded endFrame URL
+  const lastLoadedReferenceImage = useRef<string | null>(null); // Track last loaded referenceImage URL
+  const syncedThreadRef = useRef<AVShotImageGenerationThread | null>(null); // Store synced thread to save on close
+  const hasSyncedThread = useRef(false); // Flag to track if we've synced the thread (prevents reload)
   const manualUploadRef = useRef<HTMLInputElement>(null);
   const startFrameFileInputRef = useRef<HTMLInputElement>(null);
   const endFrameFileInputRef = useRef<HTMLInputElement>(null);
@@ -229,31 +244,295 @@ export function ImageGenerationDialog({
     
     if (isOpen) {
       if (existingThread) {
-        // Load existing thread
-        setMessages(existingThread.messages.map(msg => ({
+        // SYNC: If shot's current imageUrl/videoUrl doesn't match thread, update thread to match shot
+        // This handles the case where Blender uploaded a new image directly to shot.imageUrl
+        // but the thread still has the old image URLs
+        let syncedThread = { ...existingThread };
+        let threadNeedsSync = false;
+        
+        // Check if shot's imageUrl matches any of the thread's image fields
+        if (currentShotImageUrl) {
+          const threadHasThisImage = 
+            existingThread.startFrame === currentShotImageUrl ||
+            existingThread.endFrame === currentShotImageUrl ||
+            existingThread.referenceImage === currentShotImageUrl ||
+            existingThread.generatedImages?.some(img => img.imageUrl === currentShotImageUrl) ||
+            existingThread.generatedVideos?.some(vid => vid.videoUrl === currentShotImageUrl);
+          
+          if (!threadHasThisImage) {
+            // Shot has a new image that's not in the thread (Blender uploaded it)
+            // Determine which field to update based on what was previously set
+            // If startFrame was set, update startFrame; if endFrame was set, update endFrame; otherwise update referenceImage
+            
+            // Store old image URLs before replacing them - these should remain in content box
+            const oldStartFrame = existingThread.startFrame;
+            const oldEndFrame = existingThread.endFrame;
+            const oldReferenceImage = existingThread.referenceImage;
+            
+            if (existingThread.startFrame && !existingThread.endFrame) {
+              // Only startFrame was set, so this is likely updating startFrame
+              syncedThread.startFrame = currentShotImageUrl;
+              // Only keep mainImageId as 'startFrame' if it was already set to 'startFrame'
+              // Don't automatically set it as main
+              if (syncedThread.mainImageId === 'startFrame') {
+                // Keep it as main if it was already main
+                syncedThread.mainImageId = 'startFrame';
+              } else if (syncedThread.mainImageId && syncedThread.mainImageId !== 'startFrame') {
+                // Keep existing main if it's not startFrame
+                // mainImageId stays as is
+              } else {
+                // If no main was set, don't set it now
+                syncedThread.mainImageId = undefined;
+              }
+              // Ensure old startFrame image is still in uploadedImages (if it exists and is different)
+              if (oldStartFrame && oldStartFrame !== currentShotImageUrl) {
+                setUploadedImages(prev => {
+                  const alreadyExists = prev.some(img => img.imageUrl === oldStartFrame);
+                  if (alreadyExists) return prev;
+                  return [...prev, {
+                    id: `uploaded-img-${Date.now()}-old`,
+                    imageUrl: oldStartFrame,
+                    createdAt: new Date(),
+                  }];
+                });
+              }
+            } else if (existingThread.endFrame && !existingThread.startFrame) {
+              // Only endFrame was set, so this is likely updating endFrame
+              syncedThread.endFrame = currentShotImageUrl;
+              // Only keep mainImageId as 'endFrame' if it was already set to 'endFrame'
+              // Don't automatically set it as main
+              if (syncedThread.mainImageId === 'endFrame') {
+                // Keep it as main if it was already main
+                syncedThread.mainImageId = 'endFrame';
+              } else if (syncedThread.mainImageId && syncedThread.mainImageId !== 'endFrame') {
+                // Keep existing main if it's not endFrame
+                // mainImageId stays as is
+              } else {
+                // If no main was set, don't set it now
+                syncedThread.mainImageId = undefined;
+              }
+              // Ensure old endFrame image is still in uploadedImages (if it exists and is different)
+              if (oldEndFrame && oldEndFrame !== currentShotImageUrl) {
+                setUploadedImages(prev => {
+                  const alreadyExists = prev.some(img => img.imageUrl === oldEndFrame);
+                  if (alreadyExists) return prev;
+                  return [...prev, {
+                    id: `uploaded-img-${Date.now()}-old`,
+                    imageUrl: oldEndFrame,
+                    createdAt: new Date(),
+                  }];
+                });
+              }
+            } else {
+              // Both or neither were set, or referenceImage was the main - update referenceImage
+              syncedThread.referenceImage = currentShotImageUrl;
+              // Only keep mainImageId as 'referenceImage' if it was already set to 'referenceImage'
+              // Don't automatically set it as main
+              if (syncedThread.mainImageId === 'referenceImage') {
+                // Keep it as main if it was already main
+                syncedThread.mainImageId = 'referenceImage';
+              } else if (syncedThread.mainImageId && syncedThread.mainImageId !== 'referenceImage') {
+                // Keep existing main if it's not referenceImage
+                // mainImageId stays as is
+              } else {
+                // If no main was set, don't set it now
+                syncedThread.mainImageId = undefined;
+              }
+              // Ensure old referenceImage is still in uploadedImages (if it exists and is different)
+              if (oldReferenceImage && oldReferenceImage !== currentShotImageUrl) {
+                setUploadedImages(prev => {
+                  const alreadyExists = prev.some(img => img.imageUrl === oldReferenceImage);
+                  if (alreadyExists) return prev;
+                  return [...prev, {
+                    id: `uploaded-img-${Date.now()}-old`,
+                    imageUrl: oldReferenceImage,
+                    createdAt: new Date(),
+                  }];
+                });
+              }
+            }
+            threadNeedsSync = true;
+            // Also add the new image to uploaded images if it's not already there
+            // This ensures it shows up in the content box
+            setUploadedImages(prev => {
+              const alreadyExists = prev.some(img => img.imageUrl === currentShotImageUrl);
+              if (alreadyExists) return prev;
+              return [...prev, {
+                id: `uploaded-img-${Date.now()}`,
+                imageUrl: currentShotImageUrl,
+                createdAt: new Date(),
+              }];
+            });
+            // Also ensure the image appears in the appropriate field state
+            // This makes it visible in the content box immediately
+            if (syncedThread.startFrame === currentShotImageUrl) {
+              setStartFrame(currentShotImageUrl);
+            }
+            if (syncedThread.endFrame === currentShotImageUrl) {
+              setEndFrame(currentShotImageUrl);
+            }
+            if (syncedThread.referenceImage === currentShotImageUrl) {
+              setReferenceImage(currentShotImageUrl);
+            }
+          }
+        }
+        
+        // Check if shot's videoUrl matches thread's video
+        if (currentShotVideoUrl) {
+          const threadHasThisVideo = 
+            existingThread.referenceVideo === currentShotVideoUrl ||
+            existingThread.generatedVideos?.some(vid => vid.videoUrl === currentShotVideoUrl);
+          
+          if (!threadHasThisVideo) {
+            // Shot has a new video that's not in the thread - update referenceVideo to match
+            // Also set it as main video if no main video is currently set
+            syncedThread.referenceVideo = currentShotVideoUrl;
+            if (!syncedThread.mainVideoId) {
+              syncedThread.mainVideoId = 'referenceVideo';
+            }
+            threadNeedsSync = true;
+          }
+        }
+        
+        // If thread was synced, save it immediately to persist the change
+        if (threadNeedsSync) {
+          // Update the thread's updatedAt timestamp
+          syncedThread.updatedAt = new Date();
+          // Store the synced thread to save when dialog closes
+          syncedThreadRef.current = syncedThread;
+          // Mark that we've synced to prevent reloading old thread
+          hasSyncedThread.current = true;
+          // Also save immediately to prevent the old thread from being reloaded
+          // This ensures the synced thread is persisted right away
+          const mainImageUrl = syncedThread.referenceImage || 
+                              syncedThread.startFrame || 
+                              syncedThread.endFrame ||
+                              syncedThread.generatedImages?.[0]?.imageUrl;
+          if (mainImageUrl) {
+            // Save asynchronously to avoid calling during render
+            setTimeout(() => {
+              onImageGenerated(mainImageUrl, syncedThread);
+            }, 100);
+          }
+        } else {
+          syncedThreadRef.current = null;
+        }
+        
+        // Use synced thread for loading
+        const threadToLoad = threadNeedsSync ? syncedThread : existingThread;
+        
+        // Check if thread has actually changed (by ID or updatedAt timestamp)
+        const threadId = threadToLoad.id;
+        const threadUpdatedAt = threadToLoad.updatedAt;
+        
+        // Convert updatedAt to comparable format
+        const getUpdatedAtValue = (date: Date | string | number | undefined): number => {
+          if (!date) return 0;
+          if (date instanceof Date) return date.getTime();
+          if (typeof date === 'string') return new Date(date).getTime();
+          if (typeof date === 'number') return date;
+          return 0;
+        };
+        
+        const currentUpdatedAt = getUpdatedAtValue(threadUpdatedAt);
+        const lastUpdatedAt = getUpdatedAtValue(lastLoadedThreadUpdatedAt.current);
+        
+        // Check if thread ID changed
+        const threadChanged = threadId !== lastLoadedThreadId.current;
+        
+        // Check if actual content has changed (startFrame, endFrame, referenceImage URLs)
+        // Compare with what we last loaded from the thread, not current state
+        const currentStartFrame = threadToLoad.startFrame || null;
+        const currentEndFrame = threadToLoad.endFrame || null;
+        const currentReferenceImage = threadToLoad.referenceImage || null;
+        
+        const contentChanged = 
+          currentStartFrame !== lastLoadedStartFrame.current ||
+          currentEndFrame !== lastLoadedEndFrame.current ||
+          currentReferenceImage !== lastLoadedReferenceImage.current;
+        
+        // Only reload if:
+        // 1. Thread ID changed (new thread), OR
+        // 2. Content actually changed (new images uploaded), OR
+        // 3. Thread was synced with shot's current URLs, OR
+        // 4. updatedAt is significantly newer (more than 2 seconds) AND content might have changed
+        const timeDifference = currentUpdatedAt - lastUpdatedAt;
+        const threadWasUpdatedExternally = timeDifference > 2000 && contentChanged;
+        
+        // If we've already synced this thread, don't reload unless thread was updated externally
+        // This prevents overwriting the synced state with the old thread
+        if (hasSyncedThread.current && !threadChanged && !threadWasUpdatedExternally) {
+          // We've synced and thread hasn't changed externally, don't reload
+          return;
+        }
+        
+        if (!threadChanged && !contentChanged && !threadNeedsSync && !threadWasUpdatedExternally) {
+          // Thread hasn't changed and content is the same, don't reload state
+          // This prevents overwriting state when Blender just uploaded a new image
+          return;
+        }
+        
+        // Update tracking refs
+        // If we synced, update refs to match synced thread so subsequent runs don't reload
+        lastLoadedThreadId.current = threadId;
+        lastLoadedThreadUpdatedAt.current = threadUpdatedAt;
+        lastLoadedStartFrame.current = currentStartFrame;
+        lastLoadedEndFrame.current = currentEndFrame;
+        lastLoadedReferenceImage.current = currentReferenceImage;
+        
+        // If we synced, also update the tracking to prevent immediate reload
+        if (threadNeedsSync) {
+          // Update tracking to match synced thread
+          lastLoadedThreadId.current = syncedThread.id;
+          lastLoadedThreadUpdatedAt.current = syncedThread.updatedAt;
+          lastLoadedStartFrame.current = syncedThread.startFrame || null;
+          lastLoadedEndFrame.current = syncedThread.endFrame || null;
+          lastLoadedReferenceImage.current = syncedThread.referenceImage || null;
+        }
+        
+        // Load existing thread (use synced version if needed)
+        setMessages(threadToLoad.messages.map(msg => ({
           id: msg.id,
           role: msg.role,
           content: msg.content,
           imageUrl: msg.imageUrl,
           createdAt: msg.createdAt,
         })));
-        setStartFrame(existingThread.startFrame || null);
-        setEndFrame(existingThread.endFrame || null);
-        // Load referenceImage from thread or initialImageUrl
-        setReferenceImage(existingThread.referenceImage || initialImageUrl || null);
-        setReferenceVideo(existingThread.referenceVideo || null);
-        // Set main image/video IDs - convert from thread format to display format if needed
-        const threadMainImageId = existingThread.mainImageId;
-        if (threadMainImageId && threadMainImageId.startsWith('uploaded-img-') && !threadMainImageId.startsWith('uploaded-image-')) {
-          // Convert from 'uploaded-img-123' to 'uploaded-image-uploaded-img-123' for display
-          setMainImageId(`uploaded-image-${threadMainImageId}`);
+        // If we synced, update state directly to show the new image immediately
+        if (threadNeedsSync) {
+          setStartFrame(syncedThread.startFrame || null);
+          setEndFrame(syncedThread.endFrame || null);
+          setReferenceImage(syncedThread.referenceImage || initialImageUrl || null);
+          setReferenceVideo(syncedThread.referenceVideo || null);
+          // Update main image/video IDs
+          if (syncedThread.mainImageId) {
+            setMainImageId(syncedThread.mainImageId);
+          }
+          if (syncedThread.mainVideoId) {
+            setMainVideoId(syncedThread.mainVideoId);
+          }
         } else {
-          setMainImageId(threadMainImageId || null);
+          setStartFrame(threadToLoad.startFrame || null);
+          setEndFrame(threadToLoad.endFrame || null);
+          // Load referenceImage from thread or initialImageUrl
+          setReferenceImage(threadToLoad.referenceImage || initialImageUrl || null);
+          setReferenceVideo(threadToLoad.referenceVideo || null);
         }
-        setMainVideoId(existingThread.mainVideoId || null);
+        // Set main image/video IDs - convert from thread format to display format if needed
+        // Only set if we didn't already set them during sync
+        if (!threadNeedsSync) {
+          const threadMainImageId = threadToLoad.mainImageId;
+          if (threadMainImageId && threadMainImageId.startsWith('uploaded-img-') && !threadMainImageId.startsWith('uploaded-image-')) {
+            // Convert from 'uploaded-img-123' to 'uploaded-image-uploaded-img-123' for display
+            setMainImageId(`uploaded-image-${threadMainImageId}`);
+          } else {
+            setMainImageId(threadMainImageId || null);
+          }
+          setMainVideoId(threadToLoad.mainVideoId || null);
+        }
         // Separate uploaded images/videos from generated ones
-        const allImages = existingThread.generatedImages || [];
-        const allVideos = existingThread.generatedVideos || [];
+        const allImages = threadToLoad.generatedImages || [];
+        const allVideos = threadToLoad.generatedVideos || [];
         // Separate uploaded items from generated ones and deduplicate by URL
         // First, collect all unique URLs to avoid duplicates
         const uploadedImgsMap = new Map<string, { id: string; imageUrl: string; createdAt: Date | string | number }>();
@@ -341,7 +620,7 @@ export function ImageGenerationDialog({
         // Load uploaded images/videos from initialImageUrl if present and not already loaded
         // Use a Set to track existing URLs to avoid duplicates
         const existingImageUrls = new Set(uploadedImgs.map(img => img.imageUrl));
-        if (initialImageUrl && !existingThread.referenceImage && !existingImageUrls.has(initialImageUrl)) {
+        if (initialImageUrl && !threadToLoad.referenceImage && !existingImageUrls.has(initialImageUrl)) {
           setUploadedImages(prev => {
             const alreadyExists = prev.some(img => img.imageUrl === initialImageUrl);
             if (alreadyExists) return prev;
@@ -353,7 +632,7 @@ export function ImageGenerationDialog({
           });
         }
         // Load existing assets from thread
-        const loadedAssets = existingThread.selectedAssets.map(asset => {
+        const loadedAssets = threadToLoad.selectedAssets.map(asset => {
           const fullAsset = globalAssets.find(a => a.id === asset.id);
           if (!fullAsset) return null;
           
@@ -445,12 +724,19 @@ export function ImageGenerationDialog({
             }
           }
         }, 300);
-        setSketchImage(existingThread.sketchImage || null);
+        setSketchImage(threadToLoad.sketchImage || null);
         // Don't override setGeneratedImages again - it was already set above with deduplication (lines 303-322)
-        setSelectedImageId(existingThread.selectedImageId || null);
-        setSelectedStyle(existingThread.generatedImages[0]?.style || 'storyboard');
+        setSelectedImageId(threadToLoad.selectedImageId || null);
+        setSelectedStyle(threadToLoad.generatedImages[0]?.style || 'storyboard');
       } else {
-        // Initialize new thread
+        // Initialize new thread - reset tracking refs
+        lastLoadedThreadId.current = undefined;
+        lastLoadedThreadUpdatedAt.current = undefined;
+        lastLoadedStartFrame.current = null;
+        lastLoadedEndFrame.current = null;
+        lastLoadedReferenceImage.current = null;
+        syncedThreadRef.current = null;
+        hasSyncedThread.current = false;
         setMessages([]);
         setInputText('');
         setSelectedAssets([]);
@@ -1437,9 +1723,78 @@ export function ImageGenerationDialog({
   // Handler to set MAIN badge for images and auto-update AV script
   // Note: Only ONE image can be main at a time. When clicking on a new image,
   // it becomes main and the previous main is automatically replaced.
+  // Handler to set an image as first frame (startFrame)
+  const handleSetFirstFrame = (imageUrl: string) => {
+    setStartFrame(imageUrl);
+    // Only set as main if it was already main
+    const thread = createThreadFromState();
+    thread.startFrame = imageUrl;
+    // If the previous main was startFrame, keep it as main
+    if (mainImageId === 'startFrame') {
+      thread.mainImageId = 'startFrame';
+    } else if (mainImageId && mainImageId !== 'startFrame') {
+      // Keep existing main if it's not startFrame
+      thread.mainImageId = mainImageId;
+    }
+    // Otherwise, don't set mainImageId (leave it as is or undefined)
+    const mainImageUrl = getMainImageUrl();
+    if (mainImageUrl) {
+      onImageGenerated(mainImageUrl, thread);
+    } else {
+      // Even if no main image, save the thread to preserve the startFrame
+      const imageToUse = startFrame || endFrame || referenceImage || initialImageUrl || 
+                        generatedImages[0]?.imageUrl || uploadedImages[0]?.imageUrl;
+      if (imageToUse) {
+        onImageGenerated(imageToUse, thread);
+      }
+    }
+  };
+
+  // Handler to set an image as last frame (endFrame)
+  const handleSetLastFrame = (imageUrl: string) => {
+    setEndFrame(imageUrl);
+    // Only set as main if it was already main
+    const thread = createThreadFromState();
+    thread.endFrame = imageUrl;
+    // If the previous main was endFrame, keep it as main
+    if (mainImageId === 'endFrame') {
+      thread.mainImageId = 'endFrame';
+    } else if (mainImageId && mainImageId !== 'endFrame') {
+      // Keep existing main if it's not endFrame
+      thread.mainImageId = mainImageId;
+    }
+    // Otherwise, don't set mainImageId (leave it as is or undefined)
+    const mainImageUrl = getMainImageUrl();
+    if (mainImageUrl) {
+      onImageGenerated(mainImageUrl, thread);
+    } else {
+      // Even if no main image, save the thread to preserve the endFrame
+      const imageToUse = startFrame || endFrame || referenceImage || initialImageUrl || 
+                        generatedImages[0]?.imageUrl || uploadedImages[0]?.imageUrl;
+      if (imageToUse) {
+        onImageGenerated(imageToUse, thread);
+      }
+    }
+  };
+
+  // Handler to set an image as main (referenceImage)
+  const handleSetMainImage = (imageUrl: string) => {
+    setReferenceImage(imageUrl);
+    setMainImageId('referenceImage');
+    const thread = createThreadFromState();
+    thread.referenceImage = imageUrl;
+    thread.mainImageId = 'referenceImage';
+    onImageGenerated(imageUrl, thread);
+  };
+
   const handleToggleMain = (imageId: string) => {
     // Always set the clicked image as main (no toggle-off behavior)
     const newMainImageId = imageId;
+    
+    // Set flag to prevent useEffect from reloading during this operation
+    isPerformingOperation.current = true;
+    
+    // Update state immediately
     setMainImageId(newMainImageId);
     
     // Get the image URL for the new main image ID
@@ -1463,16 +1818,56 @@ export function ImageGenerationDialog({
     }
     
     if (mainImageUrl) {
+      // Create thread with updated mainImageId immediately
+      // Use a function to ensure we get the latest state
       const thread = createThreadFromState();
+      // Explicitly set the new mainImageId in the thread
       thread.mainImageId = newMainImageId;
       // Update AV script immediately
       onImageGenerated(mainImageUrl, thread);
+    } else {
+      // Even if no mainImageUrl, still update the thread to preserve the mainImageId change
+      const thread = createThreadFromState();
+      thread.mainImageId = newMainImageId;
+      const imageToUse = startFrame || endFrame || referenceImage || initialImageUrl || 
+                        generatedImages[0]?.imageUrl || uploadedImages[0]?.imageUrl;
+      if (imageToUse) {
+        onImageGenerated(imageToUse, thread);
+      }
     }
+    
+    // Clear the flag after a short delay to allow state to settle
+    setTimeout(() => {
+      isPerformingOperation.current = false;
+    }, 300);
   };
 
   // Handler to set MAIN badge for videos and auto-update AV script
   // Note: Only ONE video can be main at a time. When clicking on a new video,
   // it becomes main and the previous main is automatically replaced.
+  // Handler for downloading videos
+  const handleDownloadVideo = async (videoUrl: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const response = await fetch(videoUrl);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      // Extract filename from URL or use default
+      const urlParts = videoUrl.split('/');
+      const filename = urlParts[urlParts.length - 1] || `video-${Date.now()}.mp4`;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error downloading video:', error);
+      alert('Failed to download video');
+    }
+  };
+
   const handleToggleMainVideo = (videoId: string) => {
     // Always set the clicked video as main (no toggle-off behavior)
     const newMainVideoId = videoId;
@@ -1496,6 +1891,22 @@ export function ImageGenerationDialog({
 
   // Handler to close and save state
   const handleClose = () => {
+    // If we have a synced thread (from Blender upload), use it instead of creating new one
+    // This ensures the synced thread (with new image from Blender) is saved
+    if (syncedThreadRef.current) {
+      const syncedThread = syncedThreadRef.current;
+      const mainImageUrl = syncedThread.referenceImage || 
+                          syncedThread.startFrame || 
+                          syncedThread.endFrame ||
+                          syncedThread.generatedImages?.[0]?.imageUrl;
+      if (mainImageUrl) {
+        onImageGenerated(mainImageUrl, syncedThread);
+        syncedThreadRef.current = null; // Clear after saving
+        onClose();
+        return;
+      }
+    }
+    
     // Save current state to thread before closing
     // Always save if there's any content (uploaded or generated) to preserve it
     const hasContent = uploadedImages.length > 0 || uploadedVideos.length > 0 || 
@@ -1593,18 +2004,8 @@ export function ImageGenerationDialog({
                       className="w-full aspect-video object-cover rounded border"
                     />
                     <button
-                      onClick={() => handleToggleMain('startFrame')}
-                      className={`absolute top-1 right-1 px-2 py-1 text-xs rounded ${
-                        mainImageId === 'startFrame'
-                          ? 'bg-green-600 text-white'
-                          : 'bg-gray-400 text-white'
-                      }`}
-                    >
-                      MAIN
-                    </button>
-                    <button
                       onClick={() => setStartFrame(null)}
-                      className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded hover:bg-red-600"
+                      className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded hover:bg-red-600"
                       title="Remove"
                     >
                       <X className="w-3 h-3" />
@@ -1639,18 +2040,8 @@ export function ImageGenerationDialog({
                       className="w-full aspect-video object-cover rounded border"
                     />
                     <button
-                      onClick={() => handleToggleMain('endFrame')}
-                      className={`absolute top-1 right-1 px-2 py-1 text-xs rounded ${
-                        mainImageId === 'endFrame'
-                          ? 'bg-green-600 text-white'
-                          : 'bg-gray-400 text-white'
-                      }`}
-                    >
-                      MAIN
-                    </button>
-                    <button
                       onClick={() => setEndFrame(null)}
-                      className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded hover:bg-red-600"
+                      className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded hover:bg-red-600"
                       title="Remove"
                     >
                       <X className="w-3 h-3" />
@@ -1685,15 +2076,12 @@ export function ImageGenerationDialog({
                       className="w-full aspect-video object-cover rounded border cursor-pointer hover:opacity-90"
                       onClick={() => setEnlargedContent({ type: 'image', url: getMainImageUrl()! })}
                     />
-                    <div className="absolute top-1 right-1 px-2 py-1 text-xs rounded bg-green-600 text-white">
-                      MAIN
-                    </div>
                     <button
                       onClick={() => {
                         // Clear the main image
                         setMainImageId(null);
                       }}
-                      className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded hover:bg-red-600"
+                      className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded hover:bg-red-600"
                       title="Clear main image"
                     >
                       <X className="w-3 h-3" />
@@ -1777,31 +2165,247 @@ export function ImageGenerationDialog({
               <div className="flex-1 overflow-y-auto mb-4">
                 {/* Grid with 3 items per row */}
                 <div className="grid grid-cols-3 gap-3">
+                  {/* First Frame (if set) */}
+                  {startFrame && (
+                    <div
+                      onClick={() => setEnlargedContent({ type: 'image', url: startFrame })}
+                      className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group ${
+                        mainImageId === 'startFrame' ? 'border-green-500' : 'border-blue-500'
+                      }`}
+                    >
+                      <img
+                        src={startFrame}
+                        alt="First Frame"
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute top-1 left-1 bg-blue-500 text-white text-xs px-2 py-1 rounded z-10">
+                        FIRST
+                      </div>
+                      {mainImageId === 'startFrame' && (
+                        <div className="absolute top-1 right-1 bg-green-500 text-white text-xs px-2 py-1 rounded z-10">
+                          MAIN
+                        </div>
+                      )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleMain('startFrame');
+                        }}
+                        className={`absolute top-1 right-1 p-1 rounded z-10 ${
+                          mainImageId === 'startFrame'
+                            ? 'bg-green-600 text-white'
+                            : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                        }`}
+                        title="Set as Main"
+                      >
+                        <Star className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setStartFrame(null);
+                          if (mainImageId === 'startFrame') {
+                            setMainImageId(null);
+                          }
+                          const thread = createThreadFromState();
+                          thread.startFrame = undefined;
+                          if (thread.mainImageId === 'startFrame') {
+                            thread.mainImageId = undefined;
+                          }
+                          const mainImageUrl = getMainImageUrl();
+                          if (mainImageUrl) {
+                            onImageGenerated(mainImageUrl, thread);
+                          }
+                        }}
+                        className="absolute bottom-1 left-1 p-1 bg-red-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-red-600"
+                        title="Remove First Frame"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Last Frame (if set) */}
+                  {endFrame && (
+                    <div
+                      onClick={() => setEnlargedContent({ type: 'image', url: endFrame })}
+                      className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group ${
+                        mainImageId === 'endFrame' ? 'border-green-500' : 'border-purple-500'
+                      }`}
+                    >
+                      <img
+                        src={endFrame}
+                        alt="Last Frame"
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute top-1 left-1 bg-purple-500 text-white text-xs px-2 py-1 rounded z-10">
+                        LAST
+                      </div>
+                      {mainImageId === 'endFrame' && (
+                        <div className="absolute top-1 right-1 bg-green-500 text-white text-xs px-2 py-1 rounded z-10">
+                          MAIN
+                        </div>
+                      )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleMain('endFrame');
+                        }}
+                        className={`absolute top-1 right-1 p-1 rounded z-10 ${
+                          mainImageId === 'endFrame'
+                            ? 'bg-green-600 text-white'
+                            : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                        }`}
+                        title="Set as Main"
+                      >
+                        <Star className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEndFrame(null);
+                          if (mainImageId === 'endFrame') {
+                            setMainImageId(null);
+                          }
+                          const thread = createThreadFromState();
+                          thread.endFrame = undefined;
+                          if (thread.mainImageId === 'endFrame') {
+                            thread.mainImageId = undefined;
+                          }
+                          const mainImageUrl = getMainImageUrl();
+                          if (mainImageUrl) {
+                            onImageGenerated(mainImageUrl, thread);
+                          }
+                        }}
+                        className="absolute bottom-1 left-1 p-1 bg-red-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-red-600"
+                        title="Remove Last Frame"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Main Image (referenceImage, if set) */}
+                  {referenceImage && (
+                    <div
+                      onClick={() => setEnlargedContent({ type: 'image', url: referenceImage })}
+                      className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group ${
+                        mainImageId === 'referenceImage' ? 'border-green-500' : 'border-gray-300'
+                      }`}
+                    >
+                      <img
+                        src={referenceImage}
+                        alt="Main Image"
+                        className="w-full h-full object-cover"
+                      />
+                      {mainImageId === 'referenceImage' && (
+                        <div className="absolute top-1 left-1 bg-green-500 text-white text-xs px-2 py-1 rounded z-10">
+                          MAIN
+                        </div>
+                      )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleMain('referenceImage');
+                        }}
+                        className={`absolute top-1 right-1 p-1 rounded z-10 ${
+                          mainImageId === 'referenceImage'
+                            ? 'bg-green-600 text-white'
+                            : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                        }`}
+                        title="Set as Main"
+                      >
+                        <Star className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setReferenceImage(null);
+                          if (mainImageId === 'referenceImage') {
+                            setMainImageId(null);
+                          }
+                          const thread = createThreadFromState();
+                          thread.referenceImage = undefined;
+                          if (thread.mainImageId === 'referenceImage') {
+                            thread.mainImageId = undefined;
+                          }
+                          const mainImageUrl = getMainImageUrl();
+                          if (mainImageUrl) {
+                            onImageGenerated(mainImageUrl, thread);
+                          }
+                        }}
+                        className="absolute bottom-1 left-1 p-1 bg-red-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-red-600"
+                        title="Remove Main Image"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+
                   {/* Uploaded Images */}
                   {uploadedImages.map((img, idx) => (
                     <div
                       key={`uploaded-img-${img.id}-${idx}`}
                       onClick={() => setEnlargedContent({ type: 'image', url: img.imageUrl })}
-                      className="relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group"
+                      className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group ${
+                        mainImageId === `uploaded-image-${img.id}` ? 'border-green-500' : 'border-gray-300'
+                      }`}
                     >
                       <img
                         src={img.imageUrl}
                         alt="Uploaded"
                         className="w-full h-full object-cover"
                       />
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleMain(`uploaded-image-${img.id}`);
-                        }}
-                        className={`absolute top-1 right-1 px-2 py-1 text-xs rounded z-10 ${
-                          mainImageId === `uploaded-image-${img.id}`
-                            ? 'bg-green-600 text-white'
-                            : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
-                        }`}
-                      >
-                        MAIN
-                      </button>
+                      {mainImageId === `uploaded-image-${img.id}` && (
+                        <div className="absolute top-1 left-1 bg-green-500 text-white text-xs px-2 py-1 rounded z-10">
+                          MAIN
+                        </div>
+                      )}
+                      {/* Icon buttons for first/last/main - positioned at corners */}
+                      <div className="absolute top-1 right-1 flex gap-1 z-10">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSetFirstFrame(img.imageUrl);
+                          }}
+                          className={`p-1 rounded ${
+                            startFrame === img.imageUrl
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                          }`}
+                          title="Set as First Frame"
+                        >
+                          <ChevronRight className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSetLastFrame(img.imageUrl);
+                          }}
+                          className={`p-1 rounded ${
+                            endFrame === img.imageUrl
+                              ? 'bg-purple-600 text-white'
+                              : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                          }`}
+                          title="Set as Last Frame"
+                        >
+                          <ChevronLeft className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleMain(`uploaded-image-${img.id}`);
+                          }}
+                          className={`p-1 rounded ${
+                            mainImageId === `uploaded-image-${img.id}`
+                              ? 'bg-green-600 text-white'
+                              : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                          }`}
+                          title="Set as Main"
+                        >
+                          <Star className="w-3 h-3" />
+                        </button>
+                      </div>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1854,6 +2458,13 @@ export function ImageGenerationDialog({
                       >
                         <X className="w-3 h-3" />
                       </button>
+                      <button
+                        onClick={(e) => handleDownloadVideo(vid.videoUrl, e)}
+                        className="absolute bottom-1 left-1 p-1 bg-blue-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-blue-600"
+                        title="Download video"
+                      >
+                        <Download className="w-3 h-3" />
+                      </button>
                     </div>
                   ))}
                   
@@ -1877,26 +2488,65 @@ export function ImageGenerationDialog({
                       <div
                         key={`gen-img-${img.id}-${idx}`}
                         onClick={() => setEnlargedContent({ type: 'image', url: img.imageUrl })}
-                        className="relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group"
+                        className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group ${
+                          mainImageId === img.id ? 'border-green-500' : 'border-gray-300'
+                        }`}
                       >
                         <img
                           src={img.imageUrl}
                           alt="Generated"
                           className="w-full h-full object-cover"
                         />
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleToggleMain(img.id);
-                          }}
-                          className={`absolute top-1 right-1 px-2 py-1 text-xs rounded z-10 ${
-                            mainImageId === img.id
-                              ? 'bg-green-600 text-white'
-                              : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
-                          }`}
-                        >
-                          MAIN
-                        </button>
+                        {mainImageId === img.id && (
+                          <div className="absolute top-1 left-1 bg-green-500 text-white text-xs px-2 py-1 rounded z-10">
+                            MAIN
+                          </div>
+                        )}
+                        {/* Icon buttons for first/last/main - positioned at corners */}
+                        <div className="absolute top-1 right-1 flex gap-1 z-10">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSetFirstFrame(img.imageUrl);
+                            }}
+                            className={`p-1 rounded ${
+                              startFrame === img.imageUrl
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                            }`}
+                            title="Set as First Frame"
+                          >
+                            <ChevronRight className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSetLastFrame(img.imageUrl);
+                            }}
+                            className={`p-1 rounded ${
+                              endFrame === img.imageUrl
+                                ? 'bg-purple-600 text-white'
+                                : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                            }`}
+                            title="Set as Last Frame"
+                          >
+                            <ChevronLeft className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleMain(img.id);
+                            }}
+                            className={`p-1 rounded ${
+                              mainImageId === img.id
+                                ? 'bg-green-600 text-white'
+                                : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                            }`}
+                            title="Set as Main"
+                          >
+                            <Star className="w-3 h-3" />
+                          </button>
+                        </div>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1964,11 +2614,18 @@ export function ImageGenerationDialog({
                         >
                           <X className="w-3 h-3" />
                         </button>
+                        <button
+                          onClick={(e) => handleDownloadVideo(vid.videoUrl, e)}
+                          className="absolute bottom-1 left-1 p-1 bg-blue-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-blue-600"
+                          title="Download video"
+                        >
+                          <Download className="w-3 h-3" />
+                        </button>
                       </div>
                     ))}
                   
                   {/* Empty state */}
-                  {uploadedImages.length === 0 && uploadedVideos.length === 0 && generatedImages.length === 0 && generatedVideos.length === 0 && (
+                  {!startFrame && !endFrame && !referenceImage && uploadedImages.length === 0 && uploadedVideos.length === 0 && generatedImages.length === 0 && generatedVideos.length === 0 && (
                     <div className="col-span-3 text-sm text-gray-500 text-center py-8">
                       No content yet. Generate or upload images/videos to get started.
                     </div>
