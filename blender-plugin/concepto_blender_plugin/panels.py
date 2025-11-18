@@ -197,10 +197,10 @@ class CONCEPTO_PT_ShotsList(Panel):
                 box = layout.box()
                 box.label(text=f"Selected: {selected_shot.shot_number}", icon='CHECKMARK')
                 
-                # Visual description - full text display (not a button)
+                # Visual description - full text display as simple text
+                layout.separator()
+                layout.label(text="Visual Description:", icon='TEXT')
                 if selected_shot.visual:
-                    layout.separator()
-                    layout.label(text="Visual Description:", icon='TEXT')
                     # Use a box with word wrapping for long text
                     desc_box = layout.box()
                     # Split long text into multiple lines for better display
@@ -222,18 +222,8 @@ class CONCEPTO_PT_ShotsList(Panel):
                     for line in lines:
                         desc_box.label(text=line)
                 else:
-                    layout.separator()
-                    layout.label(text="Visual Description: (none)", icon='TEXT')
-                
-                # Main image indicator
-                layout.separator()
-                row = layout.row()
-                if selected_shot.main_image_url:
-                    row.label(text="Has image", icon='IMAGE_DATA')
-                    op = row.operator("concepto.view_shot_images", text="View Images", icon='ZOOM_IN', emboss=True)
-                    op.shot_id = selected_shot.shot_id
-                else:
-                    row.label(text="No image", icon='IMAGE_DATA')
+                    desc_box = layout.box()
+                    desc_box.label(text="(none)", icon='INFO')
 
 class CONCEPTO_PT_ShotImages(Panel):
     """Shot Images Panel - Shows main/start/end frames"""
