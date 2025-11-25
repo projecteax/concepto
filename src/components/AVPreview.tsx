@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Episode, AVScript, AVPreviewData, AVPreviewTrack, GlobalAsset, AVShot, AVSegment, AVPreviewClip } from '@/types';
-import { Play, Pause, Save, Upload, Plus, Trash2, Volume2, VolumeX, Music, Mic, Image as ImageIcon, Film, SkipBack, GripVertical } from 'lucide-react';
+import { Play, Pause, Save, Upload, Plus, Trash2, Volume2, VolumeX, Music, Mic, Image as ImageIcon, Film, SkipBack, GripVertical, Video, Loader2 } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
+import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { fetchFile, toBlobURL } from '@ffmpeg/util';
 
 interface AVPreviewProps {
   episodeId: string;
@@ -43,6 +45,8 @@ export function AVPreview({
   const [duration, setDuration] = useState(0);
   const [tracks, setTracks] = useState<AVPreviewTrack[]>(avPreviewData?.audioTracks || []);
   const [scale, setScale] = useState(20); // pixels per second
+  const [isRendering, setIsRendering] = useState(false);
+  const [renderProgress, setRenderProgress] = useState(0);
   
   // Scene Selection - must select a scene, no "all"
   const [selectedSegmentId, setSelectedSegmentId] = useState<string>('');
@@ -77,6 +81,8 @@ export function AVPreview({
   const durationRef = useRef(0);
   const scaleRef = useRef(scale);
   const loadingWaveformsRef = useRef<Set<string>>(new Set());
+  const ffmpegRef = useRef(new FFmpeg());
+  const messageRef = useRef<HTMLParagraphElement>(null);
   
   const { uploadFile } = useS3Upload();
 
@@ -682,6 +688,322 @@ export function AVPreview({
     onSave({ audioTracks: tracks }, updatedAvScript);
   };
 
+  const handleRender = async () => {
+    if (!avScript || !selectedSegmentId) {
+      alert('Please select a scene to render');
+      return;
+    }
+
+    const ffmpeg = ffmpegRef.current;
+    setIsRendering(true);
+    setRenderProgress(0);
+    
+    try {
+      // Load FFmpeg if not loaded
+      if (!ffmpeg.loaded) {
+          try {
+            const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+            await ffmpeg.load({
+                coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+                wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+            });
+          } catch (loadError) {
+              console.error('Failed to load FFmpeg:', loadError);
+              throw new Error('Failed to load video engine. Please check your internet connection.');
+          }
+      }
+
+      ffmpeg.on('log', ({ message }) => {
+        console.log('FFmpeg log:', message);
+        // Estimate progress from time= log
+        if (message.includes('time=')) {
+           const match = message.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d{2})/);
+           if (match) {
+             const hours = parseFloat(match[1]);
+             const minutes = parseFloat(match[2]);
+             const seconds = parseFloat(match[3]);
+             const time = hours * 3600 + minutes * 60 + seconds;
+             const total = durationRef.current || 1;
+             setRenderProgress(Math.min(99, (time / total) * 100));
+           }
+        }
+      });
+
+      const segment = avScript.segments.find(s => s.id === selectedSegmentId);
+      if (!segment) {
+        throw new Error('Selected segment not found');
+      }
+
+      // Prepare clips with edits
+      const clipsToRender: Array<{
+        type: 'video' | 'image';
+        url: string;
+        startTime: number;
+        duration: number;
+        offset: number;
+      }> = [];
+
+      let currentTime = 0;
+      for (const shot of segment.shots) {
+        const edit = clipEdits[shot.id] || { duration: shot.duration || 3, offset: 0 };
+        
+        if (shot.videoUrl) {
+          clipsToRender.push({
+            type: 'video',
+            url: shot.videoUrl,
+            startTime: currentTime,
+            duration: edit.duration,
+            offset: edit.offset || 0
+          });
+        } else if (shot.imageUrl) {
+          clipsToRender.push({
+            type: 'image',
+            url: shot.imageUrl,
+            startTime: currentTime,
+            duration: edit.duration,
+            offset: 0
+          });
+        }
+        
+        currentTime += edit.duration;
+      }
+
+      // Prepare audio clips
+      const audioClipsToRender: Array<{
+        url: string;
+        startTime: number;
+        duration: number;
+        offset: number;
+        volume: number;
+      }> = [];
+
+      for (const track of tracks) {
+        if (track.isMuted) continue;
+        for (const clip of track.clips) {
+          const clipEndTime = clip.startTime + clip.duration;
+          if (clipEndTime > 0 && clip.startTime < currentTime) {
+            audioClipsToRender.push({
+              url: clip.url,
+              startTime: clip.startTime,
+              duration: clip.duration,
+              offset: clip.offset || 0,
+              volume: (clip.volume || 1) * (track.volume || 1)
+            });
+          }
+        }
+      }
+
+      setRenderProgress(5);
+
+      // Download and Write Media Files to FFmpeg FS
+      const mediaFiles: string[] = [];
+      const audioFiles: string[] = [];
+
+      // Helper to fetch and write
+      const writeToFS = async (url: string, filename: string) => {
+          try {
+              // Try proxy first to avoid CORS
+              const proxyUrl = `/api/proxy-media?url=${encodeURIComponent(url)}`;
+              let data = await fetchFile(proxyUrl);
+              await ffmpeg.writeFile(filename, data);
+          } catch (e) {
+              console.warn(`Proxy fetch failed for ${url}, trying direct...`, e);
+              // Fallback to direct
+              const data = await fetchFile(url);
+              await ffmpeg.writeFile(filename, data);
+          }
+      };
+
+      // Write video/image clips
+      for (let i = 0; i < clipsToRender.length; i++) {
+          const clip = clipsToRender[i];
+          const ext = clip.type === 'video' ? (clip.url.match(/\.(mp4|webm|mov)$/i)?.[0] || '.mp4') : '.jpg';
+          const filename = `clip-${i}${ext}`;
+          await writeToFS(clip.url, filename);
+          mediaFiles.push(filename);
+          setRenderProgress(5 + (i / clipsToRender.length) * 20);
+      }
+
+      // Write audio clips
+      for (let i = 0; i < audioClipsToRender.length; i++) {
+          const clip = audioClipsToRender[i];
+          const ext = clip.url.match(/\.(mp3|wav|aac|m4a)$/i)?.[0] || '.mp3';
+          const filename = `audio-${i}${ext}`;
+          await writeToFS(clip.url, filename);
+          audioFiles.push(filename);
+      }
+
+      setRenderProgress(30);
+
+      // Build Filter Complex using CONCAT instead of OVERLAY (More robust for sequences)
+      const width = 1920;
+      const height = 1080;
+      const fps = 24;
+      
+      const videoFilters: string[] = [];
+      const videoLabels: string[] = [];
+      
+      // Process each visual clip
+      for (let i = 0; i < clipsToRender.length; i++) {
+        const clip = clipsToRender[i];
+        const inputLabel = `${i}:v`;
+        const processedLabel = `v${i}`;
+        
+        // 1. Scale and Pad to 1920x1080
+        // 2. Trim/Loop
+        // 3. Reset timestamps (PTS)
+        
+        if (clip.type === 'video') {
+          // Video: Scale -> Format -> Trim -> FPS -> Re-timestamp
+          // We move trim earlier to reduce processing on unused frames
+          // We use setpts=N/FRAME_RATE/TB to force perfect continuous timestamps at 24fps
+          videoFilters.push(
+            `[${inputLabel}]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,trim=start=${clip.offset}:duration=${clip.duration},fps=${fps},setpts=N/FRAME_RATE/TB[${processedLabel}]`
+          );
+        } else {
+          // Image: Scale -> Format -> Loop -> Trim -> FPS -> Re-timestamp
+          videoFilters.push(
+            `[${inputLabel}]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,loop=loop=-1:size=1:start=0,trim=start=0:duration=${clip.duration},fps=${fps},setpts=N/FRAME_RATE/TB[${processedLabel}]`
+          );
+        }
+        videoLabels.push(`[${processedLabel}]`);
+      }
+      
+      // Concatenate all video segments
+      if (videoLabels.length > 0) {
+        // unsafe=1 allows concatenation of segments with slightly different properties (fallback)
+        videoFilters.push(
+            `${videoLabels.join('')}concat=n=${videoLabels.length}:v=1:a=0:unsafe=1[final_video]`
+        );
+      } else {
+          // Fallback if no video (shouldn't happen)
+          videoFilters.push(`color=c=black:s=${width}x${height}:d=1:r=${fps}[final_video]`);
+      }
+
+      // Build audio filters (unchanged mixing logic)
+      const audioFilters: string[] = [];
+      const audioInputOffset = clipsToRender.length;
+      
+      if (audioFiles.length > 0) {
+        for (let i = 0; i < audioClipsToRender.length; i++) {
+          const audioClip = audioClipsToRender[i];
+          const volume = audioClip.volume || 1;
+          const delayMs = Math.round(audioClip.startTime * 1000);
+          const duration = audioClip.duration;
+          const offset = audioClip.offset || 0;
+          
+          const audioInput = `${audioInputOffset + i}:a`;
+          const trimmedLabel = `atrimmed${i}`;
+          const delayedLabel = `adelayed${i}`;
+          
+          // Ensure consistent sample rate (44100Hz) to prevent mixing issues
+          audioFilters.push(
+            `[${audioInput}]aresample=44100,atrim=start=${offset}:end=${offset + duration},asetpts=PTS-STARTPTS,volume=${volume}[${trimmedLabel}]`,
+            `[${trimmedLabel}]adelay=${delayMs}|${delayMs}[${delayedLabel}]`
+          );
+        }
+        
+        if (audioFilters.length > 0) {
+          const delayedInputs = audioClipsToRender.map((_, i) => `[adelayed${i}]`).join('');
+          // Use amix to mix all audio tracks - increase volume to ensure it's audible
+          audioFilters.push(`${delayedInputs}amix=inputs=${audioClipsToRender.length}:duration=longest:dropout_transition=2,volume=2[final_audio]`);
+        }
+      }
+
+      // Build FFmpeg command
+      const ffmpegArgs: string[] = [];
+      
+      // Inputs
+      for (const file of mediaFiles) {
+        ffmpegArgs.push('-i', file);
+      }
+      for (const file of audioFiles) {
+        ffmpegArgs.push('-i', file);
+      }
+      
+      // Filters
+      const allFilters = [...videoFilters, ...audioFilters].join(';');
+      ffmpegArgs.push('-filter_complex', allFilters);
+      
+      // Map outputs
+      ffmpegArgs.push('-map', '[final_video]');
+      if (audioFilters.length > 0) {
+        ffmpegArgs.push('-map', '[final_audio]');
+      }
+      
+      // Output settings
+      ffmpegArgs.push(
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast', // Use ultrafast for client-side speed
+        '-tune', 'zerolatency',
+        '-profile:v', 'baseline', // Compatible
+        '-level', '3.0',
+        '-crf', '28', // Slightly lower quality for speed
+        '-r', fps.toString(),
+        '-pix_fmt', 'yuv420p',
+        '-movflags', '+faststart'
+      );
+      
+      if (audioFilters.length > 0) {
+        ffmpegArgs.push('-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2');
+      } else {
+        // If no audio tracks, we still need to generate silent audio if we want the file to be valid? 
+        // Or just -an (no audio)
+        // ffmpegArgs.push('-an');
+        // Better: generate silence if user wants "mixed audio" but track is empty
+        // But for now -an is safer
+        ffmpegArgs.push('-an');
+      }
+      
+      ffmpegArgs.push('-shortest', 'output.mp4');
+
+      console.log('Running FFmpeg:', ffmpegArgs.join(' '));
+      
+      await ffmpeg.exec(ffmpegArgs);
+
+      setRenderProgress(95);
+
+      // Read output
+      const data = await ffmpeg.readFile('output.mp4');
+      const blob = new Blob([data], { type: 'video/mp4' });
+      const url = URL.createObjectURL(blob);
+      
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `episode-${episodeId}-scene-${segment.segmentNumber}-render.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      // Cleanup files
+      try {
+          await ffmpeg.deleteFile('output.mp4');
+          for (const file of mediaFiles) await ffmpeg.deleteFile(file);
+          for (const file of audioFiles) await ffmpeg.deleteFile(file);
+      } catch (cleanupError) {
+          console.warn('Cleanup warning:', cleanupError);
+      }
+
+      setIsRendering(false);
+      setRenderProgress(0);
+      alert(`Video rendered successfully!`);
+      
+    } catch (error) {
+      console.error('Error rendering video:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      alert(`Error rendering video: ${errorMessage}`);
+      setIsRendering(false);
+      setRenderProgress(0);
+    }
+  };
+
+  // Old browser-based rendering (removed)
+  const handleRenderOld = async () => {};
+
+  // Audio mixing helper (removed)
+  const mixAudioWithVideo = async () => {};
+
   // Format time as MM:SS:FF (minutes:seconds:frames) at 24 fps
   const formatTime = (seconds: number): string => {
     const totalFrames = Math.floor(seconds * 24); // 24 fps
@@ -759,6 +1081,14 @@ export function AVPreview({
           >
             <Save className="w-4 h-4" />
             <span>Save Project</span>
+          </button>
+          <button
+            onClick={handleRender}
+            disabled={isRendering || !selectedSegmentId}
+            className="flex items-center space-x-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-500 disabled:cursor-not-allowed rounded-md transition-all text-sm font-medium shadow-sm active:transform active:scale-95"
+          >
+            <Video className="w-4 h-4" />
+            <span>{isRendering ? `Rendering... ${Math.round(renderProgress)}%` : 'Render Video'}</span>
           </button>
         </div>
       </div>
