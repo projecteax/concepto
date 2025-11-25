@@ -53,6 +53,9 @@ export function AVPreview({
   // Video source durations - track actual video file durations
   const [videoDurations, setVideoDurations] = useState<{[url: string]: number}>({});
   
+  // Audio waveform data - store waveform samples for each clip
+  const [waveformData, setWaveformData] = useState<{[clipId: string]: number[]}>({});
+  
   // Resizing State - simpler approach
   const [resizeState, setResizeState] = useState<{
     clipId: string;
@@ -73,6 +76,7 @@ export function AVPreview({
   const audioRefs = useRef<{[key: string]: HTMLAudioElement}>({});
   const durationRef = useRef(0);
   const scaleRef = useRef(scale);
+  const loadingWaveformsRef = useRef<Set<string>>(new Set());
   
   const { uploadFile } = useS3Upload();
 
@@ -93,6 +97,49 @@ export function AVPreview({
       ]);
     }
   }, []);
+
+  // Create stable list of clip IDs for dependency tracking
+  const clipIds = useMemo(() => {
+    return tracks.flatMap(track => track.clips.map(clip => clip.id)).sort().join(',');
+  }, [tracks]);
+  
+  // Load waveform data for existing clips
+  useEffect(() => {
+    const loadWaveforms = async () => {
+      const clipsToLoad: {clipId: string, url: string}[] = [];
+      
+      // Collect all clips from all tracks
+      const allClips = tracks.flatMap(track => 
+        track.clips.map(clip => ({ clipId: clip.id, url: clip.url }))
+      );
+      
+      for (const { clipId, url } of allClips) {
+        if (url && !waveformData[clipId] && !loadingWaveformsRef.current.has(clipId)) {
+          clipsToLoad.push({ clipId, url });
+          loadingWaveformsRef.current.add(clipId);
+        }
+      }
+      
+      // Load waveforms for all clips that need them
+      if (clipsToLoad.length > 0) {
+        const waveformPromises = clipsToLoad.map(async ({ clipId, url }) => {
+          try {
+            const waveform = await generateWaveform(url, clipId);
+            setWaveformData(prev => ({ ...prev, [clipId]: waveform }));
+          } catch (error) {
+            console.error(`Failed to load waveform for clip ${clipId}:`, error);
+          } finally {
+            loadingWaveformsRef.current.delete(clipId);
+          }
+        });
+        
+        await Promise.all(waveformPromises);
+      }
+    };
+    
+    loadWaveforms();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clipIds]);
 
   // Initialize clip edits from AV Script
   useEffect(() => {
@@ -362,6 +409,36 @@ export function AVPreview({
     }
   };
 
+  // Generate waveform data from audio file
+  const generateWaveform = async (audioUrl: string, clipId: string, samples: number = 200): Promise<number[]> => {
+    try {
+      const response = await fetch(audioUrl);
+      const arrayBuffer = await response.arrayBuffer();
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      
+      const rawData = audioBuffer.getChannelData(0); // Get first channel
+      const blockSize = Math.floor(rawData.length / samples);
+      const waveform: number[] = [];
+      
+      for (let i = 0; i < samples; i++) {
+        let sum = 0;
+        for (let j = 0; j < blockSize; j++) {
+          sum += Math.abs(rawData[i * blockSize + j]);
+        }
+        waveform.push(sum / blockSize);
+      }
+      
+      // Normalize to 0-1 range
+      const max = Math.max(...waveform);
+      return waveform.map(val => max > 0 ? val / max : 0);
+    } catch (error) {
+      console.error('Failed to generate waveform:', error);
+      // Return empty waveform on error
+      return Array(samples).fill(0);
+    }
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, trackId: string) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -376,8 +453,9 @@ export function AVPreview({
                 audio.addEventListener('error', resolve); 
             });
 
+            const clipId = `clip-${Date.now()}`;
             const newClip: AVPreviewClip = {
-                id: `clip-${Date.now()}`,
+                id: clipId,
                 name: file.name,
                 url: result.url,
                 startTime: currentTime,
@@ -392,6 +470,10 @@ export function AVPreview({
                 }
                 return t;
             }));
+
+            // Generate waveform data for the new clip
+            const waveform = await generateWaveform(result.url, clipId);
+            setWaveformData(prev => ({ ...prev, [clipId]: waveform }));
         }
     } catch (error) {
         console.error("Upload failed", error);
@@ -405,6 +487,11 @@ export function AVPreview({
           }
           return t;
       }));
+      // Clean up waveform data
+      setWaveformData(prev => {
+          const { [clipId]: removed, ...rest } = prev;
+          return rest;
+      });
   };
 
   // Resizing Handlers - Simple state-based approach with ref
@@ -909,15 +996,60 @@ export function AVPreview({
                                 <div className="text-[10px] font-medium text-emerald-100 truncate pr-4">
                                     {clip.name}
                                 </div>
-                                {/* Audio Waveform Visual Placeholder */}
-                                <div className="absolute bottom-2 left-2 right-2 h-4 flex items-end space-x-px opacity-30">
-                                    {Array.from({ length: 20 }).map((_, i) => (
-                                        <div 
-                                            key={i} 
-                                            className="bg-emerald-400 flex-1"
-                                            style={{ height: `${Math.random() * 100}%` }}
-                                        />
-                                    ))}
+                                {/* Audio Waveform Visual */}
+                                <div className="absolute bottom-2 left-2 right-2 h-4 opacity-70">
+                                    {waveformData[clip.id] ? (
+                                        <svg 
+                                            viewBox="0 0 100 16" 
+                                            preserveAspectRatio="none"
+                                            className="w-full h-full"
+                                        >
+                                            <defs>
+                                                <linearGradient id={`waveform-gradient-${clip.id}`} x1="0%" y1="0%" x2="0%" y2="100%">
+                                                    <stop offset="0%" stopColor="#34d399" stopOpacity="0.8" />
+                                                    <stop offset="50%" stopColor="#10b981" stopOpacity="0.6" />
+                                                    <stop offset="100%" stopColor="#059669" stopOpacity="0.4" />
+                                                </linearGradient>
+                                            </defs>
+                                            <path
+                                                d={(() => {
+                                                    const samples = waveformData[clip.id];
+                                                    const width = 100;
+                                                    const height = 16;
+                                                    const centerY = height / 2;
+                                                    const stepX = width / samples.length;
+                                                    
+                                                    let path = `M 0 ${centerY}`;
+                                                    
+                                                    // Draw positive half (top)
+                                                    samples.forEach((amplitude, i) => {
+                                                        const x = i * stepX;
+                                                        const y = centerY - (amplitude * centerY * 0.9); // Scale to 90% to leave some margin
+                                                        path += ` L ${x} ${y}`;
+                                                    });
+                                                    
+                                                    // Draw negative half (bottom, mirrored)
+                                                    for (let i = samples.length - 1; i >= 0; i--) {
+                                                        const x = i * stepX;
+                                                        const amplitude = samples[i];
+                                                        const y = centerY + (amplitude * centerY * 0.9);
+                                                        path += ` L ${x} ${y}`;
+                                                    }
+                                                    
+                                                    path += ` Z`;
+                                                    return path;
+                                                })()}
+                                                fill={`url(#waveform-gradient-${clip.id})`}
+                                                stroke="#10b981"
+                                                strokeWidth="0.3"
+                                            />
+                                        </svg>
+                                    ) : (
+                                        // Loading placeholder
+                                        <div className="w-full h-full flex items-center justify-center">
+                                            <div className="text-[8px] text-emerald-400/50">Loading waveform...</div>
+                                        </div>
+                                    )}
                                 </div>
                                 <button 
                                     onClick={(e) => {
