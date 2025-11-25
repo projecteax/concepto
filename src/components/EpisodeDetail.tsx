@@ -1424,8 +1424,8 @@ export default function EpisodeDetail({
                   updatedEpisode = { ...updatedEpisode, avScript: updatedAvScript };
                 }
                 
-                // Manual save only (no autosave logic here)
-                onSave?.(updatedEpisode);
+                // Use updateEpisodeAndSave to immediately update localEpisode state
+                updateEpisodeAndSave(updatedEpisode, true); // Immediate save for manual save button
               }}
             />
           </div>

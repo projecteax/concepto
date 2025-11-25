@@ -91,6 +91,19 @@ export function AVScriptEditor({
 
   const { uploadFile } = useS3Upload();
 
+  // Sync internal state when avScript prop changes (e.g., from AVPreview save)
+  useEffect(() => {
+    if (avScript) {
+      // Only update if the prop actually changed (avoid unnecessary updates)
+      const propHash = JSON.stringify(avScript);
+      const stateHash = JSON.stringify(script);
+      if (propHash !== stateHash) {
+        setScript(avScript);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [avScript]);
+
   // Handle Blender plugin download
   const handleDownloadPlugin = async () => {
     setIsDownloadingPlugin(true);

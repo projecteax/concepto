@@ -207,6 +207,87 @@ export async function uploadToS3(
 }
 
 /**
+ * Upload a Buffer to S3 (server-side version)
+ */
+export async function uploadBufferToS3(
+  buffer: Buffer | Uint8Array,
+  key: string,
+  contentType: string
+): Promise<UploadResult> {
+  try {
+    // Validate buffer
+    if (!buffer) {
+      throw new Error('No buffer provided');
+    }
+
+    // Get dynamic values
+    const BUCKET_NAME = getBucketName();
+    const PUBLIC_URL = getPublicUrl();
+
+    // Check if S3/R2 is configured
+    if (!BUCKET_NAME || !PUBLIC_URL || isPlaceholder(process.env.NEXT_PUBLIC_R2_ENDPOINT) || 
+        isPlaceholder(process.env.NEXT_PUBLIC_R2_ACCESS_KEY_ID) || isPlaceholder(process.env.NEXT_PUBLIC_R2_SECRET_ACCESS_KEY)) {
+      console.warn('❌ S3/R2 not configured properly');
+      throw new Error('S3/R2 not configured');
+    }
+
+    console.log('✅ Proceeding with R2 upload (Buffer)...');
+    
+    // Convert Buffer to Uint8Array if needed
+    const uint8Array = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+
+    // Create upload command
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+      Body: uint8Array,
+      ContentType: contentType,
+      ContentLength: uint8Array.length,
+      // Add metadata
+      Metadata: {
+        originalName: key.split('/').pop()?.replace(/[^\x00-\x7F]/g, '') || 'file',
+        uploadedAt: new Date().toISOString(),
+      },
+    });
+
+    // Upload file
+    console.log('🚀 Starting S3 upload (Buffer)...', { key, bucket: BUCKET_NAME, size: uint8Array.length });
+    const s3Client = getS3Client();
+    
+    try {
+      const response = await s3Client.send(command);
+      console.log('✅ S3 upload successful!', { response });
+
+      if (!response.ETag) {
+        throw new Error('Upload failed - no ETag returned');
+      }
+
+      // Generate public URL using R2 public domain
+      const url = `${PUBLIC_URL}/${key}`;
+      console.log('🔗 Generated public URL:', url);
+
+      // Validate URL format
+      if (!url.startsWith('http')) {
+        console.error('❌ Invalid URL format:', url);
+        throw new Error(`Invalid public URL format: ${url}`);
+      }
+
+      return {
+        url,
+        key,
+        size: uint8Array.length,
+      };
+    } catch (uploadError) {
+      console.error('❌ S3 upload failed:', uploadError);
+      throw uploadError;
+    }
+  } catch (error) {
+    console.error('S3 upload error:', error);
+    throw new Error(`Failed to upload file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+/**
  * Delete a file from S3
  */
 export async function deleteFromS3(key: string): Promise<void> {

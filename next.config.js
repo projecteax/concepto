@@ -14,6 +14,24 @@ const nextConfig = {
       // Disable webpack cache in development to prevent stale cache issues
       config.cache = false;
     }
+    
+    // Exclude FFmpeg binaries from bundling (they're loaded at runtime)
+    if (isServer) {
+      config.externals = config.externals || [];
+      // Make sure ffmpeg-static is treated as external (not bundled)
+      if (typeof config.externals === 'function') {
+        const originalExternals = config.externals;
+        config.externals = (context, request, callback) => {
+          if (request === 'ffmpeg-static') {
+            return callback(null, 'commonjs ' + request);
+          }
+          return originalExternals(context, request, callback);
+        };
+      } else {
+        config.externals.push('ffmpeg-static');
+      }
+    }
+    
     return config;
   },
 };

@@ -322,7 +322,7 @@ export async function POST(request: NextRequest) {
       try {
         console.log('Spawning FFmpeg process...', { path: ffmpegPath, argsCount: ffmpegArgs.length });
         ffmpegProcess = spawn(ffmpegPath, ffmpegArgs, {
-          cwd: tempDir,
+          cwd: tempDir || undefined,
           stdio: ['ignore', 'pipe', 'pipe']
         });
         console.log('FFmpeg process spawned successfully, PID:', ffmpegProcess.pid);
@@ -414,7 +414,10 @@ export async function POST(request: NextRequest) {
           const stats = fs.statSync(outputPath);
           if (stats.size > 0) {
             // Try to read a small portion to ensure file is accessible
-            fs.readFileSync(outputPath, { start: 0, end: 100 });
+            const fd = fs.openSync(outputPath, 'r');
+            const buffer = Buffer.alloc(100);
+            fs.readSync(fd, buffer, 0, 100, 0);
+            fs.closeSync(fd);
             break;
           }
         } catch {
@@ -439,7 +442,10 @@ export async function POST(request: NextRequest) {
     
     // Validate MP4 file header (check for 'ftyp' box at offset 4)
     try {
-      const headerBuffer = fs.readFileSync(outputPath, { start: 0, end: 20 });
+      const fd = fs.openSync(outputPath, 'r');
+      const headerBuffer = Buffer.alloc(20);
+      fs.readSync(fd, headerBuffer, 0, 20, 0);
+      fs.closeSync(fd);
       // MP4 files start with size (4 bytes) then 'ftyp'
       const header = headerBuffer.toString('ascii', 4, 8);
       if (header !== 'ftyp' && header !== 'mdat') {
