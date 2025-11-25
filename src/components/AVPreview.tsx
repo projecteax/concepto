@@ -414,7 +414,17 @@ export function AVPreview({
     try {
       const response = await fetch(audioUrl);
       const arrayBuffer = await response.arrayBuffer();
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      // Handle both standard AudioContext and webkitAudioContext for browser compatibility
+      let audioContext: AudioContext;
+      if (window.AudioContext) {
+        audioContext = new window.AudioContext();
+      } else {
+        const WebKitAudioContext = (window as typeof window & { webkitAudioContext: new () => AudioContext }).webkitAudioContext;
+        if (!WebKitAudioContext) {
+          throw new Error('AudioContext is not supported in this browser');
+        }
+        audioContext = new WebKitAudioContext();
+      }
       const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
       
       const rawData = audioBuffer.getChannelData(0); // Get first channel
