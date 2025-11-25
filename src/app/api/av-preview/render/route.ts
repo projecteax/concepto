@@ -63,17 +63,18 @@ async function getFFmpegPath(): Promise<string> {
       }
       
       if (staticPath && typeof staticPath === 'string') {
-      console.log('ffmpeg-static path extracted:', staticPath);
-      if (fs.existsSync(staticPath)) {
-        console.log('✓ ffmpeg-static binary found and verified');
-        return staticPath;
-      } else {
-        console.warn('✗ ffmpeg-static binary not found at path:', staticPath);
-        // Try manual path as fallback
-        const nodeModulesPath = path.join(process.cwd(), 'node_modules', 'ffmpeg-static', 'ffmpeg.exe');
-        if (fs.existsSync(nodeModulesPath)) {
-          console.log('Found ffmpeg-static via manual path fallback:', nodeModulesPath);
-          return nodeModulesPath;
+        console.log('ffmpeg-static path extracted:', staticPath);
+        if (fs.existsSync(staticPath)) {
+          console.log('✓ ffmpeg-static binary found and verified');
+          return staticPath;
+        } else {
+          console.warn('✗ ffmpeg-static binary not found at path:', staticPath);
+          // Try manual path as fallback
+          const nodeModulesPath = path.join(process.cwd(), 'node_modules', 'ffmpeg-static', 'ffmpeg.exe');
+          if (fs.existsSync(nodeModulesPath)) {
+            console.log('Found ffmpeg-static via manual path fallback:', nodeModulesPath);
+            return nodeModulesPath;
+          }
         }
       }
       
