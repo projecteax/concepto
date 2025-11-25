@@ -45,29 +45,24 @@ async function getFFmpegPath(): Promise<string> {
   try {
     // Use dynamic import instead of require for better TypeScript compatibility
     // ffmpeg-static exports a string path directly
-    let ffmpegStatic: string | { default?: string } | undefined;
     try {
       // Use dynamic import
       const ffmpegModule = await import('ffmpeg-static');
-      ffmpegStatic = ffmpegModule.default || ffmpegModule;
-    } catch (importError) {
-      console.error('Error importing ffmpeg-static:', importError);
-      // Try alternative: construct path manually
-      const nodeModulesPath = path.join(process.cwd(), 'node_modules', 'ffmpeg-static', 'ffmpeg.exe');
-      if (fs.existsSync(nodeModulesPath)) {
-        console.log('Found ffmpeg-static via manual path:', nodeModulesPath);
-        return nodeModulesPath;
+      // Handle different export formats: default export, named export, or direct string
+      const ffmpegStatic = (ffmpegModule.default ?? ffmpegModule) as string | { default?: string | null } | undefined;
+      
+      console.log('ffmpeg-static import result type:', typeof ffmpegStatic);
+      console.log('ffmpeg-static import result:', ffmpegStatic);
+      
+      // Extract path from various possible formats
+      let staticPath: string | null = null;
+      if (typeof ffmpegStatic === 'string') {
+        staticPath = ffmpegStatic;
+      } else if (ffmpegStatic && typeof ffmpegStatic === 'object') {
+        staticPath = (ffmpegStatic.default ?? null) as string | null;
       }
-      throw importError;
-    }
-    
-    console.log('ffmpeg-static require result type:', typeof ffmpegStatic);
-    console.log('ffmpeg-static require result:', ffmpegStatic);
-    
-    // ffmpeg-static exports the path as a string
-    const staticPath = typeof ffmpegStatic === 'string' ? ffmpegStatic : (ffmpegStatic?.default || ffmpegStatic);
-    
-    if (staticPath && typeof staticPath === 'string') {
+      
+      if (staticPath && typeof staticPath === 'string') {
       console.log('ffmpeg-static path extracted:', staticPath);
       if (fs.existsSync(staticPath)) {
         console.log('✓ ffmpeg-static binary found and verified');
@@ -81,8 +76,19 @@ async function getFFmpegPath(): Promise<string> {
           return nodeModulesPath;
         }
       }
-    } else {
-      console.warn('Could not extract path from ffmpeg-static, trying manual path...');
+      
+      // If we couldn't extract a valid path, try manual path
+      if (!staticPath) {
+        console.warn('Could not extract path from ffmpeg-static, trying manual path...');
+        const nodeModulesPath = path.join(process.cwd(), 'node_modules', 'ffmpeg-static', 'ffmpeg.exe');
+        if (fs.existsSync(nodeModulesPath)) {
+          console.log('Found ffmpeg-static via manual path:', nodeModulesPath);
+          return nodeModulesPath;
+        }
+      }
+    } catch (importError) {
+      console.error('Error importing ffmpeg-static:', importError);
+      // Try alternative: construct path manually
       const nodeModulesPath = path.join(process.cwd(), 'node_modules', 'ffmpeg-static', 'ffmpeg.exe');
       if (fs.existsSync(nodeModulesPath)) {
         console.log('Found ffmpeg-static via manual path:', nodeModulesPath);
