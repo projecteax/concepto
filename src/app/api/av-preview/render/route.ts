@@ -44,21 +44,22 @@ async function getFFmpegPath(): Promise<string> {
 
   // Try to use bundled ffmpeg-static (load dynamically to avoid Next.js bundling issues)
   try {
-    // Use dynamic require inside function to avoid Next.js bundling issues
+    // Use dynamic import instead of require for better TypeScript compatibility
     // ffmpeg-static exports a string path directly
-    let ffmpegStatic: any;
+    let ffmpegStatic: string | { default?: string } | undefined;
     try {
-      // Try require first
-      ffmpegStatic = require('ffmpeg-static');
-    } catch (requireError) {
-      console.error('Error requiring ffmpeg-static:', requireError);
+      // Use dynamic import
+      const ffmpegModule = await import('ffmpeg-static');
+      ffmpegStatic = ffmpegModule.default || ffmpegModule;
+    } catch (importError) {
+      console.error('Error importing ffmpeg-static:', importError);
       // Try alternative: construct path manually
       const nodeModulesPath = path.join(process.cwd(), 'node_modules', 'ffmpeg-static', 'ffmpeg.exe');
       if (fs.existsSync(nodeModulesPath)) {
         console.log('Found ffmpeg-static via manual path:', nodeModulesPath);
         return nodeModulesPath;
       }
-      throw requireError;
+      throw importError;
     }
     
     console.log('ffmpeg-static require result type:', typeof ffmpegStatic);
@@ -99,12 +100,15 @@ async function getFFmpegPath(): Promise<string> {
     }
   }
 
-  // Fallback: try system FFmpeg
+  // Fallback: try system FFmpeg (using spawn to check availability)
   try {
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execAsync = promisify(exec);
     await execAsync('ffmpeg -version');
     console.log('Using system FFmpeg from PATH');
     return 'ffmpeg'; // Use system FFmpeg from PATH
-  } catch (error) {
+  } catch {
     throw new Error('FFmpeg not found. Please install FFmpeg or ensure ffmpeg-static package is available.');
   }
 }
@@ -407,7 +411,7 @@ export async function POST(request: NextRequest) {
             fs.readFileSync(outputPath, { start: 0, end: 100 });
             break;
           }
-        } catch (readError) {
+        } catch {
           // File might still be writing, wait a bit more
         }
       }

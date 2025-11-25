@@ -804,7 +804,7 @@ export function AVPreview({
           try {
               // Try proxy first to avoid CORS
               const proxyUrl = `/api/proxy-media?url=${encodeURIComponent(url)}`;
-              let data = await fetchFile(proxyUrl);
+              const data = await fetchFile(proxyUrl);
               await ffmpeg.writeFile(filename, data);
           } catch (e) {
               console.warn(`Proxy fetch failed for ${url}, trying direct...`, e);
