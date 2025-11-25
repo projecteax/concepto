@@ -20,6 +20,7 @@ import StoryboardDrawer from './StoryboardDrawer';
 import CommentThread from './CommentThread';
 import { AVScriptEditor } from './AVScriptEditor';
 import { AVEditing } from './AVEditing';
+import { AVPreview } from './AVPreview';
 import ScreenplayEditor, { ScreenplayEditorHandle } from './ScreenplayEditor';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { useRealtimeEpisode } from '@/hooks/useRealtimeEpisode';
@@ -41,7 +42,7 @@ export default function EpisodeDetail({
   onSave,
   isPublicMode = false,
 }: EpisodeDetailProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'av-script' | 'av-editing' | 'screenwriting' | 'characters' | 'locations' | 'gadgets'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'av-script' | 'av-preview' | 'av-editing' | 'screenwriting' | 'characters' | 'locations' | 'gadgets'>('overview');
   const [localEpisode, setLocalEpisode] = useState<Episode>(episode);
   const screenplayEditorRef = useRef<ScreenplayEditorHandle | null>(null);
   const [screenplayLastSavedAt, setScreenplayLastSavedAt] = useState<number | null>(null);
@@ -1150,7 +1151,8 @@ export default function EpisodeDetail({
   const tabs = [
     { id: 'overview', label: 'Overview' },
     { id: 'av-script', label: 'AV Script' },
-    { id: 'av-editing', label: 'AV Editing' },
+    { id: 'av-preview', label: 'AV Preview' },
+    // { id: 'av-editing', label: 'AV Editing' }, // Hidden as per request
     { id: 'screenwriting', label: 'Screenwriting' },
     { id: 'characters', label: 'Characters' },
     { id: 'locations', label: 'Locations' },
@@ -1221,7 +1223,7 @@ export default function EpisodeDetail({
             {tabs.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as 'overview' | 'av-script' | 'av-editing' | 'screenwriting' | 'characters' | 'locations' | 'gadgets')}
+                onClick={() => setActiveTab(tab.id as 'overview' | 'av-script' | 'av-preview' | 'av-editing' | 'screenwriting' | 'characters' | 'locations' | 'gadgets')}
                 className={`py-4 px-1 border-b-2 font-medium text-sm ${
                   activeTab === tab.id
                     ? 'border-indigo-500 text-indigo-600'
@@ -1405,6 +1407,27 @@ export default function EpisodeDetail({
                 <p className="text-gray-500">No locations assigned to this episode.</p>
               )}
             </div>
+          </div>
+        )}
+
+        {activeTab === 'av-preview' && (
+          <div className="bg-white rounded-lg shadow-sm">
+            <AVPreview
+              episodeId={episode.id}
+              avScript={localEpisode.avScript}
+              avPreviewData={localEpisode.avPreviewData}
+              globalAssets={globalAssets}
+              onSave={(avPreviewData, updatedAvScript) => {
+                let updatedEpisode = { ...localEpisode, avPreviewData };
+                
+                if (updatedAvScript) {
+                  updatedEpisode = { ...updatedEpisode, avScript: updatedAvScript };
+                }
+                
+                // Manual save only (no autosave logic here)
+                onSave?.(updatedEpisode);
+              }}
+            />
           </div>
         )}
 

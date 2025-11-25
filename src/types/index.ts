@@ -162,6 +162,7 @@ export interface Episode {
   description?: string;
   script?: string;
   avScript?: AVScript;
+  avPreviewData?: AVPreviewData;
   screenplayData?: ScreenplayData;
   characters: EpisodeCharacter[];
   locations: EpisodeLocation[];
@@ -365,6 +366,7 @@ export interface AVShot {
   imageGenerationThread?: AVShotImageGenerationThread; // Conversation thread for image generation
   enhancementThread?: EnhancementThread; // Conversation thread for text enhancement
   duration: number; // Duration in seconds
+  videoOffset?: number; // Start offset in video file for trimming (in seconds)
   wordCount: number; // Auto-calculated from audio text
   runtime: number; // Auto-calculated from audio text (seconds)
   order: number; // For drag and drop ordering
@@ -480,4 +482,28 @@ export interface AVEditingData {
   totalDuration: number; // Total duration in seconds
   createdAt: Date;
   updatedAt: Date;
+}
+
+// AV Preview System
+export interface AVPreviewClip {
+  id: string;
+  url: string;
+  name: string;
+  startTime: number; // Global start time in the timeline
+  duration: number; // Duration of the clip to play
+  offset: number; // Start time within the source file
+  volume: number; // 0-1
+}
+
+export interface AVPreviewTrack {
+  id: string;
+  name: string;
+  type: 'audio' | 'sfx' | 'music';
+  clips: AVPreviewClip[];
+  isMuted?: boolean;
+  volume?: number; // Track master volume
+}
+
+export interface AVPreviewData {
+  audioTracks: AVPreviewTrack[];
 }

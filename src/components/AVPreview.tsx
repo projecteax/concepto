@@ -1,0 +1,952 @@
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { Episode, AVScript, AVPreviewData, AVPreviewTrack, GlobalAsset, AVShot, AVSegment, AVPreviewClip } from '@/types';
+import { Play, Pause, Save, Upload, Plus, Trash2, Volume2, VolumeX, Music, Mic, Image as ImageIcon, Film, SkipBack, GripVertical } from 'lucide-react';
+import { useS3Upload } from '@/hooks/useS3Upload';
+
+interface AVPreviewProps {
+  episodeId: string;
+  avScript?: AVScript;
+  avPreviewData?: AVPreviewData;
+  onSave: (data: AVPreviewData, avScript?: AVScript) => void;
+  globalAssets: GlobalAsset[];
+}
+
+interface VisualClip {
+  id: string;
+  shotId: string; // Original shot ID for reference
+  startTime: number; // Timeline position (0-based for scene)
+  duration: number; // Duration on timeline
+  offset: number; // Start offset in source file (for trimming)
+  type: 'video' | 'image' | 'placeholder';
+  url?: string;
+  label: string;
+  shotNumber: string;
+  take: string; // Take name from AV script
+  segmentId: string;
+  sourceDuration?: number; // Actual duration of the source video file (for videos only)
+}
+
+interface ClipEdit {
+  duration: number;
+  offset: number; // For video trimming
+}
+
+export function AVPreview({
+  episodeId,
+  avScript,
+  avPreviewData,
+  onSave,
+  globalAssets
+}: AVPreviewProps) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [tracks, setTracks] = useState<AVPreviewTrack[]>(avPreviewData?.audioTracks || []);
+  const [scale, setScale] = useState(20); // pixels per second
+  
+  // Scene Selection - must select a scene, no "all"
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string>('');
+  
+  // Clip Edits - track duration and offset per shot
+  const [clipEdits, setClipEdits] = useState<{[shotId: string]: ClipEdit}>({});
+  
+  // Video source durations - track actual video file durations
+  const [videoDurations, setVideoDurations] = useState<{[url: string]: number}>({});
+  
+  // Resizing State - simpler approach
+  const [resizeState, setResizeState] = useState<{
+    clipId: string;
+    shotId: string;
+    edge: 'left' | 'right';
+    startX: number;
+    originalDuration: number;
+    originalOffset: number;
+    sourceDuration?: number; // Max duration for videos (actual video file length)
+    clipType: 'video' | 'image' | 'placeholder';
+  } | null>(null);
+
+  const timelineRef = useRef<HTMLDivElement>(null);
+  const playStartTimeRef = useRef<number | null>(null);
+  const playStartOffsetRef = useRef<number>(0);
+  const rafRef = useRef<number | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRefs = useRef<{[key: string]: HTMLAudioElement}>({});
+  const durationRef = useRef(0);
+  const scaleRef = useRef(scale);
+  
+  const { uploadFile } = useS3Upload();
+
+  // Initialize selected segment to first scene if available
+  useEffect(() => {
+    if (avScript && avScript.segments.length > 0 && !selectedSegmentId) {
+      setSelectedSegmentId(avScript.segments[0].id);
+    }
+  }, [avScript, selectedSegmentId]);
+
+  // Initialize tracks if empty
+  useEffect(() => {
+    if (tracks.length === 0) {
+      setTracks([
+        { id: 'track-voice', name: 'Voice Over', type: 'audio', clips: [] },
+        { id: 'track-sfx', name: 'Sound Effects', type: 'sfx', clips: [] },
+        { id: 'track-music', name: 'Music', type: 'music', clips: [] },
+      ]);
+    }
+  }, []);
+
+  // Initialize clip edits from AV Script
+  useEffect(() => {
+    if (avScript) {
+      const edits: {[shotId: string]: ClipEdit} = {};
+      avScript.segments.forEach(seg => {
+        seg.shots.forEach(shot => {
+          edits[shot.id] = {
+            duration: shot.duration || 3,
+            offset: shot.videoOffset || 0 // Initialize from saved offset
+          };
+        });
+      });
+      setClipEdits(prev => {
+        // Merge with existing edits to preserve user changes
+        return { ...edits, ...prev };
+      });
+    }
+  }, [avScript]);
+
+  // Load video durations
+  useEffect(() => {
+    if (!avScript) return;
+    
+    const loadVideoDurations = async () => {
+      const durations: {[url: string]: number} = {};
+      const videoUrls = new Set<string>();
+      
+      // Collect all unique video URLs
+      avScript.segments.forEach(seg => {
+        seg.shots.forEach(shot => {
+          if (shot.videoUrl) {
+            videoUrls.add(shot.videoUrl);
+          }
+        });
+      });
+      
+      // Load duration for each video
+      const promises = Array.from(videoUrls).map(url => {
+        return new Promise<void>((resolve) => {
+          // Skip if we already have this duration
+          if (videoDurations[url]) {
+            resolve();
+            return;
+          }
+          
+          const video = document.createElement('video');
+          video.preload = 'metadata';
+          video.onloadedmetadata = () => {
+            durations[url] = video.duration;
+            resolve();
+          };
+          video.onerror = () => {
+            // If we can't load metadata, set a default or skip
+            console.warn(`Could not load duration for video: ${url}`);
+            resolve();
+          };
+          video.src = url;
+        });
+      });
+      
+      await Promise.all(promises);
+      
+      if (Object.keys(durations).length > 0) {
+        setVideoDurations(prev => ({ ...prev, ...durations }));
+      }
+    };
+    
+    loadVideoDurations();
+  }, [avScript]);
+
+  // Sync duration ref
+  useEffect(() => {
+    durationRef.current = duration;
+  }, [duration]);
+
+  // Sync scale ref
+  useEffect(() => {
+    scaleRef.current = scale;
+  }, [scale]);
+
+  // Build visual playlist for selected scene only (starts at 0:00)
+  const { playlist: visualPlaylist, totalDuration } = useMemo(() => {
+    if (!avScript || !selectedSegmentId) return { playlist: [], totalDuration: 0 };
+    
+    const segment = avScript.segments.find(s => s.id === selectedSegmentId);
+    if (!segment) return { playlist: [], totalDuration: 0 };
+    
+    let currentStartTime = 0;
+    const playlist: VisualClip[] = [];
+
+    segment.shots.forEach((shot, index) => {
+      const edit = clipEdits[shot.id] || { duration: shot.duration || 3, offset: 0 };
+      const shotDuration = edit.duration;
+      
+      let type: 'video' | 'image' | 'placeholder' = 'placeholder';
+      let url: string | undefined = undefined;
+
+      if (shot.videoUrl) {
+        type = 'video';
+        url = shot.videoUrl;
+      } else if (shot.imageUrl) {
+        type = 'image';
+        url = shot.imageUrl;
+      }
+
+      // Get source duration for videos
+      const sourceDuration = type === 'video' && url ? videoDurations[url] : undefined;
+
+      // Use unique key: segmentId-shotId-index to avoid duplicates
+      playlist.push({
+        id: `${segment.id}-${shot.id}-${index}`, // Unique key
+        shotId: shot.id,
+        startTime: currentStartTime,
+        duration: shotDuration,
+        offset: edit.offset,
+        type,
+        url,
+        label: shot.visual,
+        shotNumber: `${segment.segmentNumber}.${shot.shotNumber}`,
+        take: shot.take || `${segment.segmentNumber}.${shot.shotNumber}`, // Use take name from AV script
+        segmentId: segment.id,
+        sourceDuration
+      });
+
+      currentStartTime += shotDuration;
+    });
+
+    return { playlist, totalDuration: currentStartTime };
+  }, [avScript, selectedSegmentId, clipEdits, videoDurations]);
+
+  // Update global duration state
+  useEffect(() => {
+    setDuration(totalDuration);
+  }, [totalDuration]);
+
+  // Current visual clip based on time
+  const currentVisualClip = useMemo(() => {
+    return visualPlaylist.find(
+      clip => currentTime >= clip.startTime && currentTime < clip.startTime + clip.duration
+    );
+  }, [currentTime, visualPlaylist]);
+
+  // Playback Loop
+  const updatePlayback = useCallback(() => {
+    if (playStartTimeRef.current === null) return;
+
+    const now = performance.now();
+    const elapsed = (now - playStartTimeRef.current) / 1000;
+    const newTime = playStartOffsetRef.current + elapsed;
+
+    if (newTime >= durationRef.current) {
+      setIsPlaying(false);
+      setCurrentTime(durationRef.current);
+      playStartTimeRef.current = null;
+      return;
+    }
+
+    setCurrentTime(newTime);
+    rafRef.current = requestAnimationFrame(updatePlayback);
+  }, []); 
+
+  useEffect(() => {
+    if (isPlaying) {
+      playStartTimeRef.current = performance.now();
+      playStartOffsetRef.current = currentTime;
+      rafRef.current = requestAnimationFrame(updatePlayback);
+    } else {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      playStartTimeRef.current = null;
+    }
+    
+    return () => {
+        if (rafRef.current) {
+            cancelAnimationFrame(rafRef.current);
+        }
+    };
+  }, [isPlaying, updatePlayback]);
+
+  // Sync Media Elements
+  useEffect(() => {
+    // Sync Video with offset support
+    if (videoRef.current && currentVisualClip?.type === 'video' && currentVisualClip.url) {
+      const video = videoRef.current;
+      // Calculate time in clip accounting for offset
+      const timeInClip = currentTime - currentVisualClip.startTime;
+      const sourceTime = currentVisualClip.offset + timeInClip;
+      
+      if (video.src !== currentVisualClip.url) {
+        video.src = currentVisualClip.url;
+        video.load();
+      }
+      
+      if (Math.abs(video.currentTime - sourceTime) > 0.3) {
+        video.currentTime = sourceTime;
+      }
+
+      if (isPlaying && video.paused) {
+        video.play().catch(() => {});
+      } else if (!isPlaying && !video.paused) {
+        video.pause();
+      }
+    } else if (videoRef.current) {
+       videoRef.current.pause();
+    }
+
+    // Sync Audio Tracks
+    tracks.forEach(track => {
+      track.clips.forEach(clip => {
+        const audioKey = `${track.id}-${clip.id}`;
+        let audio = audioRefs.current[audioKey];
+        
+        if (!audio) {
+          audio = new Audio(clip.url);
+          audioRefs.current[audioKey] = audio;
+        }
+
+        const clipEndTime = clip.startTime + clip.duration;
+        const isWithinClip = currentTime >= clip.startTime && currentTime < clipEndTime;
+
+        if (isWithinClip && isPlaying && !track.isMuted) {
+          const timeInClip = currentTime - clip.startTime + clip.offset;
+          
+          if (Math.abs(audio.currentTime - timeInClip) > 0.3) {
+            audio.currentTime = timeInClip;
+          }
+          
+          audio.volume = (clip.volume ?? 1) * (track.volume ?? 1);
+          
+          if (audio.paused) {
+            audio.play().catch(e => console.warn("Audio play failed", e));
+          }
+        } else {
+          if (!audio.paused) {
+            audio.pause();
+          }
+        }
+      });
+    });
+
+  }, [currentTime, isPlaying, currentVisualClip, tracks]);
+
+  // Handlers
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Don't seek if we're resizing or if the click is on a clip
+    if (resizeState) return;
+    if ((e.target as HTMLElement).closest('[data-resize-handle]')) return;
+    if (!timelineRef.current) return;
+    const rect = timelineRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left - 192; 
+    const time = Math.max(0, Math.min(duration, x / scale));
+    setCurrentTime(time);
+    if (isPlaying) {
+      playStartOffsetRef.current = time;
+      playStartTimeRef.current = performance.now();
+    }
+  };
+
+  const handlePlayFromBeginning = () => {
+    setCurrentTime(0);
+    if (isPlaying) {
+        playStartOffsetRef.current = 0;
+        playStartTimeRef.current = performance.now();
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, trackId: string) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    try {
+        const result = await uploadFile(file, `audio-clips/${episodeId}/${Date.now()}-${file.name}`);
+        if (result) {
+            const audio = new Audio(result.url);
+            await new Promise(resolve => {
+                audio.addEventListener('loadedmetadata', resolve);
+                audio.addEventListener('error', resolve); 
+            });
+
+            const newClip: AVPreviewClip = {
+                id: `clip-${Date.now()}`,
+                name: file.name,
+                url: result.url,
+                startTime: currentTime,
+                duration: audio.duration || 5,
+                offset: 0,
+                volume: 1
+            };
+
+            setTracks(prev => prev.map(t => {
+                if (t.id === trackId) {
+                    return { ...t, clips: [...t.clips, newClip] };
+                }
+                return t;
+            }));
+        }
+    } catch (error) {
+        console.error("Upload failed", error);
+    }
+  };
+
+  const handleRemoveClip = (trackId: string, clipId: string) => {
+      setTracks(prev => prev.map(t => {
+          if (t.id === trackId) {
+              return { ...t, clips: t.clips.filter(c => c.id !== clipId) };
+          }
+          return t;
+      }));
+  };
+
+  // Resizing Handlers - Simple state-based approach with ref
+  const resizeStateRef = useRef(resizeState);
+  useEffect(() => {
+    resizeStateRef.current = resizeState;
+  }, [resizeState]);
+
+  useEffect(() => {
+    if (!resizeState) {
+      return;
+    }
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const currentResizeState = resizeStateRef.current;
+      if (!currentResizeState) return;
+      
+      const deltaX = e.clientX - currentResizeState.startX;
+      const deltaSeconds = deltaX / scaleRef.current;
+      
+      setClipEdits(prev => {
+        const currentEdit = prev[currentResizeState.shotId] || { 
+          duration: currentResizeState.originalDuration, 
+          offset: currentResizeState.originalOffset 
+        };
+        
+        // Calculate max duration based on source duration (for videos)
+        let maxDuration: number | undefined = undefined;
+        if (currentResizeState.clipType === 'video' && currentResizeState.sourceDuration) {
+          // For videos: max duration = sourceDuration - offset
+          maxDuration = currentResizeState.sourceDuration - currentResizeState.originalOffset;
+        } else if (currentResizeState.clipType === 'image') {
+          // For images: reasonable max (60 seconds)
+          maxDuration = 60;
+        }
+        
+        if (currentResizeState.edge === 'right') {
+          // Right edge: change duration (trim out)
+          let newDuration = currentResizeState.originalDuration + deltaSeconds;
+          newDuration = Math.max(0.1, newDuration);
+          // Enforce max duration if available
+          if (maxDuration !== undefined) {
+            newDuration = Math.min(newDuration, maxDuration);
+          }
+          return {
+            ...prev,
+            [currentResizeState.shotId]: {
+              ...currentEdit,
+              duration: newDuration
+            }
+          };
+        } else {
+          // Left edge: trim in (for videos only)
+          let newOffset = currentResizeState.originalOffset + deltaSeconds;
+          newOffset = Math.max(0, newOffset);
+          let newDuration = currentResizeState.originalDuration - deltaSeconds;
+          newDuration = Math.max(0.1, newDuration);
+          
+          // For videos: ensure offset + duration doesn't exceed source duration
+          if (currentResizeState.clipType === 'video' && currentResizeState.sourceDuration) {
+            // Total playable length = offset + duration cannot exceed sourceDuration
+            const totalLength = newOffset + newDuration;
+            if (totalLength > currentResizeState.sourceDuration) {
+              // Clamp to source duration
+              const maxAvailable = currentResizeState.sourceDuration;
+              // If dragging left (increasing offset), reduce duration
+              if (deltaSeconds > 0) {
+                newOffset = Math.min(newOffset, maxAvailable - 0.1);
+                newDuration = maxAvailable - newOffset;
+              } else {
+                // If dragging right (decreasing offset), we can increase duration
+                newDuration = Math.min(newDuration, maxAvailable - newOffset);
+              }
+            }
+          }
+          
+          return {
+            ...prev,
+            [currentResizeState.shotId]: {
+              ...currentEdit,
+              offset: newOffset,
+              duration: newDuration
+            }
+          };
+        }
+      });
+    };
+
+    const handleMouseUp = (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setResizeState(null);
+    };
+
+    // Use capture phase and make sure we catch events
+    document.addEventListener('mousemove', handleMouseMove, { capture: true, passive: false });
+    document.addEventListener('mouseup', handleMouseUp, { capture: true, passive: false });
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove, { capture: true });
+      document.removeEventListener('mouseup', handleMouseUp, { capture: true });
+    };
+  }, [resizeState]);
+
+  const handleResizeStart = (e: React.MouseEvent, clip: VisualClip, edge: 'left' | 'right') => {
+    e.stopPropagation();
+    e.preventDefault();
+    
+    setResizeState({
+      clipId: clip.id,
+      shotId: clip.shotId,
+      edge,
+      startX: e.clientX,
+      originalDuration: clip.duration,
+      originalOffset: clip.offset,
+      sourceDuration: clip.sourceDuration,
+      clipType: clip.type
+    });
+  };
+
+  const handleClipMouseDown = (e: React.MouseEvent, clip: VisualClip) => {
+    // Don't handle if clicking on a resize handle
+    if ((e.target as HTMLElement).closest('[data-resize-handle]')) {
+      return;
+    }
+    
+    // Check if click is near an edge
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clipWidth = rect.width;
+    const edgeThreshold = 12; // pixels from edge
+    
+    let edge: 'left' | 'right' | null = null;
+    
+    if (clickX < edgeThreshold && clip.type === 'video') {
+      edge = 'left';
+    } else if (clickX > clipWidth - edgeThreshold) {
+      edge = 'right';
+    }
+    
+    if (edge) {
+      handleResizeStart(e, clip, edge);
+    }
+  };
+
+  const handleSaveProject = () => {
+    if (!avScript) {
+      console.warn('No AV Script to save');
+      return;
+    }
+
+    // Construct updated AV Script with new durations and offsets
+    const updatedAvScript = {
+      ...avScript,
+      segments: avScript.segments.map(seg => ({
+        ...seg,
+        shots: seg.shots.map(shot => {
+          const edit = clipEdits[shot.id];
+          const newDuration = edit?.duration ?? shot.duration;
+          const newOffset = edit?.offset ?? shot.videoOffset ?? 0;
+          
+          console.log(`Saving shot ${shot.id} (${shot.take}): duration=${newDuration}, offset=${newOffset}`, {
+            originalDuration: shot.duration,
+            originalOffset: shot.videoOffset,
+            edit
+          });
+          
+          return {
+            ...shot,
+            duration: newDuration,
+            videoOffset: newOffset
+          };
+        })
+      }))
+    };
+
+    console.log('Saving project with updated AV Script:', updatedAvScript);
+    onSave({ audioTracks: tracks }, updatedAvScript);
+  };
+
+  // Format time as MM:SS:FF (minutes:seconds:frames) at 24 fps
+  const formatTime = (seconds: number): string => {
+    const totalFrames = Math.floor(seconds * 24); // 24 fps
+    const mins = Math.floor(totalFrames / (24 * 60));
+    const remainingFrames = totalFrames % (24 * 60);
+    const secs = Math.floor(remainingFrames / 24);
+    const frames = remainingFrames % 24;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
+  };
+
+  const selectedSegment = avScript?.segments.find(s => s.id === selectedSegmentId);
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-200px)] bg-gray-950 text-white rounded-lg overflow-hidden select-none">
+      {/* Header / Toolbar */}
+      <div className="h-14 border-b border-gray-800 flex items-center justify-between px-4 bg-gray-900 shadow-sm">
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center bg-gray-800 rounded-lg p-1 border border-gray-700">
+             <button
+                onClick={handlePlayFromBeginning}
+                className="p-2 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition-colors"
+                title="Play from Beginning"
+             >
+                <SkipBack className="w-4 h-4" />
+             </button>
+             <button
+                onClick={() => setIsPlaying(!isPlaying)}
+                className={`mx-1 p-2 rounded-md transition-all ${isPlaying ? 'bg-red-500/20 text-red-500' : 'bg-indigo-500/20 text-indigo-400'} hover:bg-opacity-30`}
+             >
+                {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current" />}
+             </button>
+          </div>
+          
+          <div className="text-xl font-mono text-indigo-400 bg-gray-800 px-3 py-1 rounded border border-gray-700 min-w-[140px] text-center">
+            {formatTime(currentTime)} <span className="text-gray-500 text-base">/ {formatTime(duration)}</span>
+          </div>
+
+          <div className="h-6 w-px bg-gray-800 mx-2" />
+
+          <select 
+            value={selectedSegmentId}
+            onChange={(e) => {
+                setSelectedSegmentId(e.target.value);
+                setCurrentTime(0); // Reset to beginning of scene
+            }}
+            className="bg-gray-800 border border-gray-700 text-sm rounded-md px-3 py-1.5 text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          >
+            {!avScript || avScript.segments.length === 0 ? (
+              <option value="">No scenes available</option>
+            ) : (
+              avScript.segments.map(seg => (
+                <option key={seg.id} value={seg.id}>
+                  Scene {seg.segmentNumber}: {seg.title}
+                </option>
+              ))
+            )}
+          </select>
+        </div>
+
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2 bg-gray-800 rounded-lg p-1.5 border border-gray-700">
+            <span className="text-xs text-gray-400 font-medium px-2">Zoom</span>
+            <input 
+              type="range" 
+              min="5" 
+              max="100" 
+              value={scale} 
+              onChange={(e) => setScale(Number(e.target.value))}
+              className="w-24 accent-indigo-500 h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+            />
+          </div>
+          <button
+            onClick={handleSaveProject}
+            className="flex items-center space-x-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded-md transition-all text-sm font-medium shadow-sm active:transform active:scale-95"
+          >
+            <Save className="w-4 h-4" />
+            <span>Save Project</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        
+        {/* Video Preview Area (Top Half) */}
+        <div className="h-[45%] bg-black flex items-center justify-center relative border-b border-gray-800">
+          <div className="aspect-video h-full max-h-[400px] w-full max-w-[800px] bg-gray-900 flex items-center justify-center relative shadow-2xl">
+             {currentVisualClip ? (
+               <>
+                 {currentVisualClip.type === 'video' ? (
+                   <video 
+                     ref={videoRef}
+                     className="w-full h-full object-contain"
+                     playsInline
+                   />
+                 ) : currentVisualClip.type === 'image' ? (
+                   <img 
+                     src={currentVisualClip.url} 
+                     alt="Scene Visual" 
+                     className="w-full h-full object-contain"
+                   />
+                 ) : (
+                   <div className="text-center p-8">
+                     <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-800 mb-4">
+                        <ImageIcon className="w-8 h-8 text-gray-600" />
+                     </div>
+                     <p className="text-gray-500 font-medium">{currentVisualClip.label || 'No visual content'}</p>
+                     <p className="text-gray-700 text-sm mt-2">Take {currentVisualClip.take}</p>
+                   </div>
+                 )}
+                 
+                 {/* Overlay Info */}
+                 <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-sm px-3 py-1 rounded text-xs font-mono border border-white/10">
+                    Take {currentVisualClip.take}
+                    <span className="ml-2 text-gray-400">Length: {formatTime(currentVisualClip.duration)}</span>
+                    {currentVisualClip.type === 'video' && currentVisualClip.offset > 0 && (
+                      <span className="ml-2 text-yellow-400">Offset: {formatTime(currentVisualClip.offset)}</span>
+                    )}
+                 </div>
+               </>
+             ) : (
+                <p className="text-gray-700">End of Preview</p>
+             )}
+          </div>
+        </div>
+
+        {/* Timeline Area (Bottom Half) */}
+        <div className="flex-1 flex flex-col bg-gray-950 overflow-hidden relative">
+          
+          {/* Time Ruler */}
+          <div className="h-8 bg-gray-900 border-b border-gray-800 flex items-end overflow-hidden sticky top-0 z-20 shadow-sm ml-48">
+             {Array.from({ length: Math.ceil(duration / 5) + 1 }).map((_, i) => (
+                <div 
+                    key={i} 
+                    className="absolute bottom-0 border-l border-gray-700 text-[10px] text-gray-500 pl-1 pb-1"
+                    style={{ left: `${i * 5 * scale}px`, height: '60%' }}
+                >
+                    {formatTime(i * 5)}
+                </div>
+             ))}
+          </div>
+
+          {/* Tracks Container */}
+          <div 
+            className="flex-1 overflow-y-auto overflow-x-auto relative" 
+            ref={timelineRef}
+            onClick={(e) => {
+              // Don't seek if clicking on resize handles or clips
+              if ((e.target as HTMLElement).closest('[data-resize-handle]') || 
+                  (e.target as HTMLElement).closest('[data-clip-container]')) {
+                return;
+              }
+              handleSeek(e);
+            }}
+          >
+            <div className="relative min-w-full" style={{ width: `${Math.max(window.innerWidth - 192, duration * scale)}px` }}>
+              
+              {/* Visual Track (Editable with trim handles) */}
+              <div className="h-28 border-b border-gray-800 bg-gray-900/30 flex relative group">
+                <div className="w-48 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex items-center px-4 sticky left-0 z-20 text-xs font-bold text-gray-400 shadow-md">
+                  <Film className="w-4 h-4 mr-2 text-indigo-500" />
+                  VISUAL
+                </div>
+                <div className="flex-1 relative h-full bg-gray-900/50">
+                  {visualPlaylist.map((clip) => (
+                    <div 
+                        key={clip.id}
+                        data-clip-container="true"
+                        className={`absolute top-2 bottom-2 rounded-md overflow-visible border border-white/10 transition-colors ${
+                            currentTime >= clip.startTime && currentTime < clip.startTime + clip.duration
+                            ? 'ring-2 ring-yellow-500 z-10'
+                            : ''
+                        } ${
+                            clip.type === 'video' ? 'bg-indigo-900/60' : 
+                            clip.type === 'image' ? 'bg-blue-900/60' : 
+                            'bg-gray-800/60'
+                        }`}
+                        style={{
+                            left: `${clip.startTime * scale}px`,
+                            width: `${clip.duration * scale}px`
+                        }}
+                        onMouseDown={(e) => handleClipMouseDown(e, clip)}
+                        onMouseMove={(e) => {
+                          // Update cursor based on position
+                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                          const mouseX = e.clientX - rect.left;
+                          const clipWidth = rect.width;
+                          const edgeThreshold = 12;
+                          
+                          if ((mouseX < edgeThreshold && clip.type === 'video') || mouseX > clipWidth - edgeThreshold) {
+                            (e.currentTarget as HTMLElement).style.cursor = 'ew-resize';
+                          } else {
+                            (e.currentTarget as HTMLElement).style.cursor = 'default';
+                          }
+                        }}
+                    >
+                        <div className="h-full p-2 flex flex-col justify-between relative pointer-events-none">
+                            <div className="flex items-center space-x-1">
+                                {clip.type === 'video' && <Film className="w-3 h-3 text-indigo-300" />}
+                                {clip.type === 'image' && <ImageIcon className="w-3 h-3 text-blue-300" />}
+                                <span className="text-[10px] font-bold text-white/90 truncate">
+                                    {clip.take}
+                                </span>
+                            </div>
+                            <div className="text-[10px] text-white/60 truncate leading-tight">
+                                {clip.label}
+                            </div>
+                        </div>
+                        
+                        {/* Left Resize Handle (for video trimming) - Always visible, wider */}
+                        {clip.type === 'video' && (
+                          <div 
+                              data-resize-handle="left"
+                              className="absolute top-0 left-0 bottom-0 w-8 cursor-ew-resize z-50 pointer-events-auto"
+                              style={{
+                                background: resizeState?.clipId === clip.id && resizeState?.edge === 'left' 
+                                  ? 'rgba(99, 102, 241, 0.5)' 
+                                  : 'transparent'
+                              }}
+                              onMouseDown={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                handleResizeStart(e, clip, 'left');
+                              }}
+                              onMouseEnter={(e) => {
+                                if (!resizeState) {
+                                  (e.currentTarget as HTMLElement).style.background = 'rgba(99, 102, 241, 0.3)';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (resizeState?.clipId !== clip.id || resizeState?.edge !== 'left') {
+                                  (e.currentTarget as HTMLElement).style.background = 'transparent';
+                                }
+                              }}
+                          >
+                              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-1 h-8 bg-indigo-400 rounded pointer-events-none" />
+                          </div>
+                        )}
+                        
+                        {/* Right Resize Handle - Always visible, wider */}
+                        <div 
+                            data-resize-handle="right"
+                            className="absolute top-0 right-0 bottom-0 w-8 cursor-ew-resize z-50 pointer-events-auto"
+                            style={{
+                              background: resizeState?.clipId === clip.id && resizeState?.edge === 'right' 
+                                ? 'rgba(99, 102, 241, 0.5)' 
+                                : 'transparent'
+                            }}
+                            onMouseDown={(e) => {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              handleResizeStart(e, clip, 'right');
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!resizeState) {
+                                (e.currentTarget as HTMLElement).style.background = 'rgba(99, 102, 241, 0.3)';
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              if (resizeState?.clipId !== clip.id || resizeState?.edge !== 'right') {
+                                (e.currentTarget as HTMLElement).style.background = 'transparent';
+                              }
+                            }}
+                        >
+                            <div className="absolute top-1/2 right-1/2 transform translate-x-1/2 -translate-y-1/2 w-1 h-8 bg-indigo-400 rounded pointer-events-none" />
+                        </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Audio Tracks */}
+              {tracks.map(track => (
+                <div key={track.id} className="h-24 border-b border-gray-800 bg-gray-900/20 flex relative group">
+                  {/* Track Header */}
+                  <div className="w-48 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col justify-center px-4 sticky left-0 z-20 shadow-md">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">{track.name}</span>
+                      <button className="text-gray-500 hover:text-white transition-colors">
+                          <Volume2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div>
+                       <label className="text-[10px] bg-gray-800 hover:bg-gray-700 border border-gray-700 px-2 py-1.5 rounded text-gray-300 flex items-center justify-center cursor-pointer transition-colors w-full">
+                         <Plus className="w-3 h-3 mr-1.5" /> Add Audio
+                         <input 
+                            type="file" 
+                            accept="audio/*" 
+                            className="hidden" 
+                            onChange={(e) => handleFileUpload(e, track.id)}
+                         />
+                       </label>
+                    </div>
+                  </div>
+
+                  {/* Track Timeline */}
+                  <div className="flex-1 relative h-full bg-gray-900/30">
+                     {/* Grid Lines */}
+                     {Array.from({ length: Math.ceil(duration / 1) }).map((_, i) => (
+                        <div 
+                            key={`grid-${i}`}
+                            className="absolute top-0 bottom-0 border-l border-gray-800/50 pointer-events-none"
+                            style={{ left: `${i * scale}px` }}
+                        />
+                     ))}
+
+                    {track.clips.map(clip => (
+                        <div 
+                            key={clip.id}
+                            className={`absolute top-2 bottom-2 bg-emerald-900/60 border border-emerald-700/50 rounded-md overflow-hidden group/clip hover:bg-emerald-800/70 transition-colors cursor-move ${
+                                currentTime >= clip.startTime && currentTime < clip.startTime + clip.duration
+                                ? 'ring-1 ring-emerald-400'
+                                : ''
+                            }`}
+                            style={{
+                                left: `${clip.startTime * scale}px`,
+                                width: `${clip.duration * scale}px`
+                            }}
+                            title={clip.name}
+                        >
+                            <div className="h-full p-2 relative">
+                                <div className="text-[10px] font-medium text-emerald-100 truncate pr-4">
+                                    {clip.name}
+                                </div>
+                                {/* Audio Waveform Visual Placeholder */}
+                                <div className="absolute bottom-2 left-2 right-2 h-4 flex items-end space-x-px opacity-30">
+                                    {Array.from({ length: 20 }).map((_, i) => (
+                                        <div 
+                                            key={i} 
+                                            className="bg-emerald-400 flex-1"
+                                            style={{ height: `${Math.random() * 100}%` }}
+                                        />
+                                    ))}
+                                </div>
+                                <button 
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleRemoveClip(track.id, clip.id);
+                                    }}
+                                    className="absolute top-1 right-1 text-emerald-300 hover:text-emerald-100 opacity-0 group-hover/clip:opacity-100 transition-opacity"
+                                >
+                                    <Trash2 className="w-3 h-3" />
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              
+              {/* Playhead */}
+              <div 
+                className="absolute top-0 bottom-0 w-px bg-yellow-500 z-30 pointer-events-none shadow-[0_0_10px_rgba(234,179,8,0.5)]"
+                style={{ left: `${currentTime * scale + 192}px` }}
+              >
+                <div className="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] border-t-yellow-500 -ml-[6px] -mt-[1px]" />
+                <div className="absolute top-0 bottom-0 w-[1px] bg-yellow-500/50"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
