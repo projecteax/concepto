@@ -3,7 +3,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawn } from 'child_process';
-import { uploadBufferToS3 } from '@/lib/s3-service';
 
 // We'll load ffmpeg-static dynamically in the function to avoid module loading issues
 
@@ -450,6 +449,8 @@ export async function POST(request: NextRequest) {
     // Upload to S3/R2
     const fileBuffer = fs.readFileSync(outputPath);
     const fileName = `episodes/${episodeId}/renders/scene-${segmentNumber}-${Date.now()}.mp4`;
+    // Use dynamic import to avoid Next.js bundling issues
+    const { uploadBufferToS3 } = await import('@/lib/s3-service');
     const s3Url = await uploadBufferToS3(fileBuffer, fileName, 'video/mp4');
 
     // Clean up temp files
