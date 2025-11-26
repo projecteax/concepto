@@ -25,6 +25,7 @@ export async function POST(request: NextRequest) {
       resolution?: '720p' | '1080p';
       duration?: 4 | 6 | 8;
       runwayDuration?: number;
+      veoImages?: Array<{ url: string; filename: string; id?: string }>;
     };
 
     // Check which model is being used
@@ -299,8 +300,9 @@ async function handleVeoGeneration(body: {
   episodeId: string;
   resolution?: '720p' | '1080p';
   duration?: 4 | 6 | 8;
+  veoImages?: Array<{ url: string; filename: string }>;
 }) {
-  const { prompt = '', type = 'image-to-video', imageUrl, startFrameUrl, endFrameUrl, model, episodeId, resolution = '720p', duration = 8 } = body;
+  const { prompt = '', type = 'image-to-video', imageUrl, startFrameUrl, endFrameUrl, model, episodeId, resolution = '720p', duration = 8, veoImages } = body;
   
   // Check if Veo API key is configured
   const veoApiKey = process.env.NEXT_PUBLIC_VEO_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY;
@@ -320,16 +322,23 @@ async function handleVeoGeneration(body: {
       );
     }
 
-    if (type === 'image-to-video' && !imageUrl) {
+    // Validate that we have the required inputs
+    // Priority: veoImages > legacy type/imageUrl/startFrameUrl/endFrameUrl
+    if (veoImages && veoImages.length > 0) {
+      // veoImages takes priority - validation will happen in the processing logic
+    } else if (type === 'image-to-video' && !imageUrl) {
       return NextResponse.json(
         { error: 'Image URL is required for image-to-video generation' },
         { status: 400 }
       );
-    }
-
-    if (type === 'frames-to-video' && (!startFrameUrl || !endFrameUrl)) {
+    } else if (type === 'frames-to-video' && (!startFrameUrl || !endFrameUrl)) {
       return NextResponse.json(
         { error: 'Both start and end frame URLs are required for frames-to-video generation' },
+        { status: 400 }
+      );
+    } else if (!veoImages && !imageUrl && !startFrameUrl) {
+      return NextResponse.json(
+        { error: 'At least one image or frame is required for video generation' },
         { status: 400 }
       );
     }
@@ -344,38 +353,96 @@ async function handleVeoGeneration(body: {
     };
 
     const selectedModel = modelMap[model] || 'veo-3.1-fast-generate-preview';
-    console.log('Using Veo model:', selectedModel);
+    
+    // Use the selected model (both Pro and Flash support frames-to-video in Veo 3.1)
+    const actualModel = selectedModel;
+    console.log('Using Veo model:', actualModel);
 
     // Generate video using Veo API
     // Veo uses predictLongRunning endpoint and returns an operation that needs to be polled
     // Documentation: https://ai.google.dev/gemini-api/docs/video
-    const veoApiUrl = `${VEO_API_BASE}/models/${selectedModel}:predictLongRunning`;
+    const veoApiUrl = `${VEO_API_BASE}/models/${actualModel}:predictLongRunning`;
     
     // Build request body according to Veo API structure
-    // Resolution parameter should be in parameters object, not directly in instance
+    // image: Start frame
+    // lastFrame: End frame (camelCase per documentation, Python SDK uses last_frame but REST uses camelCase)
+    // Based on user feedback and docs: 'first_frame' is not supported, should be 'image'.
     interface VeoInstance {
       prompt: string;
-      image?: { bytesBase64Encoded: string; mimeType: string };
-      firstFrame?: { bytesBase64Encoded: string; mimeType: string };
-      lastFrame?: { bytesBase64Encoded: string; mimeType: string };
+      image?: { bytesBase64Encoded: string; mimeType: string }; // Single image or Start frame
+      lastFrame?: { bytesBase64Encoded: string; mimeType: string }; // End frame
     }
+    
+    interface VeoParameters {
+      sampleCount?: number;
+      storageUri?: string; // Optional: for storing directly to GCS
+      aspectRatio?: string; // Optional: "16:9", "9:16", "1:1"
+      duration?: string; // "4s", "8s" (6s might be supported too)
+      resolution?: string; // "720p", "1080p"
+    }
+    // Build enhanced prompt with image filenames if provided
+    let enhancedPrompt = prompt;
+    if (veoImages && veoImages.length > 0) {
+      const filenameList = veoImages.map((img, idx) => {
+        const position = idx === 0 ? 'starting frame' : idx === veoImages.length - 1 ? 'ending frame' : 'reference frame';
+        return `${img.filename} (${position})`;
+      }).join(', ');
+      enhancedPrompt = `${prompt}\n\nAvailable images: ${filenameList}. You can reference these images by their filenames in your prompt.`;
+    }
+    
     const instance: VeoInstance = {
-      prompt: prompt,
+      prompt: enhancedPrompt,
     };
     
-    // Add parameters object with resolution and duration for Veo 3.1 models
-    interface VeoParameters {
-      resolution: '720p' | '1080p';
-      durationSeconds: 4 | 6 | 8;
-    }
+    // Parameters object
+    // Default duration is 8s if not specified
     const parameters: VeoParameters = {
-      resolution: resolution, // 720p or 1080p
-      durationSeconds: duration, // 4, 6, or 8 seconds
+      sampleCount: 1, // Generate 1 video
     };
+    
+    // Add duration if specified
+    if (duration) {
+      // Veo expects "4s", "8s" as string
+      parameters.duration = `${duration}s`;
+    }
+    
+    // Add resolution if specified
+    if (resolution) {
+      parameters.resolution = resolution;
+    }
+    
+    // Handle VEO frames-to-video generation
+    if (type === 'frames-to-video' && startFrameUrl && endFrameUrl) {
+      // Fetch start frame
+      const startFrameResponse = await fetch(startFrameUrl);
+      if (!startFrameResponse.ok) {
+        throw new Error(`Failed to fetch start frame: ${startFrameResponse.statusText}`);
+      }
+      const startFrameBuffer = await startFrameResponse.arrayBuffer();
+      const startFrameBase64 = Buffer.from(startFrameBuffer).toString('base64');
+      const startFrameMimeType = startFrameResponse.headers.get('content-type') || 'image/png';
 
-    // Add image for image-to-video generation
-    if (type === 'image-to-video' && imageUrl) {
-      // Fetch and convert image to base64
+      // For Veo 3.1, the start frame is passed as 'image'
+      instance.image = {
+        bytesBase64Encoded: startFrameBase64,
+        mimeType: startFrameMimeType,
+      };
+
+      // Fetch end frame
+      const endFrameResponse = await fetch(endFrameUrl);
+      if (!endFrameResponse.ok) {
+        throw new Error(`Failed to fetch end frame: ${endFrameResponse.statusText}`);
+      }
+      const endFrameBuffer = await endFrameResponse.arrayBuffer();
+      const endFrameBase64 = Buffer.from(endFrameBuffer).toString('base64');
+      const endFrameMimeType = endFrameResponse.headers.get('content-type') || 'image/png';
+
+      instance.lastFrame = {
+        bytesBase64Encoded: endFrameBase64,
+        mimeType: endFrameMimeType,
+      };
+    } else if (type === 'image-to-video' && imageUrl) {
+      // Single image - use image-to-video
       const imageResponse = await fetch(imageUrl);
       if (!imageResponse.ok) {
         throw new Error(`Failed to fetch image: ${imageResponse.statusText}`);
@@ -390,36 +457,9 @@ async function handleVeoGeneration(body: {
       };
     }
 
-    // Add frames for frames-to-video generation
-    if (type === 'frames-to-video' && startFrameUrl && endFrameUrl) {
-      // Fetch start frame
-      const startFrameResponse = await fetch(startFrameUrl);
-      if (!startFrameResponse.ok) {
-        throw new Error(`Failed to fetch start frame: ${startFrameResponse.statusText}`);
-      }
-      const startFrameBuffer = await startFrameResponse.arrayBuffer();
-      const startFrameBase64 = Buffer.from(startFrameBuffer).toString('base64');
-      const startFrameMimeType = startFrameResponse.headers.get('content-type') || 'image/png';
-
-      // Fetch end frame
-      const endFrameResponse = await fetch(endFrameUrl);
-      if (!endFrameResponse.ok) {
-        throw new Error(`Failed to fetch end frame: ${endFrameResponse.statusText}`);
-      }
-      const endFrameBuffer = await endFrameResponse.arrayBuffer();
-      const endFrameBase64 = Buffer.from(endFrameBuffer).toString('base64');
-      const endFrameMimeType = endFrameResponse.headers.get('content-type') || 'image/png';
-
-      instance.firstFrame = {
-        bytesBase64Encoded: startFrameBase64,
-        mimeType: startFrameMimeType,
-      };
-      instance.lastFrame = {
-        bytesBase64Encoded: endFrameBase64,
-        mimeType: endFrameMimeType,
-      };
-    }
-
+    // Build request body
+    // According to Python SDK: image=first_image, config=GenerateVideosConfig(last_frame=last_image)
+    // For REST API, parameters usually holds the config
     interface VeoRequestBody {
       instances: VeoInstance[];
       parameters?: VeoParameters;
@@ -428,10 +468,26 @@ async function handleVeoGeneration(body: {
       instances: [instance],
     };
     
-    // Add parameters if resolution is specified (Veo 3.1+ models support this)
-    if (parameters && Object.keys(parameters).length > 0) {
+    // Add parameters if needed
+    if (Object.keys(parameters).length > 0) {
       requestBody.parameters = parameters;
     }
+    
+    // Validate that instance has at least an image or frames
+    if (!instance.image) {
+      throw new Error('Instance must have at least an image (for image-to-video or frames-to-video)');
+    }
+
+    // Log the full request body for debugging (masking base64)
+    console.log('Sending VEO API Request to:', veoApiUrl);
+    console.log('Request Body Structure:', JSON.stringify({
+      instances: [{
+        prompt: instance.prompt?.substring(0, 50) + '...',
+        hasImage: !!instance.image,
+        hasLastFrame: !!instance.lastFrame,
+      }],
+      parameters: parameters
+    }, null, 2));
 
     // Step 1: Start the video generation operation
     let apiResponse: Response;
@@ -446,8 +502,18 @@ async function handleVeoGeneration(body: {
       });
 
       if (!apiResponse.ok) {
-        const errorData = await apiResponse.json().catch(() => ({ error: { message: apiResponse.statusText } }));
-        throw new Error(errorData.error?.message || `Veo API error: ${apiResponse.status} ${apiResponse.statusText}`);
+        const errorText = await apiResponse.text();
+        console.error('VEO API Error Status:', apiResponse.status);
+        console.error('VEO API Error Headers:', Object.fromEntries(apiResponse.headers.entries()));
+        console.error('VEO API Error Body:', errorText);
+        
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { error: { message: errorText || apiResponse.statusText } };
+        }
+        throw new Error(errorData.error?.message || errorData.message || `Veo API error: ${apiResponse.status} ${apiResponse.statusText}`);
       }
 
       const operationData = await apiResponse.json();

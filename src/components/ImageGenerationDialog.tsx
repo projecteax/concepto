@@ -20,7 +20,9 @@ import {
   Download,
   ChevronRight,
   ChevronLeft,
-  Star
+  Star,
+  Copy,
+  CheckCircle
 } from 'lucide-react';
 import { GlobalAsset, Character, AVShotImageGenerationThread } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -104,6 +106,10 @@ export function ImageGenerationDialog({
   const [mainImageId, setMainImageId] = useState<string | null>(null); // Can be 'startFrame', 'endFrame', 'referenceImage', or generated image ID
   const [mainVideoId, setMainVideoId] = useState<string | null>(null); // Can be 'referenceVideo' or generated video ID
   const [generatedVideos, setGeneratedVideos] = useState<Array<{ id: string; videoUrl: string; prompt: string; createdAt: Date }>>([]);
+  
+  // VEO multi-image selection (up to 3 images)
+  const [selectedVeoImages, setSelectedVeoImages] = useState<Array<{ url: string; filename: string; id: string }>>([]);
+  const [copiedFilename, setCopiedFilename] = useState<string | null>(null);
   const [isGeneratingStartFrame, setIsGeneratingStartFrame] = useState(false);
   const [isGeneratingEndFrame, setIsGeneratingEndFrame] = useState(false);
   const [showVideoGenerationModal, setShowVideoGenerationModal] = useState(false);
@@ -133,6 +139,83 @@ export function ImageGenerationDialog({
   const referenceVideoFileInputRef = useRef<HTMLInputElement>(null);
   const additionalReferenceImageFileInputRef = useRef<HTMLInputElement>(null);
   const { uploadFile } = useS3Upload();
+
+  // Helper function to extract filename from URL
+  const extractFilename = (url: string): string => {
+    try {
+      const urlObj = new URL(url);
+      const pathname = urlObj.pathname;
+      const filename = pathname.split('/').pop() || 'image.jpg';
+      // Remove query parameters if any
+      return filename.split('?')[0];
+    } catch {
+      // If URL parsing fails, try to extract from string
+      const parts = url.split('/');
+      const filename = parts[parts.length - 1] || 'image.jpg';
+      return filename.split('?')[0];
+    }
+  };
+
+  // Helper function to copy filename to clipboard
+  const copyFilename = async (filename: string) => {
+    try {
+      await navigator.clipboard.writeText(filename);
+      setCopiedFilename(filename);
+      setTimeout(() => setCopiedFilename(null), 2000);
+    } catch (error) {
+      console.error('Failed to copy filename:', error);
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = filename;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setCopiedFilename(filename);
+      setTimeout(() => setCopiedFilename(null), 2000);
+    }
+  };
+
+  // Get all available images for VEO selection
+  const getAllAvailableImages = (): Array<{ url: string; filename: string; id: string; type: 'startFrame' | 'endFrame' | 'referenceImage' | 'uploaded' | 'generated' }> => {
+    const images: Array<{ url: string; filename: string; id: string; type: 'startFrame' | 'endFrame' | 'referenceImage' | 'uploaded' | 'generated' }> = [];
+    
+    if (startFrame) {
+      images.push({ url: startFrame, filename: extractFilename(startFrame), id: 'startFrame', type: 'startFrame' });
+    }
+    if (endFrame) {
+      images.push({ url: endFrame, filename: extractFilename(endFrame), id: 'endFrame', type: 'endFrame' });
+    }
+    if (referenceImage) {
+      images.push({ url: referenceImage, filename: extractFilename(referenceImage), id: 'referenceImage', type: 'referenceImage' });
+    }
+    uploadedImages.forEach(img => {
+      images.push({ url: img.imageUrl, filename: extractFilename(img.imageUrl), id: `uploaded-${img.id}`, type: 'uploaded' });
+    });
+    generatedImages.forEach(img => {
+      images.push({ url: img.imageUrl, filename: extractFilename(img.imageUrl), id: `generated-${img.id}`, type: 'generated' });
+    });
+    
+    return images;
+  };
+
+  // Toggle image selection for VEO
+  const toggleVeoImageSelection = (image: { url: string; filename: string; id: string }) => {
+    setSelectedVeoImages(prev => {
+      const isSelected = prev.some(img => img.id === image.id);
+      if (isSelected) {
+        // Remove from selection
+        return prev.filter(img => img.id !== image.id);
+      } else {
+        // Add to selection (max 3)
+        if (prev.length >= 3) {
+          alert('You can select up to 3 images for VEO video generation');
+          return prev;
+        }
+        return [...prev, image];
+      }
+    });
+  };
 
   const buildPrompt = (userMessage?: string): string => {
     let prompt = `You are generating a storyboard/3D render image for an animated production.\n\n`;
@@ -3024,6 +3107,7 @@ export function ImageGenerationDialog({
                 onClick={() => {
                   setShowVideoGenerationModal(false);
                   setSelectedVideoInputType(null);
+                  setSelectedVeoImages([]); // Reset VEO image selection
                 }}
                 className="text-gray-400 hover:text-gray-600"
               >
@@ -3038,7 +3122,14 @@ export function ImageGenerationDialog({
               </label>
               <select
                 value={videoModel}
-                onChange={(e) => setVideoModel(e.target.value)}
+                onChange={(e) => {
+                  setVideoModel(e.target.value);
+                  // Reset selections when switching models
+                  if (!e.target.value.startsWith('veo')) {
+                    setSelectedVeoImages([]);
+                  }
+                  setSelectedVideoInputType(null);
+                }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               >
                 <optgroup label="Veo (Google Gemini)">
@@ -3146,7 +3237,117 @@ export function ImageGenerationDialog({
               </div>
             )}
 
-            {/* Select Input Type */}
+            {/* Select Input Type - VEO models support both start-end frames and multi-image selection */}
+            {videoModel.startsWith('veo') ? (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Input Type *
+                </label>
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  {/* Main Image - Image to Video */}
+                  <div
+                    onClick={() => {
+                      if (getMainImageUrl()) {
+                        setSelectedVideoInputType('main');
+                        // Clear multi-image selection when switching to main
+                        setSelectedVeoImages([]);
+                      } else {
+                        alert('No main image available. Please set a main image first.');
+                      }
+                    }}
+                    className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video ${
+                      selectedVideoInputType === 'main' ? 'border-indigo-500' : 'border-gray-300'
+                    } ${!getMainImageUrl() ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    {getMainImageUrl() ? (
+                      <>
+                        <img
+                          src={getMainImageUrl()!}
+                          alt="Main Image"
+                          className="w-full h-full object-cover"
+                        />
+                        {selectedVideoInputType === 'main' && (
+                          <div className="absolute inset-0 bg-indigo-500 bg-opacity-30 flex items-center justify-center pointer-events-none">
+                            <Check className="w-8 h-8 text-white" />
+                          </div>
+                        )}
+                        <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-sm font-medium p-2 text-center pointer-events-none">
+                          MAIN IMAGE (Image to Video)
+                        </div>
+                      </>
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400 text-sm">
+                        No Main Image
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Start & End Frame - Frames to Video */}
+                  <div
+                    onClick={() => {
+                      if (startFrame && endFrame) {
+                        setSelectedVideoInputType('start-end');
+                        // Clear multi-image selection when switching to start-end
+                        setSelectedVeoImages([]);
+                      } else {
+                        alert('Both start frame and end frame are required for frames-to-video generation.');
+                      }
+                    }}
+                    className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video ${
+                      selectedVideoInputType === 'start-end' ? 'border-indigo-500' : 'border-gray-300'
+                    } ${!startFrame || !endFrame ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    {startFrame && endFrame ? (
+                      <div className="w-full h-full grid grid-cols-2">
+                        <div className="relative">
+                          <img
+                            src={startFrame}
+                            alt="Start Frame"
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute bottom-0 left-0 right-0 bg-blue-600 bg-opacity-80 text-white text-xs p-1 text-center pointer-events-none">
+                            START
+                          </div>
+                        </div>
+                        <div className="relative">
+                          <img
+                            src={endFrame}
+                            alt="End Frame"
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute bottom-0 left-0 right-0 bg-purple-600 bg-opacity-80 text-white text-xs p-1 text-center pointer-events-none">
+                            END
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400 text-sm">
+                        {!startFrame && !endFrame ? 'No Frames' : !startFrame ? 'No Start Frame' : 'No End Frame'}
+                      </div>
+                    )}
+                    {selectedVideoInputType === 'start-end' && (
+                      <div className="absolute inset-0 bg-indigo-500 bg-opacity-30 flex items-center justify-center pointer-events-none">
+                        <Check className="w-8 h-8 text-white" />
+                      </div>
+                    )}
+                    <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-sm font-medium p-2 text-center pointer-events-none">
+                      START & END FRAME (Frames to Video)
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Validation messages */}
+                {!selectedVideoInputType && (
+                  <p className="text-xs text-red-500 mt-1">Please select an input type</p>
+                )}
+                {selectedVideoInputType === 'main' && !getMainImageUrl() && (
+                  <p className="text-xs text-amber-500 mt-1">Main image is required for image-to-video generation</p>
+                )}
+                {selectedVideoInputType === 'start-end' && (!startFrame || !endFrame) && (
+                  <p className="text-xs text-amber-500 mt-1">Both start and end frames are required for frames-to-video generation</p>
+                )}
+              </div>
+            ) : (
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Select Input Type *
@@ -3289,6 +3490,7 @@ export function ImageGenerationDialog({
                 <p className="text-xs text-amber-500 mt-1">Both start and end frames are required for frames-to-video generation</p>
               )}
             </div>
+            )}
 
             {/* Prompt */}
             <div className="mb-4">
@@ -3310,6 +3512,7 @@ export function ImageGenerationDialog({
                 onClick={() => {
                   setShowVideoGenerationModal(false);
                   setSelectedVideoInputType(null);
+                  setSelectedVeoImages([]); // Reset VEO image selection
                 }}
                 className="bg-gray-300 hover:bg-gray-400 text-gray-700"
               >
@@ -3317,36 +3520,57 @@ export function ImageGenerationDialog({
               </Button>
               <Button
                 onClick={async () => {
-                  if (!selectedVideoInputType) {
-                    alert('Please select an input type');
-                    return;
-                  }
-                  
-                  if (selectedVideoInputType === 'main' && !getMainImageUrl()) {
-                    alert('Main image is required for image-to-video generation');
-                    return;
-                  }
-                  
-                  if (selectedVideoInputType === 'start-end' && (!startFrame || !endFrame)) {
-                    alert('Both start and end frames are required for frames-to-video generation');
-                    return;
-                  }
-                  
-                  if (selectedVideoInputType === 'reference-video' && videoModel !== 'runway-act-two') {
-                    alert('Reference video generation is not yet implemented for this model');
-                    return;
-                  }
-                  
-                  if (videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video') {
-                    if (!referenceVideo || !getMainImageUrl()) {
-                      alert('Both main image (character) and reference video are required for Act Two');
+                    // VEO models use start-end frames or main image (like other models)
+                    if (videoModel.startsWith('veo')) {
+                      if (!selectedVideoInputType) {
+                        alert('Please select an input type (Main Image or Start & End Frame)');
+                        return;
+                      }
+                      if (selectedVideoInputType === 'main' && !getMainImageUrl()) {
+                        alert('Main image is required for image-to-video generation');
+                        return;
+                      }
+                      if (selectedVideoInputType === 'start-end' && (!startFrame || !endFrame)) {
+                        alert('Both start and end frames are required for frames-to-video generation');
+                        return;
+                      }
+                      if (!videoPrompt.trim()) {
+                        alert('Please enter a prompt');
+                        return;
+                      }
+                    } else {
+                    // Other models use the old input type selection
+                    if (!selectedVideoInputType) {
+                      alert('Please select an input type');
                       return;
                     }
-                  }
-                  
-                  if (!videoPrompt.trim() && !videoModel.startsWith('runway')) {
-                    alert('Please enter a prompt');
-                    return;
+                    
+                    if (selectedVideoInputType === 'main' && !getMainImageUrl()) {
+                      alert('Main image is required for image-to-video generation');
+                      return;
+                    }
+                    
+                    if (selectedVideoInputType === 'start-end' && (!startFrame || !endFrame)) {
+                      alert('Both start and end frames are required for frames-to-video generation');
+                      return;
+                    }
+                    
+                    if (selectedVideoInputType === 'reference-video' && videoModel !== 'runway-act-two') {
+                      alert('Reference video generation is not yet implemented for this model');
+                      return;
+                    }
+                    
+                    if (videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video') {
+                      if (!referenceVideo || !getMainImageUrl()) {
+                        alert('Both main image (character) and reference video are required for Act Two');
+                        return;
+                      }
+                    }
+                    
+                    if (!videoPrompt.trim() && !videoModel.startsWith('runway')) {
+                      alert('Please enter a prompt');
+                      return;
+                    }
                   }
                   
                   setIsGeneratingVideo(true);
@@ -3365,6 +3589,8 @@ export function ImageGenerationDialog({
                       resolution?: '720p' | '1080p';
                       duration?: 4 | 6 | 8;
                       runwayDuration?: number;
+                      // VEO multi-image support
+                      veoImages?: Array<{ url: string; filename: string }>;
                     }
                     const requestBody: VideoRequestBody = {
                       model: videoModel,
@@ -3376,8 +3602,30 @@ export function ImageGenerationDialog({
                       requestBody.prompt = videoPrompt;
                     }
                     
-                    // Determine generation type and set appropriate parameters
-                    if (videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video') {
+                    // VEO models use start-end frames or main image (like other models)
+                    if (videoModel.startsWith('veo')) {
+                      if (selectedVideoInputType === 'main') {
+                        // Image to video
+                        requestBody.type = 'image-to-video';
+                        const mainImageUrl = getMainImageUrl();
+                        if (mainImageUrl) {
+                          requestBody.imageUrl = mainImageUrl;
+                        }
+                        requestBody.resolution = videoResolution;
+                        requestBody.duration = videoDuration;
+                      } else if (selectedVideoInputType === 'start-end') {
+                        // Frames to video
+                        requestBody.type = 'frames-to-video';
+                        if (startFrame) {
+                          requestBody.startFrameUrl = startFrame;
+                        }
+                        if (endFrame) {
+                          requestBody.endFrameUrl = endFrame;
+                        }
+                        requestBody.resolution = videoResolution;
+                        requestBody.duration = videoDuration;
+                      }
+                    } else if (videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video') {
                       // Act Two character performance
                       requestBody.type = 'character-performance';
                       const mainImageUrl = getMainImageUrl();
@@ -3486,6 +3734,7 @@ export function ImageGenerationDialog({
                       // Close modal
                       setShowVideoGenerationModal(false);
                       setSelectedVideoInputType(null);
+                      setSelectedVeoImages([]); // Reset VEO image selection
                       setVideoPrompt(''); // Reset prompt
                     } else {
                       throw new Error('No video URL in response');
@@ -3500,9 +3749,11 @@ export function ImageGenerationDialog({
                     }, 200);
                   }
                 }}
-                disabled={isGeneratingVideo || !selectedVideoInputType || !videoPrompt.trim() || 
-                  (selectedVideoInputType === 'main' && !getMainImageUrl()) ||
-                  (selectedVideoInputType === 'start-end' && (!startFrame || !endFrame))}
+                disabled={isGeneratingVideo || 
+                  (!selectedVideoInputType || !videoPrompt.trim() || 
+                   (selectedVideoInputType === 'main' && !getMainImageUrl()) ||
+                   (selectedVideoInputType === 'start-end' && (!startFrame || !endFrame)) ||
+                   (videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video' && !referenceVideo))}
                 className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
               >
                 {isGeneratingVideo ? (

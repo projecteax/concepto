@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Episode, AVScript, AVPreviewData, AVPreviewTrack, GlobalAsset, AVShot, AVSegment, AVPreviewClip } from '@/types';
-import { Play, Pause, Save, Upload, Plus, Trash2, Volume2, VolumeX, Music, Mic, Image as ImageIcon, Film, SkipBack, GripVertical, Video, Loader2 } from 'lucide-react';
+import { Play, Pause, Save, Upload, Plus, Trash2, Volume2, VolumeX, Music, Mic, Image as ImageIcon, Film, SkipBack, GripVertical, Video, Loader2, Download } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
+import JSZip from 'jszip';
 
 interface AVPreviewProps {
   episodeId: string;
@@ -47,6 +48,7 @@ export function AVPreview({
   const [scale, setScale] = useState(20); // pixels per second
   const [isRendering, setIsRendering] = useState(false);
   const [renderProgress, setRenderProgress] = useState(0);
+  const [isExportingFCPXML, setIsExportingFCPXML] = useState(false);
   
   // Scene Selection - must select a scene, no "all"
   const [selectedSegmentId, setSelectedSegmentId] = useState<string>('');
@@ -708,6 +710,329 @@ export function AVPreview({
     onSave({ audioTracks: tracks }, updatedAvScript);
   };
 
+  // Format timecode for FCP XML (HH:MM:SS:FF at 24fps)
+  const formatTimecode = (seconds: number): string => {
+    const totalFrames = Math.floor(seconds * 24);
+    const hours = Math.floor(totalFrames / (24 * 3600));
+    const minutes = Math.floor((totalFrames % (24 * 3600)) / (24 * 60));
+    const secs = Math.floor((totalFrames % (24 * 60)) / 24);
+    const frames = totalFrames % 24;
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
+  };
+
+  // Format duration for FCP XML (in seconds with decimal, e.g., "3.500000s")
+  const formatDuration = (seconds: number): string => {
+    return seconds.toFixed(6) + 's';
+  };
+
+  // Generate safe filename that avoids sequence patterns (01, 02, 03)
+  const generateSafeFilename = (index: number, originalUrl: string, type: 'video' | 'image' | 'audio'): string => {
+    // Extract extension from URL
+    const urlMatch = originalUrl.match(/\.([a-zA-Z0-9]+)(\?|$)/);
+    const ext = urlMatch ? urlMatch[1] : (type === 'video' ? 'mp4' : type === 'image' ? 'jpg' : 'mp3');
+    
+    // Use descriptive naming instead of numbered sequences
+    // Format: clip-{type}-{index}-{hash}.{ext}
+    const hash = Math.random().toString(36).substring(2, 8);
+    const typePrefix = type === 'video' ? 'vid' : type === 'image' ? 'img' : 'aud';
+    return `clip-${typePrefix}-${index}-${hash}.${ext}`;
+  };
+
+  const handleExportFCPXML = async () => {
+    if (!avScript || !selectedSegmentId) {
+      alert('Please select a scene to export');
+      return;
+    }
+
+    setIsExportingFCPXML(true);
+    
+    try {
+      const segment = avScript.segments.find(s => s.id === selectedSegmentId);
+      if (!segment) {
+        throw new Error('Selected segment not found');
+      }
+
+      const zip = new JSZip();
+      const mediaFolder = zip.folder('Media');
+      if (!mediaFolder) {
+        throw new Error('Failed to create media folder in ZIP');
+      }
+
+      // Prepare clips with edits
+      const clipsToExport: Array<{
+        type: 'video' | 'image';
+        url: string;
+        startTime: number;
+        duration: number;
+        offset: number;
+        shotId: string;
+        take: string;
+        isMuted: boolean;
+      }> = [];
+
+      let currentTime = 0;
+      for (const shot of segment.shots) {
+        const edit = clipEdits[shot.id] || { duration: shot.duration || 3, offset: 0 };
+        const isMuted = mutedShots.has(shot.id);
+        
+        if (shot.videoUrl) {
+          clipsToExport.push({
+            type: 'video',
+            url: shot.videoUrl,
+            startTime: currentTime,
+            duration: edit.duration,
+            offset: edit.offset || 0,
+            shotId: shot.id,
+            take: shot.take || `${segment.segmentNumber}.${shot.shotNumber}`,
+            isMuted
+          });
+        } else if (shot.imageUrl) {
+          clipsToExport.push({
+            type: 'image',
+            url: shot.imageUrl,
+            startTime: currentTime,
+            duration: edit.duration,
+            offset: 0,
+            shotId: shot.id,
+            take: shot.take || `${segment.segmentNumber}.${shot.shotNumber}`,
+            isMuted: false
+          });
+        }
+        
+        currentTime += edit.duration;
+      }
+
+      // Prepare audio clips
+      const audioClipsToExport: Array<{
+        url: string;
+        startTime: number;
+        duration: number;
+        offset: number;
+        trackName: string;
+      }> = [];
+
+      for (const track of tracks) {
+        if (track.isMuted) continue;
+        for (const clip of track.clips) {
+          const clipEndTime = clip.startTime + clip.duration;
+          if (clipEndTime > 0 && clip.startTime < currentTime) {
+            audioClipsToExport.push({
+              url: clip.url,
+              startTime: clip.startTime,
+              duration: clip.duration,
+              offset: clip.offset || 0,
+              trackName: track.name
+            });
+          }
+        }
+      }
+
+      // Download and add media files to ZIP
+      const mediaFileMap = new Map<string, string>(); // URL -> filename mapping
+      
+      // Helper to download file
+      const downloadFile = async (url: string): Promise<Blob> => {
+        try {
+          // Try proxy first to avoid CORS
+          const proxyUrl = `/api/proxy-media?url=${encodeURIComponent(url)}`;
+          const response = await fetch(proxyUrl);
+          if (!response.ok) throw new Error('Proxy failed');
+          return await response.blob();
+        } catch (e) {
+          // Fallback to direct fetch
+          const response = await fetch(url);
+          if (!response.ok) throw new Error('Failed to fetch');
+          return await response.blob();
+        }
+      };
+
+      // Download visual clips
+      for (let i = 0; i < clipsToExport.length; i++) {
+        const clip = clipsToExport[i];
+        const filename = generateSafeFilename(i, clip.url, clip.type);
+        mediaFileMap.set(clip.url, filename);
+        
+        try {
+          const blob = await downloadFile(clip.url);
+          mediaFolder.file(filename, blob);
+        } catch (error) {
+          console.error(`Failed to download ${clip.url}:`, error);
+          throw new Error(`Failed to download media file: ${clip.url}`);
+        }
+      }
+
+      // Download audio clips
+      for (let i = 0; i < audioClipsToExport.length; i++) {
+        const clip = audioClipsToExport[i];
+        const filename = generateSafeFilename(i, clip.url, 'audio');
+        mediaFileMap.set(clip.url, filename);
+        
+        try {
+          const blob = await downloadFile(clip.url);
+          mediaFolder.file(filename, blob);
+        } catch (error) {
+          console.error(`Failed to download audio ${clip.url}:`, error);
+          throw new Error(`Failed to download audio file: ${clip.url}`);
+        }
+      }
+
+      // Generate FCP XML
+      const fps = 24;
+      const width = 1920;
+      const height = 1080;
+
+      // Build asset (media) items
+      let assetItemsXML = '';
+      for (let i = 0; i < clipsToExport.length; i++) {
+        const clip = clipsToExport[i];
+        const filename = mediaFileMap.get(clip.url) || `clip-${i}`;
+        const filePath = `file:///Media/${filename}`;
+        
+        if (clip.type === 'video') {
+          assetItemsXML += `
+    <asset id="r${i + 1}" name="${clip.take}" start="0s" duration="${formatDuration(clip.offset + clip.duration)}" hasVideo="1" hasAudio="${clip.isMuted ? '0' : '1'}" format="r1">
+      <media-rep kind="original-media" src="${filePath}">
+        <bookmark>
+          <mark>
+            <name>In</name>
+            <value>${formatTimecode(clip.offset)}</value>
+          </mark>
+          <mark>
+            <name>Out</name>
+            <value>${formatTimecode(clip.offset + clip.duration)}</value>
+          </mark>
+        </bookmark>
+      </media-rep>
+    </asset>`;
+        } else {
+          // Image - create a video representation
+          assetItemsXML += `
+    <asset id="r${i + 1}" name="${clip.take}" start="0s" duration="${formatDuration(clip.duration)}" hasVideo="1" hasAudio="0" format="r1">
+      <media-rep kind="original-media" src="${filePath}">
+        <bookmark>
+          <mark>
+            <name>In</name>
+            <value>00:00:00:00</value>
+          </mark>
+          <mark>
+            <name>Out</name>
+            <value>${formatTimecode(clip.duration)}</value>
+          </mark>
+        </bookmark>
+      </media-rep>
+    </asset>`;
+        }
+      }
+
+      // Build audio asset items
+      let audioAssetItemsXML = '';
+      for (let i = 0; i < audioClipsToExport.length; i++) {
+        const clip = audioClipsToExport[i];
+        const filename = mediaFileMap.get(clip.url) || `audio-${i}`;
+        const filePath = `file:///Media/${filename}`;
+        
+        audioAssetItemsXML += `
+    <asset id="a${i + 1}" name="${clip.trackName}" start="0s" duration="${formatDuration(clip.offset + clip.duration)}" hasVideo="0" hasAudio="1">
+      <media-rep kind="original-media" src="${filePath}">
+        <bookmark>
+          <mark>
+            <name>In</name>
+            <value>${formatTimecode(clip.offset)}</value>
+          </mark>
+          <mark>
+            <name>Out</name>
+            <value>${formatTimecode(clip.offset + clip.duration)}</value>
+          </mark>
+        </bookmark>
+      </media-rep>
+    </asset>`;
+      }
+
+      // Build video clip items
+      let videoClipItemsXML = '';
+      for (let i = 0; i < clipsToExport.length; i++) {
+        const clip = clipsToExport[i];
+        const durationSeconds = formatDuration(clip.duration);
+        const offsetTC = formatTimecode(clip.startTime);
+        const startTC = formatTimecode(clip.offset);
+        const filename = mediaFileMap.get(clip.url) || `clip-${i}`;
+        
+        videoClipItemsXML += `
+            <clip-item id="clip-${i + 1}" offset="${offsetTC}" name="${clip.take}" duration="${durationSeconds}" start="${startTC}">
+              <file id="r${i + 1}">
+                <pathurl>file:///Media/${filename}</pathurl>
+              </file>
+            </clip-item>`;
+      }
+
+      // Build audio clip items
+      let audioClipItemsXML = '';
+      for (let i = 0; i < audioClipsToExport.length; i++) {
+        const clip = audioClipsToExport[i];
+        const durationSeconds = formatDuration(clip.duration);
+        const offsetTC = formatTimecode(clip.startTime);
+        const startTC = formatTimecode(clip.offset);
+        const filename = mediaFileMap.get(clip.url) || `audio-${i}`;
+        
+        audioClipItemsXML += `
+            <clip-item id="audio-clip-${i + 1}" offset="${offsetTC}" name="${clip.trackName}" duration="${durationSeconds}" start="${startTC}">
+              <file id="a${i + 1}">
+                <pathurl>file:///Media/${filename}</pathurl>
+              </file>
+            </clip-item>`;
+      }
+
+      // Generate complete FCP XML (FCPXML 1.9 format)
+      const fcpXML = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE fcpxml>
+<fcpxml version="1.9">
+  <resources>
+    <format id="r1" name="FFVideoFormat1080p24" frameDuration="1/24s" width="${width}" height="${height}" colorSpace="Rec. 709"/>
+    ${assetItemsXML}
+    ${audioAssetItemsXML}
+  </resources>
+  <library>
+    <event name="${segment.title || `Scene ${segment.segmentNumber}`}">
+      <project name="${segment.title || `Scene ${segment.segmentNumber}`}">
+        <sequence format="r1" tcStart="00:00:00:00" tcFormat="NDF" audioLayout="stereo" audioRate="48k">
+          <spine>
+            ${videoClipItemsXML}
+          </spine>
+          <audio>
+            ${audioClipItemsXML}
+          </audio>
+        </sequence>
+      </project>
+    </event>
+  </library>
+</fcpxml>`;
+
+      // Add XML to ZIP
+      zip.file('Project.fcpxml', fcpXML);
+
+      // Generate ZIP file
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(zipBlob);
+      
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `episode-${episodeId}-scene-${segment.segmentNumber}-fcp-export.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      setIsExportingFCPXML(false);
+      alert(`FCP XML exported successfully!`);
+      
+    } catch (error) {
+      console.error('Error exporting FCP XML:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      alert(`Error exporting FCP XML: ${errorMessage}`);
+      setIsExportingFCPXML(false);
+    }
+  };
+
   const handleRender = async () => {
     if (!avScript || !selectedSegmentId) {
       alert('Please select a scene to render');
@@ -1116,6 +1441,14 @@ export function AVPreview({
           >
             <Save className="w-4 h-4" />
             <span>Save Project</span>
+          </button>
+          <button
+            onClick={handleExportFCPXML}
+            disabled={isExportingFCPXML || !selectedSegmentId}
+            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-500 disabled:cursor-not-allowed rounded-md transition-all text-sm font-medium shadow-sm active:transform active:scale-95"
+          >
+            <Download className="w-4 h-4" />
+            <span>{isExportingFCPXML ? 'Exporting...' : 'Export FCP XML'}</span>
           </button>
           <button
             onClick={handleRender}
