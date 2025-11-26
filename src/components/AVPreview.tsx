@@ -60,6 +60,9 @@ export function AVPreview({
   // Audio waveform data - store waveform samples for each clip
   const [waveformData, setWaveformData] = useState<{[clipId: string]: number[]}>({});
   
+  // Muted shots - track which video shots have muted audio
+  const [mutedShots, setMutedShots] = useState<Set<string>>(new Set());
+  
   // Resizing State - simpler approach
   const [resizeState, setResizeState] = useState<{
     clipId: string;
@@ -337,6 +340,10 @@ export function AVPreview({
       const timeInClip = currentTime - currentVisualClip.startTime;
       const sourceTime = currentVisualClip.offset + timeInClip;
       
+      // Check if this shot is muted
+      const isMuted = mutedShots.has(currentVisualClip.shotId);
+      video.muted = isMuted;
+      
       if (video.src !== currentVisualClip.url) {
         video.src = currentVisualClip.url;
         video.load();
@@ -389,7 +396,7 @@ export function AVPreview({
       });
     });
 
-  }, [currentTime, isPlaying, currentVisualClip, tracks]);
+  }, [currentTime, isPlaying, currentVisualClip, tracks, mutedShots]);
 
   // Handlers
   const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -507,6 +514,19 @@ export function AVPreview({
       setWaveformData(prev => {
           const { [clipId]: removed, ...rest } = prev;
           return rest;
+      });
+  };
+
+  // Toggle mute for a video shot
+  const handleToggleMute = (shotId: string) => {
+      setMutedShots(prev => {
+          const newSet = new Set(prev);
+          if (newSet.has(shotId)) {
+              newSet.delete(shotId);
+          } else {
+              newSet.add(shotId);
+          }
+          return newSet;
       });
   };
 
@@ -741,11 +761,13 @@ export function AVPreview({
         startTime: number;
         duration: number;
         offset: number;
+        isMuted?: boolean; // Track if video audio should be muted
       }> = [];
 
       let currentTime = 0;
       for (const shot of segment.shots) {
         const edit = clipEdits[shot.id] || { duration: shot.duration || 3, offset: 0 };
+        const isMuted = mutedShots.has(shot.id);
         
         if (shot.videoUrl) {
           clipsToRender.push({
@@ -753,7 +775,8 @@ export function AVPreview({
             url: shot.videoUrl,
             startTime: currentTime,
             duration: edit.duration,
-            offset: edit.offset || 0
+            offset: edit.offset || 0,
+            isMuted
           });
         } else if (shot.imageUrl) {
           clipsToRender.push({
@@ -857,9 +880,9 @@ export function AVPreview({
           // Video: Scale -> Format -> Trim -> FPS -> Re-timestamp
           // We move trim earlier to reduce processing on unused frames
           // We use setpts=N/FRAME_RATE/TB to force perfect continuous timestamps at 24fps
-          videoFilters.push(
-            `[${inputLabel}]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,trim=start=${clip.offset}:duration=${clip.duration},fps=${fps},setpts=N/FRAME_RATE/TB[${processedLabel}]`
-          );
+          // If muted, extract only video stream (no audio)
+          const videoFilter = `[${inputLabel}]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,trim=start=${clip.offset}:duration=${clip.duration},fps=${fps},setpts=N/FRAME_RATE/TB[${processedLabel}]`;
+          videoFilters.push(videoFilter);
         } else {
           // Image: Scale -> Format -> Loop -> Trim -> FPS -> Re-timestamp
           videoFilters.push(
@@ -880,7 +903,7 @@ export function AVPreview({
           videoFilters.push(`color=c=black:s=${width}x${height}:d=1:r=${fps}[final_video]`);
       }
 
-      // Build audio filters (unchanged mixing logic)
+      // Build audio filters for separate audio tracks (voice over, SFX, music)
       const audioFilters: string[] = [];
       const audioInputOffset = clipsToRender.length;
       
@@ -902,12 +925,6 @@ export function AVPreview({
             `[${trimmedLabel}]adelay=${delayMs}|${delayMs}[${delayedLabel}]`
           );
         }
-        
-        if (audioFilters.length > 0) {
-          const delayedInputs = audioClipsToRender.map((_, i) => `[adelayed${i}]`).join('');
-          // Use amix to mix all audio tracks - increase volume to ensure it's audible
-          audioFilters.push(`${delayedInputs}amix=inputs=${audioClipsToRender.length}:duration=longest:dropout_transition=2,volume=2[final_audio]`);
-        }
       }
 
       // Build FFmpeg command
@@ -921,13 +938,30 @@ export function AVPreview({
         ffmpegArgs.push('-i', file);
       }
       
+      // NOTE: Video audio extraction is disabled to avoid errors when videos don't have audio streams
+      // FFmpeg fails when filter graphs reference non-existent audio streams (e.g., [0:a] when input 0 has no audio)
+      // To enable video audio extraction, we'd need to:
+      // 1. Probe each video first to detect if it has audio streams
+      // 2. Only build filters for videos that have audio
+      // This is complex in the browser environment
+      
+      // For now, we only use separate audio tracks (voice over, SFX, music)
+      // These are added via the audio tracks UI and work reliably
+      const allAudioFilters = [...audioFilters];
+      
+      // Build the final audio mix (only separate audio tracks)
+      if (audioClipsToRender.length > 0) {
+        const delayedInputs = audioClipsToRender.map((_, i) => `[adelayed${i}]`).join('');
+        allAudioFilters.push(`${delayedInputs}amix=inputs=${audioClipsToRender.length}:duration=longest:dropout_transition=2,volume=2[final_audio]`);
+      }
+      
       // Filters
-      const allFilters = [...videoFilters, ...audioFilters].join(';');
+      const allFilters = [...videoFilters, ...allAudioFilters].join(';');
       ffmpegArgs.push('-filter_complex', allFilters);
       
       // Map outputs
       ffmpegArgs.push('-map', '[final_video]');
-      if (audioFilters.length > 0) {
+      if (allAudioFilters.length > 0 && audioClipsToRender.length > 0) {
         ffmpegArgs.push('-map', '[final_audio]');
       }
       
@@ -1221,6 +1255,25 @@ export function AVPreview({
                                 {clip.label}
                             </div>
                         </div>
+                        
+                        {/* Mute button for video clips - positioned on left side to avoid resize handles */}
+                        {clip.type === 'video' && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    handleToggleMute(clip.shotId);
+                                }}
+                                className="absolute top-1 left-10 p-1 rounded bg-black/50 hover:bg-black/70 transition-colors pointer-events-auto z-50"
+                                title={mutedShots.has(clip.shotId) ? "Unmute video" : "Mute video"}
+                            >
+                                {mutedShots.has(clip.shotId) ? (
+                                    <VolumeX className="w-3 h-3 text-red-400" />
+                                ) : (
+                                    <Volume2 className="w-3 h-3 text-white" />
+                                )}
+                            </button>
+                        )}
                         
                         {/* Left Resize Handle (for video trimming) - Always visible, wider */}
                         {clip.type === 'video' && (
