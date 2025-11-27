@@ -725,6 +725,68 @@ export function AVPreview({
     return seconds.toFixed(6) + 's';
   };
 
+  const ensureFFmpegLoaded = useCallback(async () => {
+    const ffmpeg = ffmpegRef.current;
+    if (!ffmpeg.loaded) {
+      try {
+        const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+        await ffmpeg.load({
+          coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+          wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+        });
+      } catch (error) {
+        console.error('Failed to load FFmpeg for export:', error);
+        throw new Error('Failed to load media processor. Please check your internet connection.');
+      }
+    }
+    return ffmpeg;
+  }, []);
+
+  const normalizeVideoTimecode = useCallback(
+    async (blob: Blob, filename: string): Promise<Blob> => {
+      const ffmpeg = await ensureFFmpegLoaded();
+      const safeName = filename.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+      const inputName = `input-${safeName}`;
+      const outputName = `normalized-${safeName}`;
+      try {
+        const data = new Uint8Array(await blob.arrayBuffer());
+        await ffmpeg.writeFile(inputName, data);
+        await ffmpeg.exec([
+          '-y',
+          '-i',
+          inputName,
+          '-c',
+          'copy',
+          '-timecode',
+          '00:00:00:00',
+          outputName,
+        ]);
+        const normalizedData = await ffmpeg.readFile(outputName);
+        return new Blob([normalizedData.buffer], { type: blob.type || 'video/mp4' });
+      } catch (error) {
+        console.warn(`Timecode normalization failed for ${filename}:`, error);
+        return blob;
+      } finally {
+        try {
+          await ffmpeg.deleteFile(inputName);
+        } catch {}
+        try {
+          await ffmpeg.deleteFile(outputName);
+        } catch {}
+      }
+    },
+    [ensureFFmpegLoaded]
+  );
+
+  const escapeXml = (value: string): string => {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  };
+
   // Generate safe filename that avoids sequence patterns (01, 02, 03)
   const generateSafeFilename = (index: number, originalUrl: string, type: 'video' | 'image' | 'audio'): string => {
     // Extract extension from URL
@@ -802,21 +864,29 @@ export function AVPreview({
         currentTime += edit.duration;
       }
 
-      // Prepare audio clips
-      const audioClipsToExport: Array<{
+      // Prepare audio clips grouped by track
+      const audioClipsByTrack: Map<string, Array<{
         url: string;
         startTime: number;
         duration: number;
         offset: number;
         trackName: string;
-      }> = [];
+      }>> = new Map();
 
       for (const track of tracks) {
         if (track.isMuted) continue;
+        const trackClips: Array<{
+          url: string;
+          startTime: number;
+          duration: number;
+          offset: number;
+          trackName: string;
+        }> = [];
+        
         for (const clip of track.clips) {
           const clipEndTime = clip.startTime + clip.duration;
           if (clipEndTime > 0 && clip.startTime < currentTime) {
-            audioClipsToExport.push({
+            trackClips.push({
               url: clip.url,
               startTime: clip.startTime,
               duration: clip.duration,
@@ -824,6 +894,10 @@ export function AVPreview({
               trackName: track.name
             });
           }
+        }
+        
+        if (trackClips.length > 0) {
+          audioClipsByTrack.set(track.id, trackClips);
         }
       }
 
@@ -846,14 +920,26 @@ export function AVPreview({
         }
       };
 
-      // Download visual clips
+      // Download visual clips (unique URLs only)
+      let downloadedVideoCounter = 0;
       for (let i = 0; i < clipsToExport.length; i++) {
         const clip = clipsToExport[i];
-        const filename = generateSafeFilename(i, clip.url, clip.type);
+        if (!clip.url) continue;
+        if (mediaFileMap.has(clip.url)) {
+          continue;
+        }
+        const filename = generateSafeFilename(
+          downloadedVideoCounter++,
+          clip.url,
+          clip.type === 'image' ? 'image' : 'video'
+        );
         mediaFileMap.set(clip.url, filename);
         
         try {
-          const blob = await downloadFile(clip.url);
+          let blob = await downloadFile(clip.url);
+          if (clip.type === 'video') {
+            blob = await normalizeVideoTimecode(blob, filename);
+          }
           mediaFolder.file(filename, blob);
         } catch (error) {
           console.error(`Failed to download ${clip.url}:`, error);
@@ -861,154 +947,315 @@ export function AVPreview({
         }
       }
 
-      // Download audio clips
-      for (let i = 0; i < audioClipsToExport.length; i++) {
-        const clip = audioClipsToExport[i];
-        const filename = generateSafeFilename(i, clip.url, 'audio');
-        mediaFileMap.set(clip.url, filename);
+      // Download audio clips (collect all unique URLs first)
+      const allAudioClips: Array<{url: string; startTime: number; duration: number; offset: number; trackName: string}> = [];
+      for (const trackClips of audioClipsByTrack.values()) {
+        allAudioClips.push(...trackClips);
+      }
+      
+      // Track audio asset IDs by URL to avoid duplicates
+      const audioAssetIdMap = new Map<string, number>();
+      let audioAssetCounter = 1;
+      let audioFileCounter = 0;
+      
+      for (const clip of allAudioClips) {
+        // Only download and assign asset ID if we haven't seen this URL before
+        if (!mediaFileMap.has(clip.url)) {
+          const filename = generateSafeFilename(audioFileCounter++, clip.url, 'audio');
+          mediaFileMap.set(clip.url, filename);
+          
+          try {
+            const blob = await downloadFile(clip.url);
+            mediaFolder.file(filename, blob);
+          } catch (error) {
+            console.error(`Failed to download audio ${clip.url}:`, error);
+            throw new Error(`Failed to download audio file: ${clip.url}`);
+          }
+        }
         
-        try {
-          const blob = await downloadFile(clip.url);
-          mediaFolder.file(filename, blob);
-        } catch (error) {
-          console.error(`Failed to download audio ${clip.url}:`, error);
-          throw new Error(`Failed to download audio file: ${clip.url}`);
+        // Assign asset ID for this URL (only once per unique URL)
+        if (!audioAssetIdMap.has(clip.url)) {
+          audioAssetIdMap.set(clip.url, audioAssetCounter++);
         }
       }
 
-      // Generate FCP XML
+      // Generate Final Cut Pro 7 XML (xmeml) compatible with Resolve
       const fps = 24;
-      const width = 1920;
-      const height = 1080;
+      const secondsToFrames = (seconds: number) => Math.max(0, Math.round(seconds * fps));
+      const buildRateXML = () => `
+    <rate>
+      <timebase>${fps}</timebase>
+      <ntsc>FALSE</ntsc>
+    </rate>`;
+      const formatFrameTimecode = (frame: number) => {
+        const totalFrames = Math.max(0, frame);
+        const framesPerHour = fps * 3600;
+        const framesPerMinute = fps * 60;
+        const hours = Math.floor(totalFrames / framesPerHour);
+        const minutes = Math.floor((totalFrames % framesPerHour) / framesPerMinute);
+        const seconds = Math.floor((totalFrames % framesPerMinute) / fps);
+        const frames = totalFrames % fps;
+        return `${hours.toString().padStart(2, '0')}:${minutes
+          .toString()
+          .padStart(2, '0')}:${seconds.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
+      };
 
-      // Build asset (media) items
-      let assetItemsXML = '';
-      for (let i = 0; i < clipsToExport.length; i++) {
-        const clip = clipsToExport[i];
-        const filename = mediaFileMap.get(clip.url) || `clip-${i}`;
-        const filePath = `file:///Media/${filename}`;
-        
-        if (clip.type === 'video') {
-          assetItemsXML += `
-    <asset id="r${i + 1}" name="${clip.take}" start="0s" duration="${formatDuration(clip.offset + clip.duration)}" hasVideo="1" hasAudio="${clip.isMuted ? '0' : '1'}" format="r1">
-      <media-rep kind="original-media" src="${filePath}">
-        <bookmark>
-          <mark>
-            <name>In</name>
-            <value>${formatTimecode(clip.offset)}</value>
-          </mark>
-          <mark>
-            <name>Out</name>
-            <value>${formatTimecode(clip.offset + clip.duration)}</value>
-          </mark>
-        </bookmark>
-      </media-rep>
-    </asset>`;
+      const videoEndSeconds = clipsToExport.reduce(
+        (max, clip) => Math.max(max, clip.startTime + clip.duration),
+        0
+      );
+      const audioEndSeconds = allAudioClips.reduce(
+        (max, clip) => Math.max(max, clip.startTime + clip.duration),
+        videoEndSeconds
+      );
+      const projectDurationSeconds = Math.max(videoEndSeconds, audioEndSeconds);
+      const projectDurationFrames = Math.max(1, secondsToFrames(projectDurationSeconds));
+      const defaultWidth = 1920;
+      const defaultHeight = 1080;
+
+      const encodePathForXml = (filename: string) => {
+        const encoded = filename
+          .split('/')
+          .map(part => encodeURIComponent(part))
+          .join('/');
+        return `file://localhost/Media/${encoded}`;
+      };
+
+      const videoFileIdMap = new Map<string, number>();
+      let videoFileCounter = 1;
+      const videoFileMetadata = new Map<string, { durationFrames: number; hasAudio: boolean }>();
+
+      for (const clip of clipsToExport) {
+        if (!clip.url) continue;
+        if (!videoFileIdMap.has(clip.url)) {
+          videoFileIdMap.set(clip.url, videoFileCounter++);
+        }
+        const sourceSeconds = clip.sourceDuration ?? (clip.duration + clip.offset);
+        const sourceFrames = Math.max(secondsToFrames(sourceSeconds), secondsToFrames(clip.duration + clip.offset));
+        const existing = videoFileMetadata.get(clip.url);
+        const hasAudio = !clip.isMuted;
+        if (!existing) {
+          videoFileMetadata.set(clip.url, { durationFrames: sourceFrames, hasAudio });
         } else {
-          // Image - create a video representation
-          assetItemsXML += `
-    <asset id="r${i + 1}" name="${clip.take}" start="0s" duration="${formatDuration(clip.duration)}" hasVideo="1" hasAudio="0" format="r1">
-      <media-rep kind="original-media" src="${filePath}">
-        <bookmark>
-          <mark>
-            <name>In</name>
-            <value>00:00:00:00</value>
-          </mark>
-          <mark>
-            <name>Out</name>
-            <value>${formatTimecode(clip.duration)}</value>
-          </mark>
-        </bookmark>
-      </media-rep>
-    </asset>`;
+          existing.durationFrames = Math.max(existing.durationFrames, sourceFrames);
+          existing.hasAudio = existing.hasAudio || hasAudio;
+          videoFileMetadata.set(clip.url, existing);
         }
       }
 
-      // Build audio asset items
-      let audioAssetItemsXML = '';
-      for (let i = 0; i < audioClipsToExport.length; i++) {
-        const clip = audioClipsToExport[i];
-        const filename = mediaFileMap.get(clip.url) || `audio-${i}`;
-        const filePath = `file:///Media/${filename}`;
-        
-        audioAssetItemsXML += `
-    <asset id="a${i + 1}" name="${clip.trackName}" start="0s" duration="${formatDuration(clip.offset + clip.duration)}" hasVideo="0" hasAudio="1">
-      <media-rep kind="original-media" src="${filePath}">
-        <bookmark>
-          <mark>
-            <name>In</name>
-            <value>${formatTimecode(clip.offset)}</value>
-          </mark>
-          <mark>
-            <name>Out</name>
-            <value>${formatTimecode(clip.offset + clip.duration)}</value>
-          </mark>
-        </bookmark>
-      </media-rep>
-    </asset>`;
+      const definedFileIds = new Set<string>();
+      const buildVideoFileElement = (clip: (typeof clipsToExport)[number], fileId: string, filename: string) => {
+        if (!clip.url) {
+          return `<file id="${fileId}"/>`;
+        }
+        if (definedFileIds.has(fileId)) {
+          return `<file id="${fileId}"/>`;
+        }
+        definedFileIds.add(fileId);
+        const metadata = videoFileMetadata.get(clip.url);
+        const durationFrames =
+          metadata?.durationFrames ?? Math.max(secondsToFrames(clip.duration + clip.offset), 1);
+        const pathUrl = encodePathForXml(filename);
+        const audioBlock = metadata?.hasAudio
+          ? `
+                  <audio>
+                    <channelcount>2</channelcount>
+                  </audio>`
+          : '';
+        return `<file id="${fileId}">
+                  <duration>${durationFrames}</duration>
+                  ${buildRateXML()}
+                  <name>${escapeXml(filename)}</name>
+                  <pathurl>${pathUrl}</pathurl>
+                  <timecode>
+                    <string>00:00:00:00</string>
+                    <frame>0</frame>
+                    <displayformat>NDF</displayformat>
+                    ${buildRateXML()}
+                  </timecode>
+                  <media>
+                    <video>
+                      <duration>${durationFrames}</duration>
+                      <samplecharacteristics>
+                        <width>${defaultWidth}</width>
+                        <height>${defaultHeight}</height>
+                      </samplecharacteristics>
+                    </video>${audioBlock}
+                  </media>
+                </file>`;
+      };
+
+      const videoTrackItems: string[] = [];
+      let videoTimelineFrameCursor = 0;
+      clipsToExport.forEach((clip, index) => {
+        if (!clip.url) return;
+        const clipDurationFrames = Math.max(1, secondsToFrames(clip.duration));
+        const clipStartFrames = videoTimelineFrameCursor;
+        const clipEndFrames = clipStartFrames + clipDurationFrames;
+        const clipInFrames = secondsToFrames(clip.offset);
+        const clipOutFrames = clipInFrames + clipDurationFrames;
+        videoTimelineFrameCursor += clipDurationFrames;
+        const fileId = `video-file-${videoFileIdMap.get(clip.url)}`;
+        const filename = mediaFileMap.get(clip.url);
+        if (!filename) {
+          throw new Error(`Missing media file for clip ${clip.take || clip.shotId}`);
+        }
+        const fileElement = buildVideoFileElement(clip, fileId, filename);
+        const fileDurationFrames =
+          videoFileMetadata.get(clip.url)?.durationFrames ?? Math.max(clipOutFrames, clipDurationFrames);
+        videoTrackItems.push(`
+          <clipitem id="video-clip-${index + 1}">
+            <name>${escapeXml(clip.take || filename)}</name>
+            <duration>${fileDurationFrames}</duration>
+            ${buildRateXML()}
+            <start>${clipStartFrames}</start>
+            <end>${clipEndFrames}</end>
+            <enabled>TRUE</enabled>
+            <in>${clipInFrames}</in>
+            <out>${clipOutFrames}</out>
+            ${fileElement}
+            <compositemode>normal</compositemode>
+            <comments/>
+          </clipitem>`);
+      });
+
+      const videoTrackXML = `
+        <track>
+          ${videoTrackItems.join('\n')}
+          <enabled>TRUE</enabled>
+          <locked>FALSE</locked>
+        </track>`;
+
+      const audioFileMetadata = new Map<string, number>();
+      for (const clip of allAudioClips) {
+        const sourceFrames = Math.max(1, secondsToFrames(clip.duration + clip.offset));
+        const existing = audioFileMetadata.get(clip.url);
+        if (!existing || sourceFrames > existing) {
+          audioFileMetadata.set(clip.url, sourceFrames);
+        }
       }
 
-      // Build video clip items
-      let videoClipItemsXML = '';
-      for (let i = 0; i < clipsToExport.length; i++) {
-        const clip = clipsToExport[i];
-        const durationSeconds = formatDuration(clip.duration);
-        const offsetTC = formatTimecode(clip.startTime);
-        const startTC = formatTimecode(clip.offset);
-        const filename = mediaFileMap.get(clip.url) || `clip-${i}`;
-        
-        videoClipItemsXML += `
-            <clip-item id="clip-${i + 1}" offset="${offsetTC}" name="${clip.take}" duration="${durationSeconds}" start="${startTC}">
-              <file id="r${i + 1}">
-                <pathurl>file:///Media/${filename}</pathurl>
-              </file>
-            </clip-item>`;
+      const buildAudioFileElement = (clip: (typeof allAudioClips)[number], fileId: string, filename: string) => {
+        if (definedFileIds.has(fileId)) {
+          return `<file id="${fileId}"/>`;
+        }
+        definedFileIds.add(fileId);
+        const durationFrames =
+          audioFileMetadata.get(clip.url) ?? Math.max(1, secondsToFrames(clip.duration + clip.offset));
+        const pathUrl = encodePathForXml(filename);
+        return `<file id="${fileId}">
+                  <duration>${durationFrames}</duration>
+                  ${buildRateXML()}
+                  <name>${escapeXml(filename)}</name>
+                  <pathurl>${pathUrl}</pathurl>
+                  <timecode>
+                    <string>00:00:00:00</string>
+                    <frame>0</frame>
+                    <displayformat>NDF</displayformat>
+                    ${buildRateXML()}
+                  </timecode>
+                  <media>
+                    <audio>
+                      <channelcount>2</channelcount>
+                    </audio>
+                  </media>
+                </file>`;
+      };
+
+      const audioTrackXMLParts: string[] = [];
+      let audioTrackCounter = 0;
+      for (const [trackId, trackClips] of audioClipsByTrack.entries()) {
+        const track = tracks.find(t => t.id === trackId);
+        if (!track) continue;
+        audioTrackCounter += 1;
+        const clipItems: string[] = [];
+        trackClips.forEach((clip, index) => {
+          const clipStartFrames = secondsToFrames(clip.startTime);
+          const clipDurationFrames = Math.max(1, secondsToFrames(clip.duration));
+          const clipEndFrames = clipStartFrames + clipDurationFrames;
+          const clipInFrames = secondsToFrames(clip.offset);
+          const clipOutFrames = clipInFrames + clipDurationFrames;
+          const fileId = audioAssetIdMap.has(clip.url)
+            ? `audio-file-${audioAssetIdMap.get(clip.url)}`
+            : `audio-file-${audioTrackCounter}-${index}`;
+          const filename = mediaFileMap.get(clip.url);
+          if (!filename) {
+            throw new Error(`Missing audio media file for track ${track.name} clip ${index + 1}`);
+          }
+          const fileElement = buildAudioFileElement(clip, fileId, filename);
+          const fileDurationFrames = audioFileMetadata.get(clip.url) ?? Math.max(clipOutFrames, clipDurationFrames);
+          clipItems.push(`
+            <clipitem id="audio-${audioTrackCounter}-${index + 1}">
+              <name>${escapeXml(track.name || filename)}</name>
+              <duration>${fileDurationFrames}</duration>
+              ${buildRateXML()}
+              <start>${clipStartFrames}</start>
+              <end>${clipEndFrames}</end>
+              <enabled>TRUE</enabled>
+              <in>${clipInFrames}</in>
+              <out>${clipOutFrames}</out>
+              ${fileElement}
+              <sourcetrack>
+                <mediatype>audio</mediatype>
+                <trackindex>${audioTrackCounter}</trackindex>
+              </sourcetrack>
+              <comments/>
+            </clipitem>`);
+        });
+
+        audioTrackXMLParts.push(`
+          <track>
+            ${clipItems.join('\n')}
+            <enabled>TRUE</enabled>
+            <locked>FALSE</locked>
+          </track>`);
       }
 
-      // Build audio clip items
-      let audioClipItemsXML = '';
-      for (let i = 0; i < audioClipsToExport.length; i++) {
-        const clip = audioClipsToExport[i];
-        const durationSeconds = formatDuration(clip.duration);
-        const offsetTC = formatTimecode(clip.startTime);
-        const startTC = formatTimecode(clip.offset);
-        const filename = mediaFileMap.get(clip.url) || `audio-${i}`;
-        
-        audioClipItemsXML += `
-            <clip-item id="audio-clip-${i + 1}" offset="${offsetTC}" name="${clip.trackName}" duration="${durationSeconds}" start="${startTC}">
-              <file id="a${i + 1}">
-                <pathurl>file:///Media/${filename}</pathurl>
-              </file>
-            </clip-item>`;
+      if (audioTrackXMLParts.length === 0) {
+        audioTrackXMLParts.push(`
+          <track>
+            <enabled>TRUE</enabled>
+            <locked>FALSE</locked>
+          </track>`);
       }
 
-      // Generate complete FCP XML (FCPXML 1.9 format)
-      const fcpXML = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE fcpxml>
-<fcpxml version="1.9">
-  <resources>
-    <format id="r1" name="FFVideoFormat1080p24" frameDuration="1/24s" width="${width}" height="${height}" colorSpace="Rec. 709"/>
-    ${assetItemsXML}
-    ${audioAssetItemsXML}
-  </resources>
-  <library>
-    <event name="${segment.title || `Scene ${segment.segmentNumber}`}">
-      <project name="${segment.title || `Scene ${segment.segmentNumber}`}">
-        <sequence format="r1" tcStart="00:00:00:00" tcFormat="NDF" audioLayout="stereo" audioRate="48k">
-          <spine>
-            ${videoClipItemsXML}
-          </spine>
-          <audio>
-            ${audioClipItemsXML}
-          </audio>
-        </sequence>
-      </project>
-    </event>
-  </library>
-</fcpxml>`;
+      const sequenceName = segment.title || `Scene ${segment.segmentNumber}`;
+      const resolveXML = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE xmeml>
+<xmeml version="5">
+  <sequence>
+    <name>${escapeXml(sequenceName)} (Resolve)</name>
+    <duration>${projectDurationFrames}</duration>
+    ${buildRateXML()}
+    <in>-1</in>
+    <out>-1</out>
+    <timecode>
+      <string>00:00:00:00</string>
+      <frame>0</frame>
+      <displayformat>NDF</displayformat>
+      ${buildRateXML()}
+    </timecode>
+    <media>
+      <video>
+        <format>
+          <samplecharacteristics>
+            <width>${defaultWidth}</width>
+            <height>${defaultHeight}</height>
+            <pixelaspectratio>square</pixelaspectratio>
+            ${buildRateXML()}
+          </samplecharacteristics>
+        </format>
+        ${videoTrackXML}
+      </video>
+      <audio>
+        ${audioTrackXMLParts.join('\n')}
+      </audio>
+    </media>
+  </sequence>
+</xmeml>`;
 
       // Add XML to ZIP
-      zip.file('Project.fcpxml', fcpXML);
+      zip.file('Project.xml', resolveXML);
 
       // Generate ZIP file
       const zipBlob = await zip.generateAsync({ type: 'blob' });
@@ -1023,7 +1270,7 @@ export function AVPreview({
       URL.revokeObjectURL(url);
 
       setIsExportingFCPXML(false);
-      alert(`FCP XML exported successfully!`);
+      alert(`Resolve XML exported successfully!`);
       
     } catch (error) {
       console.error('Error exporting FCP XML:', error);
