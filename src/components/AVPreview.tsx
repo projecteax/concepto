@@ -761,8 +761,10 @@ export function AVPreview({
           '00:00:00:00',
           outputName,
         ]);
-        const normalizedData = await ffmpeg.readFile(outputName) as Uint8Array;
-        return new Blob([normalizedData], { type: blob.type || 'video/mp4' });
+        const normalizedData = await ffmpeg.readFile(outputName);
+        // ffmpeg.readFile returns Uint8Array for binary files
+        // Cast to BlobPart to satisfy TypeScript's type checking
+        return new Blob([normalizedData as BlobPart], { type: blob.type || 'video/mp4' });
       } catch (error) {
         console.warn(`Timecode normalization failed for ${filename}:`, error);
         return blob;
