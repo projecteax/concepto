@@ -1032,8 +1032,11 @@ export function AVPreview({
         if (!videoFileIdMap.has(clip.url)) {
           videoFileIdMap.set(clip.url, videoFileCounter++);
         }
-        const sourceSeconds = clip.sourceDuration ?? (clip.duration + clip.offset);
-        const sourceFrames = Math.max(secondsToFrames(sourceSeconds), secondsToFrames(clip.duration + clip.offset));
+        // Get source duration from videoDurations map if available, otherwise use clip duration + offset
+        const sourceSeconds = (clip.type === 'video' && videoDurations[clip.url]) 
+          ? videoDurations[clip.url] 
+          : (clip.duration + clip.offset);
+        const sourceFrames = secondsToFrames(sourceSeconds);
         const existing = videoFileMetadata.get(clip.url);
         const hasAudio = !clip.isMuted;
         if (!existing) {
