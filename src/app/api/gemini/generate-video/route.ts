@@ -354,7 +354,8 @@ async function handleVeoGeneration(body: {
 
     const selectedModel = modelMap[model] || 'veo-3.1-fast-generate-preview';
     
-    // Use the selected model (both Pro and Flash support frames-to-video in Veo 3.1)
+    // Use the selected model
+    // Both Veo 3.1 and Veo 3.1 Fast support the same features including frames-to-video (lastFrame)
     const actualModel = selectedModel;
     console.log('Using Veo model:', actualModel);
 
@@ -377,7 +378,7 @@ async function handleVeoGeneration(body: {
       sampleCount?: number;
       storageUri?: string; // Optional: for storing directly to GCS
       aspectRatio?: string; // Optional: "16:9", "9:16", "1:1"
-      duration?: string; // "4s", "8s" (6s might be supported too)
+      durationSeconds?: number; // 4, 6, or 8 - Must be 8 when using lastFrame (interpolation)
       resolution?: string; // "720p", "1080p"
     }
     // Build enhanced prompt with image filenames if provided
@@ -395,24 +396,14 @@ async function handleVeoGeneration(body: {
     };
     
     // Parameters object
-    // Default duration is 8s if not specified
     const parameters: VeoParameters = {
       sampleCount: 1, // Generate 1 video
     };
     
-    // Add duration if specified
-    if (duration) {
-      // Veo expects "4s", "8s" as string
-      parameters.duration = `${duration}s`;
-    }
-    
-    // Add resolution if specified
-    if (resolution) {
-      parameters.resolution = resolution;
-    }
-    
     // Handle VEO frames-to-video generation
     if (type === 'frames-to-video' && startFrameUrl && endFrameUrl) {
+      // When using lastFrame (interpolation), duration MUST be 8 according to Veo 3.1 docs
+      parameters.durationSeconds = 8;
       // Fetch start frame
       const startFrameResponse = await fetch(startFrameUrl);
       if (!startFrameResponse.ok) {
@@ -455,6 +446,18 @@ async function handleVeoGeneration(body: {
         bytesBase64Encoded: imageBase64,
         mimeType: imageMimeType,
       };
+      
+      // For image-to-video, use the specified duration (or default to 8)
+      if (duration) {
+        parameters.durationSeconds = duration;
+      } else {
+        parameters.durationSeconds = 8; // Default to 8 seconds
+      }
+    }
+    
+    // Add resolution if specified
+    if (resolution) {
+      parameters.resolution = resolution;
     }
 
     // Build request body

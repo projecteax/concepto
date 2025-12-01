@@ -3346,6 +3346,9 @@ export function ImageGenerationDialog({
                 {selectedVideoInputType === 'start-end' && (!startFrame || !endFrame) && (
                   <p className="text-xs text-amber-500 mt-1">Both start and end frames are required for frames-to-video generation</p>
                 )}
+                {selectedVideoInputType === 'start-end' && startFrame && endFrame && (
+                  <p className="text-xs text-blue-500 mt-1">Note: Frames-to-video (interpolation) requires 8 seconds duration</p>
+                )}
               </div>
             ) : (
             <div className="mb-4">
@@ -3489,6 +3492,9 @@ export function ImageGenerationDialog({
               {selectedVideoInputType === 'start-end' && (!startFrame || !endFrame) && (
                 <p className="text-xs text-amber-500 mt-1">Both start and end frames are required for frames-to-video generation</p>
               )}
+              {selectedVideoInputType === 'start-end' && startFrame && endFrame && (
+                <p className="text-xs text-blue-500 mt-1">Note: Frames-to-video (interpolation) requires 8 seconds duration</p>
+              )}
             </div>
             )}
 
@@ -3615,6 +3621,7 @@ export function ImageGenerationDialog({
                         requestBody.duration = videoDuration;
                       } else if (selectedVideoInputType === 'start-end') {
                         // Frames to video
+                        // Note: Veo 3.1 requires duration to be 8 seconds when using lastFrame (interpolation)
                         requestBody.type = 'frames-to-video';
                         if (startFrame) {
                           requestBody.startFrameUrl = startFrame;
@@ -3623,7 +3630,7 @@ export function ImageGenerationDialog({
                           requestBody.endFrameUrl = endFrame;
                         }
                         requestBody.resolution = videoResolution;
-                        requestBody.duration = videoDuration;
+                        requestBody.duration = 8; // Must be 8 for frames-to-video (interpolation)
                       }
                     } else if (videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video') {
                       // Act Two character performance
@@ -3651,6 +3658,7 @@ export function ImageGenerationDialog({
                       }
                     } else if (selectedVideoInputType === 'start-end') {
                       // Frames to video
+                      // Note: Veo 3.1 requires duration to be 8 seconds when using lastFrame (interpolation)
                       requestBody.type = 'frames-to-video';
                       if (startFrame) {
                         requestBody.startFrameUrl = startFrame;
@@ -3659,7 +3667,7 @@ export function ImageGenerationDialog({
                         requestBody.endFrameUrl = endFrame;
                       }
                       requestBody.resolution = videoResolution;
-                      requestBody.duration = videoDuration;
+                      requestBody.duration = 8; // Must be 8 for frames-to-video (interpolation)
                     }
                     
                     const response = await fetch('/api/gemini/generate-video', {
