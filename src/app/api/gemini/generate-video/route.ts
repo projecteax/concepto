@@ -947,13 +947,17 @@ async function handleKlingGeneration(body: {
       }
       
       taskData = statusData.data;
-      taskStatus = taskData.task_status || 'unknown';
-      attempts++;
+      if (taskData) {
+        taskStatus = taskData.task_status || 'unknown';
+        attempts++;
 
-      console.log(`Kling AI task status: ${taskStatus} (attempt ${attempts}/${maxAttempts})`);
+        console.log(`Kling AI task status: ${taskStatus} (attempt ${attempts}/${maxAttempts})`);
 
-      if (taskData.task_status_msg) {
-        console.log('Status message:', taskData.task_status_msg);
+        if (taskData.task_status_msg) {
+          console.log('Status message:', taskData.task_status_msg);
+        }
+      } else {
+        throw new Error('No task data received from status check');
       }
     }
 
