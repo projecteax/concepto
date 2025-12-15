@@ -310,6 +310,8 @@ export interface AVShotImageGeneration {
   prompt: string;
   style: 'storyboard' | '3d-render';
   createdAt: Date;
+  modelName?: string; // Model used for generation (e.g., "gemini-2.5-flash-image-preview")
+  generatedAt?: Date; // Timestamp when generation occurred
 }
 
 export interface AVShotImageGenerationMessage {
@@ -347,6 +349,8 @@ export interface AVShotImageGenerationThread {
     videoUrl: string;
     prompt: string;
     createdAt: Date;
+    modelName?: string; // Model used for generation
+    generatedAt?: Date; // Timestamp when generation occurred
   }>;
   selectedImageId?: string;
   createdAt: Date;

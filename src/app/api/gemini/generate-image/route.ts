@@ -18,7 +18,12 @@ export async function POST(request: NextRequest) {
       gadgets?: Array<{ images?: string[] }>;
       sketchImage?: string;
       previousImage?: string;
+      // Back-compat / alternate names sent by the client
+      initialImageUrl?: string;
+      startFrame?: string;
+      endFrame?: string;
       episodeId?: string;
+      showId?: string;
     };
     const {
       prompt,
@@ -30,6 +35,9 @@ export async function POST(request: NextRequest) {
       gadgets,
       sketchImage,
       previousImage,
+      initialImageUrl,
+      startFrame,
+      endFrame,
       episodeId,
     } = body;
 
@@ -57,6 +65,14 @@ export async function POST(request: NextRequest) {
       fullPrompt += ' Use storyboard style with bold lines around main characters or main elements on the scene and thinner lines on background and environment.';
     } else if (style === '3d-render') {
       fullPrompt += ' Use 3D Pixar style rendering with smooth surfaces, vibrant colors, and cinematic lighting.';
+    }
+
+    // If we have a reference image, instruct the model to preserve composition and only apply changes.
+    // This helps "edit" style prompts like "make lighting more blue" stay anchored to the source image.
+    const referenceImageUrl = previousImage || initialImageUrl || startFrame || endFrame;
+    if (referenceImageUrl) {
+      fullPrompt +=
+        '\n\nIMPORTANT: Use the provided reference image as the base. Preserve the composition, characters, camera angle, framing, and layout. Apply only the requested changes and keep everything else as consistent as possible.';
     }
 
     // Prepare parts for the API call - using the same format as existing gemini.ts
@@ -166,10 +182,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Add previous image for refinement if provided
-    if (previousImage) {
+    // Add reference image for refinement / conditioning if provided
+    // (previousImage is the preferred field; others are fallbacks for back-compat)
+    if (referenceImageUrl) {
       try {
-        const imageResponse = await fetch(previousImage);
+        const imageResponse = await fetch(referenceImageUrl);
         if (imageResponse.ok) {
           const imageBuffer = await imageResponse.arrayBuffer();
           const base64Image = Buffer.from(imageBuffer).toString('base64');
@@ -191,6 +208,7 @@ export async function POST(request: NextRequest) {
     // Note: For image generation, we need to use a model that supports it
     // Try gemini-2.5-flash-image-preview first, fallback to gemini-2.5-flash
     let response;
+    let modelUsed = "gemini-2.5-flash-image-preview"; // Track which model was used
     
     // If we only have text (no images), pass as string like existing code
     // If we have images, pass as array of parts
@@ -225,6 +243,7 @@ export async function POST(request: NextRequest) {
           },
         } as never;
         
+        modelUsed = "gemini-2.5-flash"; // Update model name
         response = await genAI.models.generateContent({
           model: "gemini-2.5-flash",
           contents: contents,
@@ -294,6 +313,8 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         imageUrl: uploadResult.url,
+        modelName: modelUsed,
+        generatedAt: new Date().toISOString(),
         success: true,
       });
     } catch (uploadError) {

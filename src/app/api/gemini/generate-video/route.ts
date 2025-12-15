@@ -299,6 +299,8 @@ async function handleSoraGeneration(body: {
 
     return NextResponse.json({
       videoUrl: uploadResult.url,
+      modelName: body.model,
+      generatedAt: new Date().toISOString(),
       success: true,
     });
   } catch (error: unknown) {
@@ -1028,6 +1030,8 @@ async function handleKlingGeneration(body: {
 
     return NextResponse.json({
       videoUrl: uploadResult.url,
+      modelName: body.model,
+      generatedAt: new Date().toISOString(),
       success: true,
     });
   } catch (error: unknown) {

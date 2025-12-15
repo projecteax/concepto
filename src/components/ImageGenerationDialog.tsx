@@ -85,7 +85,7 @@ export function ImageGenerationDialog({
   const [showDrawingCanvas, setShowDrawingCanvas] = useState(false);
   const [selectedStyle, setSelectedStyle] = useState<'storyboard' | '3d-render'>('storyboard');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedImages, setGeneratedImages] = useState<Array<{ id: string; imageUrl: string; prompt: string; createdAt: Date }>>([]);
+  const [generatedImages, setGeneratedImages] = useState<Array<{ id: string; imageUrl: string; prompt: string; createdAt: Date; modelName?: string; generatedAt?: Date }>>([]);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [editablePrompt, setEditablePrompt] = useState('');
   const [showPreview, setShowPreview] = useState(false);
@@ -105,7 +105,7 @@ export function ImageGenerationDialog({
   const [referenceVideo, setReferenceVideo] = useState<string | null>(null);
   const [mainImageId, setMainImageId] = useState<string | null>(null); // Can be 'startFrame', 'endFrame', 'referenceImage', or generated image ID
   const [mainVideoId, setMainVideoId] = useState<string | null>(null); // Can be 'referenceVideo' or generated video ID
-  const [generatedVideos, setGeneratedVideos] = useState<Array<{ id: string; videoUrl: string; prompt: string; createdAt: Date }>>([]);
+  const [generatedVideos, setGeneratedVideos] = useState<Array<{ id: string; videoUrl: string; prompt: string; createdAt: Date; modelName?: string; generatedAt?: Date }>>([]);
   
   // VEO multi-image selection (up to 3 images)
   const [selectedVeoImages, setSelectedVeoImages] = useState<Array<{ url: string; filename: string; id: string }>>([]);
@@ -687,12 +687,16 @@ export function ImageGenerationDialog({
           imageUrl: img.imageUrl,
           prompt: img.prompt,
           createdAt: toDate(img.createdAt),
+          modelName: img.modelName,
+          generatedAt: img.generatedAt ? toDate(img.generatedAt) : undefined,
         })));
         setGeneratedVideos(genVideos.map(v => ({
           id: v.id,
           videoUrl: v.videoUrl,
           prompt: v.prompt,
           createdAt: toDate(v.createdAt),
+          modelName: v.modelName,
+          generatedAt: v.generatedAt ? toDate(v.generatedAt) : undefined,
         })));
         setUploadedImages(uploadedImgs.map(img => ({
           ...img,
@@ -1353,6 +1357,21 @@ export function ImageGenerationDialog({
     const filteredPreviousImage = selectedImageId && remainingImageIds.has(`previous-${selectedImageId}`)
       ? generatedImages.find(img => img.id === selectedImageId)?.imageUrl
       : undefined;
+
+    // Decide which single "main" image to use for image-conditioned generation.
+    // This fixes the case where the user wants to generate based on ONE source image (main image) + text tweaks.
+    const mainImageUrl: string | undefined = (() => {
+      if (mainImageId === 'referenceImage') return filteredReferenceImage || undefined;
+      if (mainImageId === 'startFrame') return filteredStartFrame || undefined;
+      if (mainImageId === 'endFrame') return filteredEndFrame || undefined;
+      // If mainImageId points to a generated image id
+      if (mainImageId) {
+        const gen = generatedImages.find(img => img.id === mainImageId);
+        if (gen?.imageUrl) return gen.imageUrl;
+      }
+      // Fallbacks (first generation may only have uploaded/reference image; refinement may have selected previous image)
+      return filteredReferenceImage || filteredInitialImageUrl || filteredPreviousImage;
+    })();
     
     if (isFirstGeneration) {
       // First message - generate initial image
@@ -1374,7 +1393,8 @@ export function ImageGenerationDialog({
             sketchImage: filteredSketchImage,
             startFrame: filteredStartFrame,
             endFrame: filteredEndFrame,
-            initialImageUrl: filteredReferenceImage || filteredInitialImageUrl,
+            // Use the selected main image as the conditioning image
+            previousImage: mainImageUrl,
             episodeId,
             showId,
           }),
@@ -1397,6 +1417,8 @@ export function ImageGenerationDialog({
           imageUrl,
           prompt: promptToUse,
           createdAt: new Date(),
+          modelName: data.modelName,
+          generatedAt: data.generatedAt ? new Date(data.generatedAt) : new Date(),
         };
         
         setGeneratedImages(prev => [...prev, newImage]);
@@ -1458,8 +1480,8 @@ export function ImageGenerationDialog({
             sketchImage: filteredSketchImage,
             startFrame: filteredStartFrame,
             endFrame: filteredEndFrame,
-            previousImage: filteredPreviousImage,
-            initialImageUrl: filteredReferenceImage || filteredInitialImageUrl,
+            // Always condition on the selected main image (not just the last-selected thumbnail)
+            previousImage: mainImageUrl,
             episodeId,
             showId,
           }),
@@ -1482,6 +1504,8 @@ export function ImageGenerationDialog({
           imageUrl,
           prompt: refinementPrompt,
           createdAt: new Date(),
+          modelName: data.modelName,
+          generatedAt: data.generatedAt ? new Date(data.generatedAt) : new Date(),
         };
         
         setGeneratedImages(prev => [...prev, newImage]);
@@ -1768,6 +1792,8 @@ export function ImageGenerationDialog({
         prompt: img.prompt,
         style: selectedStyle as 'storyboard' | '3d-render',
         createdAt: img.createdAt,
+        modelName: img.modelName,
+        generatedAt: img.generatedAt,
       })),
     ];
 
@@ -1779,7 +1805,14 @@ export function ImageGenerationDialog({
         prompt: 'Uploaded video',
         createdAt: vid.createdAt,
       })),
-      ...generatedVideos,
+      ...generatedVideos.map(vid => ({
+        id: vid.id,
+        videoUrl: vid.videoUrl,
+        prompt: vid.prompt,
+        createdAt: vid.createdAt,
+        modelName: vid.modelName,
+        generatedAt: vid.generatedAt,
+      })),
     ];
 
     return {
@@ -2570,78 +2603,100 @@ export function ImageGenerationDialog({
                       return bTime - aTime;
                     })
                     .map((img, idx) => (
-                      <div
-                        key={`gen-img-${img.id}-${idx}`}
-                        onClick={() => setEnlargedContent({ type: 'image', url: img.imageUrl })}
-                        className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group ${
-                          mainImageId === img.id ? 'border-green-500' : 'border-gray-300'
-                        }`}
-                      >
-                        <img
-                          src={img.imageUrl}
-                          alt="Generated"
-                          className="w-full h-full object-cover"
-                        />
-                        {mainImageId === img.id && (
-                          <div className="absolute top-1 left-1 bg-green-500 text-white text-xs px-2 py-1 rounded z-10">
-                            MAIN
+                      <div key={`gen-img-${img.id}-${idx}`} className="flex flex-col">
+                        <div
+                          onClick={() => setEnlargedContent({ type: 'image', url: img.imageUrl })}
+                          className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group ${
+                            mainImageId === img.id ? 'border-green-500' : 'border-gray-300'
+                          }`}
+                        >
+                          <img
+                            src={img.imageUrl}
+                            alt="Generated"
+                            className="w-full h-full object-cover"
+                          />
+                          {mainImageId === img.id && (
+                            <div className="absolute top-1 left-1 bg-green-500 text-white text-xs px-2 py-1 rounded z-10">
+                              MAIN
+                            </div>
+                          )}
+                          {/* Icon buttons for first/last/main - positioned at corners */}
+                          <div className="absolute top-1 right-1 flex gap-1 z-10">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSetFirstFrame(img.imageUrl);
+                              }}
+                              className={`p-1 rounded ${
+                                startFrame === img.imageUrl
+                                  ? 'bg-blue-600 text-white'
+                                  : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                              }`}
+                              title="Set as First Frame"
+                            >
+                              <ChevronRight className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSetLastFrame(img.imageUrl);
+                              }}
+                              className={`p-1 rounded ${
+                                endFrame === img.imageUrl
+                                  ? 'bg-purple-600 text-white'
+                                  : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                              }`}
+                              title="Set as Last Frame"
+                            >
+                              <ChevronLeft className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleToggleMain(img.id);
+                              }}
+                              className={`p-1 rounded ${
+                                mainImageId === img.id
+                                  ? 'bg-green-600 text-white'
+                                  : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                              }`}
+                              title="Set as Main"
+                            >
+                              <Star className="w-3 h-3" />
+                            </button>
                           </div>
-                        )}
-                        {/* Icon buttons for first/last/main - positioned at corners */}
-                        <div className="absolute top-1 right-1 flex gap-1 z-10">
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleSetFirstFrame(img.imageUrl);
+                              setDeleteConfirm({ type: 'image', id: img.id, url: img.imageUrl });
                             }}
-                            className={`p-1 rounded ${
-                              startFrame === img.imageUrl
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
-                            }`}
-                            title="Set as First Frame"
+                            className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-red-600"
+                            title="Delete image"
                           >
-                            <ChevronRight className="w-3 h-3" />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleSetLastFrame(img.imageUrl);
-                            }}
-                            className={`p-1 rounded ${
-                              endFrame === img.imageUrl
-                                ? 'bg-purple-600 text-white'
-                                : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
-                            }`}
-                            title="Set as Last Frame"
-                          >
-                            <ChevronLeft className="w-3 h-3" />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleToggleMain(img.id);
-                            }}
-                            className={`p-1 rounded ${
-                              mainImageId === img.id
-                                ? 'bg-green-600 text-white'
-                                : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
-                            }`}
-                            title="Set as Main"
-                          >
-                            <Star className="w-3 h-3" />
+                            <X className="w-3 h-3" />
                           </button>
                         </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDeleteConfirm({ type: 'image', id: img.id, url: img.imageUrl });
-                          }}
-                          className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-red-600"
-                          title="Delete image"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
+                        {/* Metadata below thumbnail */}
+                        <div className="mt-1 px-1 space-y-0.5">
+                          <div className="text-xs text-gray-600">
+                            <span className="font-medium">Model:</span>{' '}
+                            <span className="text-gray-800">{img.modelName || 'N/A'}</span>
+                          </div>
+                          <div className="text-xs text-gray-600">
+                            <span className="font-medium">Generated:</span>{' '}
+                            <span className="text-gray-800">
+                              {img.generatedAt
+                                ? new Date(img.generatedAt).toLocaleString('en-US', {
+                                    year: 'numeric',
+                                    month: 'short',
+                                    day: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })
+                                : 'N/A'}
+                            </span>
+                          </div>
+                        </div>
                       </div>
                     ))}
                   
@@ -2662,50 +2717,72 @@ export function ImageGenerationDialog({
                       return bTime - aTime;
                     })
                     .map((vid, idx) => (
-                      <div
-                        key={`gen-vid-${vid.id}-${idx}`}
-                        onClick={() => setEnlargedContent({ type: 'video', url: vid.videoUrl })}
-                        className="relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group"
-                      >
-                        <video
-                          src={vid.videoUrl}
-                          className="w-full h-full object-cover"
-                          muted
-                        />
-                        {/* Video camera icon to indicate this is a video */}
-                        <div className="absolute bottom-1 right-1 bg-black bg-opacity-60 rounded-full p-1.5 pointer-events-none z-10">
-                          <Video className="w-3 h-3 text-white" />
+                      <div key={`gen-vid-${vid.id}-${idx}`} className="flex flex-col">
+                        <div
+                          onClick={() => setEnlargedContent({ type: 'video', url: vid.videoUrl })}
+                          className="relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group"
+                        >
+                          <video
+                            src={vid.videoUrl}
+                            className="w-full h-full object-cover"
+                            muted
+                          />
+                          {/* Video camera icon to indicate this is a video */}
+                          <div className="absolute bottom-1 right-1 bg-black bg-opacity-60 rounded-full p-1.5 pointer-events-none z-10">
+                            <Video className="w-3 h-3 text-white" />
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleMainVideo(vid.id);
+                            }}
+                            className={`absolute top-1 right-1 px-2 py-1 text-xs rounded z-10 ${
+                              mainVideoId === vid.id
+                                ? 'bg-green-600 text-white'
+                                : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                            }`}
+                          >
+                            MAIN
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteConfirm({ type: 'video', id: vid.id, url: vid.videoUrl });
+                            }}
+                            className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-red-600"
+                            title="Delete video"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={(e) => handleDownloadVideo(vid.videoUrl, e)}
+                            className="absolute bottom-1 left-1 p-1 bg-blue-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-blue-600"
+                            title="Download video"
+                          >
+                            <Download className="w-3 h-3" />
+                          </button>
                         </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleToggleMainVideo(vid.id);
-                          }}
-                          className={`absolute top-1 right-1 px-2 py-1 text-xs rounded z-10 ${
-                            mainVideoId === vid.id
-                              ? 'bg-green-600 text-white'
-                              : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
-                          }`}
-                        >
-                          MAIN
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDeleteConfirm({ type: 'video', id: vid.id, url: vid.videoUrl });
-                          }}
-                          className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-red-600"
-                          title="Delete video"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                        <button
-                          onClick={(e) => handleDownloadVideo(vid.videoUrl, e)}
-                          className="absolute bottom-1 left-1 p-1 bg-blue-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-blue-600"
-                          title="Download video"
-                        >
-                          <Download className="w-3 h-3" />
-                        </button>
+                        {/* Metadata below thumbnail */}
+                        <div className="mt-1 px-1 space-y-0.5">
+                          <div className="text-xs text-gray-600">
+                            <span className="font-medium">Model:</span>{' '}
+                            <span className="text-gray-800">{vid.modelName || 'N/A'}</span>
+                          </div>
+                          <div className="text-xs text-gray-600">
+                            <span className="font-medium">Generated:</span>{' '}
+                            <span className="text-gray-800">
+                              {vid.generatedAt
+                                ? new Date(vid.generatedAt).toLocaleString('en-US', {
+                                    year: 'numeric',
+                                    month: 'short',
+                                    day: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })
+                                : 'N/A'}
+                            </span>
+                          </div>
+                        </div>
                       </div>
                     ))}
                   
@@ -3814,6 +3891,8 @@ export function ImageGenerationDialog({
                         videoUrl: data.videoUrl,
                         prompt: videoPrompt,
                         createdAt: new Date(),
+                        modelName: data.modelName,
+                        generatedAt: data.generatedAt ? new Date(data.generatedAt) : new Date(),
                       };
                       
                       // Update state immediately
