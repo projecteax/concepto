@@ -120,6 +120,8 @@ export function ImageGenerationDialog({
   const [videoResolution, setVideoResolution] = useState<'720p' | '1080p'>('720p');
   const [videoDuration, setVideoDuration] = useState<4 | 6 | 8>(8);
   const [runwayDuration, setRunwayDuration] = useState<number>(5); // For Runway ML (2-10 seconds)
+  const [klingDuration, setKlingDuration] = useState<5 | 10>(5); // For Kling AI (5 or 10 seconds only)
+  const [klingMode, setKlingMode] = useState<'std' | 'pro'>('std'); // For Kling AI (Standard or Pro mode)
   const [enlargedContent, setEnlargedContent] = useState<{ type: 'image' | 'video'; url: string } | null>(null);
   const [uploadedImages, setUploadedImages] = useState<Array<{ id: string; imageUrl: string; createdAt: Date }>>([]);
   const [uploadedVideos, setUploadedVideos] = useState<Array<{ id: string; videoUrl: string; createdAt: Date }>>([]);
@@ -3128,6 +3130,14 @@ export function ImageGenerationDialog({
                   if (!e.target.value.startsWith('veo')) {
                     setSelectedVeoImages([]);
                   }
+                  // Reset duration based on model
+                  if (e.target.value.startsWith('kling')) {
+                    setKlingDuration(5);
+                  } else if (e.target.value.startsWith('runway')) {
+                    setRunwayDuration(5);
+                  } else {
+                    setVideoDuration(8);
+                  }
                   setSelectedVideoInputType(null);
                 }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -3143,6 +3153,9 @@ export function ImageGenerationDialog({
                   <option value="runway-gen4-turbo">Gen-4 Turbo</option>
                   <option value="runway-act-two">Act Two</option>
                 </optgroup>
+                <optgroup label="Kling AI">
+                  <option value="kling-v2-5-turbo">Kling v2.5 Turbo</option>
+                </optgroup>
               </select>
               <p className="text-xs text-gray-500 mt-1">
                 {videoModel.startsWith('veo') 
@@ -3151,12 +3164,14 @@ export function ImageGenerationDialog({
                   ? videoModel === 'runway-gen4-turbo'
                     ? 'Using Runway ML Gen-4 Turbo for image-to-video generation. Supports flexible duration (2-10 seconds) and 1280x720 resolution.'
                     : 'Using Runway ML Act Two for character performance. Requires a main image (character) and reference video. Supports flexible duration (2-10 seconds) and 1280:720 ratio.'
+                  : videoModel.startsWith('kling')
+                  ? 'Using Kling AI v2.5 Turbo for image-to-video generation. Supports single frame or multiple frames input. Duration options: 5 or 10 seconds only.'
                   : 'Using OpenAI SORA 2 for video generation. Supports text-to-video and image-to-video generation.'}
               </p>
             </div>
 
-            {/* Resolution Selection - Available for Veo and SORA, fixed for Runway */}
-            {!videoModel.startsWith('runway') && (
+            {/* Resolution Selection - Available for Veo, SORA, and Kling; fixed for Runway */}
+            {!videoModel.startsWith('runway') && !videoModel.startsWith('kling') && (
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Video Resolution
@@ -3187,6 +3202,55 @@ export function ImageGenerationDialog({
                 </p>
               </div>
             )}
+            {videoModel.startsWith('kling') && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Video Resolution
+                </label>
+                <div className="px-3 py-2 border border-gray-300 rounded-lg bg-gray-50">
+                  <span className="text-gray-700">16:9 Aspect Ratio (Fixed for Kling AI models)</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Kling AI models use a fixed 16:9 aspect ratio (typically 1280x720 or 1920x1080 based on model).
+                </p>
+              </div>
+            )}
+
+            {/* Kling AI Mode Selection */}
+            {videoModel.startsWith('kling') && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Generation Mode
+                </label>
+                <div className="flex items-center gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setKlingMode('std')}
+                    className={`flex-1 px-4 py-2 border-2 rounded-lg font-medium transition-colors ${
+                      klingMode === 'std'
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                        : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                    }`}
+                  >
+                    Standard
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setKlingMode('pro')}
+                    className={`flex-1 px-4 py-2 border-2 rounded-lg font-medium transition-colors ${
+                      klingMode === 'pro'
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                        : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                    }`}
+                  >
+                    Pro
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Standard: Faster, single image only. Pro: Higher quality, supports start+end frames (10s only).
+                </p>
+              </div>
+            )}
 
             {/* Duration Selection */}
             {videoModel.startsWith('runway') ? (
@@ -3208,6 +3272,31 @@ export function ImageGenerationDialog({
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
                   Select the duration of the generated video (2-10 seconds). Runway ML models support flexible durations.
+                </p>
+              </div>
+            ) : videoModel.startsWith('kling') ? (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Video Duration
+                </label>
+                <div className="flex items-center gap-4">
+                  {([5, 10] as const).map((duration) => (
+                    <button
+                      key={duration}
+                      type="button"
+                      onClick={() => setKlingDuration(duration)}
+                      className={`flex-1 px-4 py-2 border-2 rounded-lg font-medium transition-colors ${
+                        klingDuration === duration
+                          ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                          : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                      }`}
+                    >
+                      {duration}s
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Kling AI supports 5 or 10 second durations only.
                 </p>
               </div>
             ) : (
@@ -3595,6 +3684,8 @@ export function ImageGenerationDialog({
                       resolution?: '720p' | '1080p';
                       duration?: 4 | 6 | 8;
                       runwayDuration?: number;
+                      klingDuration?: 5 | 10;
+                      klingMode?: 'std' | 'pro';
                       // VEO multi-image support
                       veoImages?: Array<{ url: string; filename: string }>;
                     }
@@ -3608,8 +3699,30 @@ export function ImageGenerationDialog({
                       requestBody.prompt = videoPrompt;
                     }
                     
-                    // VEO models use start-end frames or main image (like other models)
-                    if (videoModel.startsWith('veo')) {
+                    // Kling AI models
+                    if (videoModel.startsWith('kling')) {
+                      requestBody.klingDuration = klingDuration;
+                      requestBody.klingMode = klingMode;
+                      
+                      if (selectedVideoInputType === 'main') {
+                        // Image to video - single image
+                        requestBody.type = 'image-to-video';
+                        const mainImageUrl = getMainImageUrl();
+                        if (mainImageUrl) {
+                          requestBody.imageUrl = mainImageUrl;
+                        }
+                      } else if (selectedVideoInputType === 'start-end') {
+                        // Frames to video - start + end frames
+                        requestBody.type = 'frames-to-video';
+                        if (startFrame) {
+                          requestBody.startFrameUrl = startFrame;
+                        }
+                        if (endFrame) {
+                          requestBody.endFrameUrl = endFrame;
+                        }
+                      }
+                    } else if (videoModel.startsWith('veo')) {
+                      // VEO models use start-end frames or main image (like other models)
                       if (selectedVideoInputType === 'main') {
                         // Image to video
                         requestBody.type = 'image-to-video';
@@ -3643,8 +3756,8 @@ export function ImageGenerationDialog({
                         requestBody.referenceVideoUrl = referenceVideo;
                       }
                       requestBody.runwayDuration = runwayDuration;
-                    } else if (selectedVideoInputType === 'main') {
-                      // Image to video
+                    } else if (!videoModel.startsWith('kling') && selectedVideoInputType === 'main') {
+                      // Image to video (for SORA and other non-Kling models)
                       requestBody.type = 'image-to-video';
                       const mainImageUrl = getMainImageUrl();
                       if (mainImageUrl) {
@@ -3656,8 +3769,8 @@ export function ImageGenerationDialog({
                         requestBody.resolution = videoResolution;
                         requestBody.duration = videoDuration;
                       }
-                    } else if (selectedVideoInputType === 'start-end') {
-                      // Frames to video
+                    } else if (!videoModel.startsWith('kling') && selectedVideoInputType === 'start-end') {
+                      // Frames to video (for SORA and other non-Kling models)
                       // Note: Veo 3.1 requires duration to be 8 seconds when using lastFrame (interpolation)
                       requestBody.type = 'frames-to-video';
                       if (startFrame) {
@@ -3677,8 +3790,19 @@ export function ImageGenerationDialog({
                     });
                     
                     if (!response.ok) {
-                      const errorData = await response.json();
-                      throw new Error(errorData.error || 'Video generation failed');
+                      let errorMessage = 'Video generation failed';
+                      try {
+                        const errorData = await response.json();
+                        errorMessage = errorData.error || errorData.message || errorMessage;
+                        if (errorData.details) {
+                          errorMessage += `: ${errorData.details}`;
+                        }
+                      } catch (parseError) {
+                        // If JSON parsing fails, try to get text
+                        const errorText = await response.text().catch(() => 'Unknown error');
+                        errorMessage = errorText || `HTTP ${response.status}: ${response.statusText}`;
+                      }
+                      throw new Error(errorMessage);
                     }
                     
                     const data = await response.json();

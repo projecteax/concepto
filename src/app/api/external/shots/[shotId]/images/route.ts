@@ -5,6 +5,9 @@ import { requireApiKey } from '@/lib/api-auth';
 import { uploadToS3Server } from '@/lib/s3-service-server';
 import { AVShot, AVSegment, AVShotImageGenerationThread } from '@/types';
 
+// Increase timeout for file uploads (60 seconds for Pro plan, 10s for free tier)
+export const maxDuration = 60;
+
 /**
  * POST /api/external/shots/:shotId/images
  * 
@@ -52,32 +55,47 @@ export async function POST(
     }
     
     // Find the episode containing this shot
+    // Note: This is inefficient but necessary with current data structure
+    // Consider creating a shots collection index for better performance
     const episodesRef = collection(db, 'episodes');
-    const episodesSnap = await getDocs(episodesRef);
     
     let episodeId: string | null = null;
     let foundSegment: AVSegment | null = null;
     let foundShot: AVShot | null = null;
     
-    for (const episodeDoc of episodesSnap.docs) {
-      const episodeData = episodeDoc.data();
-      const avScript = episodeData.avScript;
+    try {
+      const episodesSnap = await getDocs(episodesRef);
       
-      if (avScript?.segments) {
-        for (const segment of avScript.segments) {
-          if (segment.shots) {
-            const shot = segment.shots.find((s: AVShot) => s.id === shotId);
-            if (shot) {
-              episodeId = episodeDoc.id;
-              foundSegment = segment;
-              foundShot = shot;
-              break;
+      for (const episodeDoc of episodesSnap.docs) {
+        const episodeData = episodeDoc.data();
+        const avScript = episodeData.avScript;
+        
+        if (avScript?.segments) {
+          for (const segment of avScript.segments) {
+            if (segment.shots && Array.isArray(segment.shots)) {
+              const shot = segment.shots.find((s: AVShot) => s.id === shotId);
+              if (shot) {
+                episodeId = episodeDoc.id;
+                foundSegment = segment;
+                foundShot = shot;
+                break;
+              }
             }
           }
         }
+        
+        if (episodeId) break;
       }
-      
-      if (episodeId) break;
+    } catch (searchError) {
+      console.error('Error searching for shot:', searchError);
+      return NextResponse.json(
+        { 
+          error: 'Failed to search for shot', 
+          code: 'SEARCH_ERROR',
+          details: searchError instanceof Error ? searchError.message : 'Unknown error'
+        },
+        { status: 500 }
+      );
     }
     
     if (!episodeId || !foundSegment || !foundShot) {
@@ -96,13 +114,19 @@ export async function POST(
     // Upload main image
     if (mainImageFile) {
       try {
-        const fileKey = `episodes/${episodeId}/shots/${shotId}/main-${Date.now()}.${mainImageFile.name.split('.').pop()}`;
+        const fileExtension = mainImageFile.name.split('.').pop() || 'png';
+        const fileKey = `episodes/${episodeId}/shots/${shotId}/main-${Date.now()}.${fileExtension}`;
         const result = await uploadToS3Server(mainImageFile, fileKey);
         uploadedUrls.mainImage = result.url;
       } catch (error) {
         console.error('Error uploading main image:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown upload error';
         return NextResponse.json(
-          { error: 'Failed to upload main image', code: 'UPLOAD_ERROR' },
+          { 
+            error: 'Failed to upload main image', 
+            code: 'UPLOAD_ERROR',
+            details: errorMessage
+          },
           { status: 500 }
         );
       }
@@ -111,13 +135,19 @@ export async function POST(
     // Upload start frame
     if (startFrameFile) {
       try {
-        const fileKey = `episodes/${episodeId}/shots/${shotId}/start-frame-${Date.now()}.${startFrameFile.name.split('.').pop()}`;
+        const fileExtension = startFrameFile.name.split('.').pop() || 'png';
+        const fileKey = `episodes/${episodeId}/shots/${shotId}/start-frame-${Date.now()}.${fileExtension}`;
         const result = await uploadToS3Server(startFrameFile, fileKey);
         uploadedUrls.startFrame = result.url;
       } catch (error) {
         console.error('Error uploading start frame:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown upload error';
         return NextResponse.json(
-          { error: 'Failed to upload start frame', code: 'UPLOAD_ERROR' },
+          { 
+            error: 'Failed to upload start frame', 
+            code: 'UPLOAD_ERROR',
+            details: errorMessage
+          },
           { status: 500 }
         );
       }
@@ -126,13 +156,19 @@ export async function POST(
     // Upload end frame
     if (endFrameFile) {
       try {
-        const fileKey = `episodes/${episodeId}/shots/${shotId}/end-frame-${Date.now()}.${endFrameFile.name.split('.').pop()}`;
+        const fileExtension = endFrameFile.name.split('.').pop() || 'png';
+        const fileKey = `episodes/${episodeId}/shots/${shotId}/end-frame-${Date.now()}.${fileExtension}`;
         const result = await uploadToS3Server(endFrameFile, fileKey);
         uploadedUrls.endFrame = result.url;
       } catch (error) {
         console.error('Error uploading end frame:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown upload error';
         return NextResponse.json(
-          { error: 'Failed to upload end frame', code: 'UPLOAD_ERROR' },
+          { 
+            error: 'Failed to upload end frame', 
+            code: 'UPLOAD_ERROR',
+            details: errorMessage
+          },
           { status: 500 }
         );
       }
@@ -257,6 +293,7 @@ export async function POST(
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     const errorStack = error instanceof Error ? error.stack : undefined;
     
+    // Handle specific error cases
     if (errorMessage === 'API key required' || errorMessage === 'Invalid API key') {
       return NextResponse.json(
         { error: errorMessage, code: 'UNAUTHORIZED' },
@@ -264,12 +301,25 @@ export async function POST(
       );
     }
     
-    // Return more detailed error message
+    // Check for timeout errors (503 on Vercel)
+    if (errorMessage.includes('timeout') || errorMessage.includes('TIMEOUT') || 
+        errorMessage.includes('Function execution') || errorMessage.includes('504')) {
+      return NextResponse.json(
+        { 
+          error: 'Request timeout - the operation took too long. Try uploading smaller files or fewer images at once.', 
+          code: 'TIMEOUT_ERROR',
+          details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
+        },
+        { status: 504 }
+      );
+    }
+    
+    // Return more detailed error message as JSON (not HTML/503)
     return NextResponse.json(
       { 
         error: errorMessage || 'Internal server error', 
         code: 'INTERNAL_ERROR',
-        details: process.env.NODE_ENV === 'development' ? errorStack : undefined
+        details: process.env.NODE_ENV === 'development' ? (errorStack || errorMessage) : 'An unexpected error occurred'
       },
       { status: 500 }
     );

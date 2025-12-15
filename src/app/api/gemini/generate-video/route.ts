@@ -2,12 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { uploadToS3 } from '@/lib/s3-service';
 import sharp from 'sharp';
 import { handleRunwayGeneration } from './runway-handler';
+import jwt from 'jsonwebtoken';
 
 // FormData is available in Node.js 18+ (Next.js uses Next.js 18+)
 // No need to import, it's a global in modern Node.js
 
 // Veo API endpoint - separate from Gemini API
 const VEO_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
+// Kling AI API endpoint (configurable via environment variable)
+// Official documentation: https://app.klingai.com/global/dev/document-api/apiReference/commonInfo
+// Default API domain: https://api-singapore.klingai.com
+// Can be overridden with KLING_API_BASE_URL environment variable
+const KLING_API_BASE = process.env.KLING_API_BASE_URL || 'https://api-singapore.klingai.com';
 
 // Runway ML API endpoint (defined in runway-handler.ts)
 
@@ -25,12 +32,14 @@ export async function POST(request: NextRequest) {
       resolution?: '720p' | '1080p';
       duration?: 4 | 6 | 8;
       runwayDuration?: number;
+      klingDuration?: 5 | 10;
       veoImages?: Array<{ url: string; filename: string; id?: string }>;
     };
 
     // Check which model is being used
     const isSora = body.model.startsWith('sora');
     const isRunway = body.model.startsWith('runway');
+    const isKling = body.model.startsWith('kling');
     
     if (isRunway) {
       // Handle Runway ML video generation
@@ -38,6 +47,9 @@ export async function POST(request: NextRequest) {
     } else if (isSora) {
       // Handle SORA video generation
       return await handleSoraGeneration(body);
+    } else if (isKling) {
+      // Handle Kling AI video generation
+      return await handleKlingGeneration(body);
     } else {
       // Handle Veo video generation
       return await handleVeoGeneration(body);
@@ -46,14 +58,20 @@ export async function POST(request: NextRequest) {
     console.error('Error generating video:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     const errorStack = error instanceof Error ? error.stack : undefined;
+    const errorName = error instanceof Error ? error.name : 'Error';
+    
     console.error('Error details:', {
       message: errorMessage,
       stack: errorStack,
-      name: error instanceof Error ? error.name : 'Error',
+      name: errorName,
     });
+    
+    // Ensure we always return a proper error response
     return NextResponse.json(
       { 
-        error: errorMessage,
+        error: errorMessage || 'Internal server error',
+        message: errorMessage || 'Internal server error', // Include both for compatibility
+        code: 'VIDEO_GENERATION_ERROR',
         details: process.env.NODE_ENV === 'development' ? errorStack : undefined
       },
       { status: 500 }
@@ -644,4 +662,398 @@ async function handleVeoGeneration(body: {
       }
       throw error;
     }
+}
+
+async function handleKlingGeneration(body: {
+  prompt?: string;
+  type?: 'image-to-video' | 'frames-to-video' | 'character-performance';
+  imageUrl?: string;
+  startFrameUrl?: string;
+  endFrameUrl?: string;
+  model: string;
+  episodeId: string;
+  resolution?: '720p' | '1080p';
+  duration?: 4 | 6 | 8;
+  klingDuration?: 5 | 10;
+  klingMode?: 'std' | 'pro';
+}) {
+  const { 
+    prompt = '', 
+    type = 'image-to-video', 
+    imageUrl, 
+    startFrameUrl, 
+    endFrameUrl, 
+    episodeId, 
+    resolution = '720p', 
+    klingDuration = 5,
+    klingMode = 'std'
+  } = body;
+  
+  // Use klingDuration if provided, otherwise default to 5
+  const duration = klingDuration || 5;
+  
+  // Check if Kling AI credentials are configured
+  // Kling AI uses JWT authentication: access key as issuer (iss), secret key for signing
+  const klingApiKey = process.env.NEXT_PUBLIC_KLING_API_KEY;
+  const klingAccessKey = process.env.KLING_ACCESS_KEY;
+  const klingSecretKey = process.env.KLING_SECRET_KEY;
+  
+  console.log('==== Kling AI Credentials Check ====');
+  console.log('hasApiKey:', !!klingApiKey);
+  console.log('hasAccessKey:', !!klingAccessKey);
+  console.log('hasSecretKey:', !!klingSecretKey);
+  console.log('API Base URL:', KLING_API_BASE);
+  console.log('=====================================');
+  
+  let authHeader: string;
+  
+  if (klingApiKey) {
+    // Single API key (Bearer token) - use directly
+    authHeader = `Bearer ${klingApiKey}`;
+  } else if (klingAccessKey && klingSecretKey) {
+    // Access key + Secret key: Generate JWT token
+    // Kling AI JWT authentication - matches Python implementation exactly
+    // Python reference: https://app.klingai.com/global/dev/document-api/apiReference/commonInfo
+    const now = Math.floor(Date.now() / 1000);
+    const payload = {
+      iss: klingAccessKey, // Issuer: access key
+      exp: now + 1800, // Expires in 30 minutes (current time + 1800s)
+      nbf: now - 5, // Not before: 5 seconds ago (current time - 5s)
+    };
+    
+    try {
+      // Generate JWT token matching Java/Python implementation exactly
+      // Java: JWT.create().withIssuer(ak).withHeader({"alg":"HS256"}).withExpiresAt(exp).withNotBefore(nbf).sign(HMAC256(sk))
+      // Python: jwt.encode(payload, sk, headers={"alg": "HS256", "typ": "JWT"})
+      console.log('Generating JWT token with payload:', { 
+        iss: '[REDACTED]',
+        exp: payload.exp,
+        nbf: payload.nbf,
+      });
+      
+      // Generate token with explicit header like Java implementation
+      const token = jwt.sign(payload, klingSecretKey, { 
+        algorithm: 'HS256',
+        header: {
+          alg: 'HS256',
+          typ: 'JWT',
+        },
+      });
+      
+      authHeader = `Bearer ${token}`;
+      console.log('✅ JWT token generated successfully');
+      console.log('Token preview:', `Bearer ${token.substring(0, 20)}...`);
+    } catch (jwtError) {
+      console.error('❌ Failed to generate JWT token:', jwtError);
+      const jwtErrorMessage = jwtError instanceof Error ? jwtError.message : 'Unknown JWT error';
+      return NextResponse.json(
+        { 
+          error: `Failed to generate authentication token: ${jwtErrorMessage}. Please verify your KLING_ACCESS_KEY and KLING_SECRET_KEY are correct.`,
+          code: 'JWT_GENERATION_ERROR',
+        },
+        { status: 500 }
+      );
+    }
+  } else {
+    return NextResponse.json(
+      { 
+        error: 'Kling AI credentials are not configured. Please set either NEXT_PUBLIC_KLING_API_KEY (for single API key) or both KLING_ACCESS_KEY and KLING_SECRET_KEY in your environment variables.'
+      },
+      { status: 500 }
+    );
+  }
+
+  if (!prompt) {
+    return NextResponse.json(
+      { error: 'Prompt is required for Kling AI video generation' },
+      { status: 400 }
+    );
+  }
+
+  // Validate duration - Kling AI only supports 5 or 10 seconds
+  if (duration !== 5 && duration !== 10) {
+    return NextResponse.json(
+      { error: 'Kling AI only supports 5 or 10 second durations' },
+      { status: 400 }
+    );
+  }
+
+  try {
+    // Step 1: Submit generation task
+    // Kling AI image-to-video API endpoint: /v1/videos/image2video
+    // Documentation: https://app.klingai.com/global/dev/document-api/apiReference/model/imageToVideo
+    // Common info: https://app.klingai.com/global/dev/document-api/apiReference/commonInfo
+    const requestUrl = `${KLING_API_BASE}/v1/videos/image2video`;
+    
+    // Kling AI expects specific field names and format
+    // Using snake_case format for API compatibility
+    // image: required - main/start frame
+    // image_tail: optional - end frame (for frame interpolation)
+    // NOTE: cfg_scale is NOT supported by Kling v2.x models (only v1.x)
+    const requestBody: {
+      model_name: string;
+      image: string;
+      image_tail?: string;
+      prompt: string;
+      negative_prompt: string;
+      mode: 'std' | 'pro';
+      duration: string;
+    } = {
+      model_name: 'kling-v2-5-turbo',
+      image: '', // Will be set below based on type
+      prompt: prompt,
+      negative_prompt: '', // Optional: what to avoid in generation (max 2500 chars)
+      mode: klingMode, // 'std' for Standard or 'pro' for Pro mode
+      duration: duration.toString(), // String: "5" or "10"
+    };
+    
+    // Set image and image_tail based on input type
+    // IMPORTANT: image_tail is only supported in Pro mode with 10s duration
+    if (type === 'frames-to-video' && startFrameUrl && endFrameUrl) {
+      // Multiple frames mode: start frame + end frame
+      // Validate: image_tail requires Pro mode + 10s duration
+      if (klingMode !== 'pro' || duration !== 10) {
+        return NextResponse.json(
+          { 
+            error: 'Start+End frames (image_tail) is only supported in Pro mode with 10 second duration. ' +
+                   'Please either: (1) Switch to Pro mode and select 10s duration, or (2) Use single image mode instead.'
+          },
+          { status: 400 }
+        );
+      }
+      
+      // image = start frame, image_tail = end frame
+      requestBody.image = startFrameUrl;
+      requestBody.image_tail = endFrameUrl;
+      console.log('Using frames-to-video mode with start and end frames (Pro mode, 10s)');
+    } else if (type === 'image-to-video' && imageUrl) {
+      // Single image mode: only main image
+      requestBody.image = imageUrl;
+      // image_tail is not set (undefined)
+      console.log('Using image-to-video mode with single image');
+    } else if (type === 'frames-to-video' && startFrameUrl) {
+      // Only start frame provided
+      requestBody.image = startFrameUrl;
+      console.log('Using image-to-video mode with start frame only');
+    } else {
+      return NextResponse.json(
+        { error: 'At least one image is required for Kling AI video generation' },
+        { status: 400 }
+      );
+    }
+
+    console.log('==== Kling AI API Request ====');
+    console.log('URL:', requestUrl);
+    console.log('Method: POST');
+    console.log('Auth Method:', klingApiKey ? 'API_KEY' : 'JWT');
+    console.log('Mode:', requestBody.mode);
+    console.log('Duration:', duration + 's');
+    console.log('Has image:', !!requestBody.image);
+    console.log('Has image_tail:', !!requestBody.image_tail);
+    console.log('Prompt:', prompt.substring(0, 50) + '...');
+    console.log('Request Body:', JSON.stringify(requestBody, null, 2));
+    console.log('Authorization Header:', authHeader.substring(0, 20) + '...');
+    console.log('=====================================');
+
+    let generateResponse: Response;
+    try {
+      console.log('📡 Sending request to Kling AI...');
+      generateResponse = await fetch(requestUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': authHeader,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+      console.log('✅ Received response:', {
+        status: generateResponse.status,
+        statusText: generateResponse.statusText,
+        ok: generateResponse.ok,
+      });
+    } catch (fetchError) {
+      console.error('❌ Kling AI Fetch Error:', fetchError);
+      const errorMessage = fetchError instanceof Error ? fetchError.message : 'Unknown fetch error';
+      throw new Error(`Failed to connect to Kling AI API: ${errorMessage}. Please check your API endpoint URL (${KLING_API_BASE}) and network connection.`);
+    }
+
+    if (!generateResponse.ok) {
+      const errorText = await generateResponse.text();
+      let errorData;
+      try {
+        errorData = JSON.parse(errorText);
+      } catch {
+        errorData = { error: { message: errorText || generateResponse.statusText } };
+      }
+      
+      console.error('Kling AI API Error:', {
+        status: generateResponse.status,
+        statusText: generateResponse.statusText,
+        error: errorData,
+      });
+      
+      throw new Error(errorData.error?.message || errorData.message || `Kling AI API error: ${generateResponse.status} ${generateResponse.statusText}`);
+    }
+
+    const generateData = await generateResponse.json();
+    
+    // Kling AI response format: { code, message, data: { task_id, task_status, ... } }
+    if (generateData.code !== 0) {
+      throw new Error(generateData.message || 'Failed to submit video generation task');
+    }
+    
+    const taskId = generateData.data?.task_id;
+
+    if (!taskId) {
+      throw new Error('No task ID returned from Kling AI API');
+    }
+
+    console.log(`✅ Kling AI task submitted: ${taskId}`);
+
+    // Step 2: Poll for task completion
+    // Kling AI endpoint for task status: /v1/videos/image2video/{taskId}
+    let taskStatus = 'submitted';
+    let attempts = 0;
+    const maxAttempts = 120; // 20 minutes max (120 * 10 seconds)
+    let taskData: any = null;
+
+    while (taskStatus !== 'succeed' && taskStatus !== 'failed' && attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
+
+      const statusResponse = await fetch(`${KLING_API_BASE}/v1/videos/image2video/${taskId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': authHeader,
+        },
+      });
+
+      if (!statusResponse.ok) {
+        const statusErrorText = await statusResponse.text();
+        console.error('Status check error:', statusErrorText);
+        throw new Error(`Failed to check task status: ${statusResponse.statusText}`);
+      }
+
+      const statusData = await statusResponse.json();
+      
+      // Kling AI response format: { code, message, data: { task_id, task_status, ... } }
+      if (statusData.code !== 0) {
+        throw new Error(statusData.message || 'Failed to check task status');
+      }
+      
+      taskData = statusData.data;
+      taskStatus = taskData.task_status || 'unknown';
+      attempts++;
+
+      console.log(`Kling AI task status: ${taskStatus} (attempt ${attempts}/${maxAttempts})`);
+
+      if (taskData.task_status_msg) {
+        console.log('Status message:', taskData.task_status_msg);
+      }
+    }
+
+    if (taskStatus === 'failed') {
+      const errorMessage = taskData.task_status_msg || 'Video generation failed';
+      throw new Error(`Kling AI video generation failed: ${errorMessage}`);
+    }
+
+    if (taskStatus !== 'succeed') {
+      throw new Error(`Video generation timed out. Last status: ${taskStatus} after ${attempts} attempts (${attempts * 10} seconds)`);
+    }
+
+    // Step 3: Get the video URL from the response
+    // Kling AI response format: data.task_result.videos[0].url
+    const videos = taskData.task_result?.videos || [];
+    const videoUrl = videos[0]?.url;
+
+    if (!videoUrl) {
+      console.error('No video URL in response:', JSON.stringify(taskData, null, 2));
+      return NextResponse.json(
+        { error: 'No video generated. The API response did not contain a video URL.' },
+        { status: 500 }
+      );
+    }
+
+    console.log('✅ Kling AI video generation complete:', videoUrl);
+
+    // Step 4: Download the video
+    const videoDownloadResponse = await fetch(videoUrl);
+
+    if (!videoDownloadResponse.ok) {
+      throw new Error(`Failed to download video: ${videoDownloadResponse.statusText}`);
+    }
+
+    const videoBuffer = await videoDownloadResponse.arrayBuffer();
+
+    // Convert buffer to blob and upload to S3
+    const blob = new Blob([videoBuffer], { type: 'video/mp4' });
+    const timestamp = Date.now();
+    const file = new File([blob], `generated-${timestamp}.mp4`, { 
+      type: 'video/mp4' 
+    });
+    
+    // Upload to main location
+    const fileKey = `episodes/${episodeId}/av-script/videos/generated-${timestamp}.mp4`;
+    const uploadResult = await uploadToS3(file, fileKey);
+    
+    if (!uploadResult) {
+      return NextResponse.json(
+        { error: 'Failed to upload generated video' },
+        { status: 500 }
+      );
+    }
+
+    // Also save to backup folder
+    try {
+      const backupKey = `concepto-app/AIbackups/videos/${timestamp}-${Math.random().toString(36).substring(7)}.mp4`;
+      await uploadToS3(file, backupKey);
+      console.log('✅ Video backup saved to:', backupKey);
+    } catch (backupError) {
+      console.warn('⚠️ Failed to save video backup (non-critical):', backupError);
+    }
+
+    return NextResponse.json({
+      videoUrl: uploadResult.url,
+      success: true,
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    
+    console.error('Kling AI API error:', {
+      message: errorMessage,
+      stack: errorStack,
+      apiBase: KLING_API_BASE,
+      hasAccessKey: !!klingAccessKey,
+      hasSecretKey: !!klingSecretKey,
+      hasApiKey: !!klingApiKey,
+    });
+    
+    // Provide a helpful error message
+    if (errorMessage.includes('401') || errorMessage.includes('Unauthorized')) {
+      throw new Error(
+        'Kling AI API authentication failed. Please verify your access key and secret key are correct.'
+      );
+    }
+    if (errorMessage.includes('402') || errorMessage.includes('Payment')) {
+      throw new Error(
+        'Insufficient credits in your Kling AI account. Please add credits to continue.'
+      );
+    }
+    if (errorMessage.includes('429') || errorMessage.includes('rate limit')) {
+      throw new Error(
+        'Rate limit exceeded for Kling AI API. Please try again later.'
+      );
+    }
+    if (errorMessage.includes('fetch failed') || errorMessage.includes('ENOTFOUND') || errorMessage.includes('ECONNREFUSED')) {
+      throw new Error(
+        `Failed to connect to Kling AI API at ${KLING_API_BASE}. Please verify: (1) The API endpoint URL is correct, (2) Your network connection is working, (3) The API base URL environment variable KLING_API_BASE_URL is set correctly if using a custom endpoint.`
+      );
+    }
+    // Ensure we always throw an Error with a message
+    if (error instanceof Error && error.message) {
+      throw error;
+    } else {
+      throw new Error(errorMessage || 'Unknown error occurred during Kling AI video generation');
+    }
+  }
 }

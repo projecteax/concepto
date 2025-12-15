@@ -4,6 +4,9 @@ import { collection, doc, getDoc, getDocs, updateDoc, Timestamp } from 'firebase
 import { requireApiKey } from '@/lib/api-auth';
 import { AVShot, AVSegment } from '@/types';
 
+// Increase timeout for API routes (60 seconds for Pro plan, 10s for free tier)
+export const maxDuration = 60;
+
 /**
  * GET /api/external/shots/:shotId
  * 

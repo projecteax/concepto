@@ -87,6 +87,7 @@ export function AVScriptEditor({
   const [isAnyPopupOpen, setIsAnyPopupOpen] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [selectedSceneFilter, setSelectedSceneFilter] = useState<string>('all'); // 'all' or segment id
   const autosaveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
   const { uploadFile } = useS3Upload();
@@ -934,7 +935,27 @@ export function AVScriptEditor({
 
         {/* Segments */}
         <div className="p-6">
-        {script.segments.map((segment) => (
+          {/* Scene Filter Dropdown */}
+          <div className="mb-6 flex items-center gap-4">
+            <label className="text-sm font-medium text-gray-700">
+              Filter by Scene:
+            </label>
+            <select
+              value={selectedSceneFilter}
+              onChange={(e) => setSelectedSceneFilter(e.target.value)}
+              className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+            >
+              <option value="all">All Scenes</option>
+              {script.segments.map((segment) => (
+                <option key={segment.id} value={segment.id}>
+                  Scene {segment.segmentNumber.toString().padStart(2, '0')} - {segment.title}
+                </option>
+              ))}
+            </select>
+          </div>
+        {script.segments
+          .filter((segment) => selectedSceneFilter === 'all' || segment.id === selectedSceneFilter)
+          .map((segment) => (
           <div key={segment.id} className="mb-8">
             {/* Segment Header */}
             <div className="mb-4">
