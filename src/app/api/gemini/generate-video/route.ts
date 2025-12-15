@@ -961,6 +961,11 @@ async function handleKlingGeneration(body: {
       }
     }
 
+    // Ensure taskData is not null before proceeding
+    if (!taskData) {
+      throw new Error('Video generation failed: No task data available');
+    }
+
     if (taskStatus === 'failed') {
       const errorMessage = taskData.task_status_msg || 'Video generation failed';
       throw new Error(`Kling AI video generation failed: ${errorMessage}`);
