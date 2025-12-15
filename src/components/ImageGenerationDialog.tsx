@@ -78,6 +78,26 @@ export function ImageGenerationDialog({
   currentShotImageUrl,
   currentShotVideoUrl,
 }: ImageGenerationDialogProps) {
+  // Helper function to format model names for display
+  const formatModelName = (modelName?: string): string => {
+    if (!modelName) return 'N/A';
+    
+    // Video models
+    if (modelName === 'veo-3-1-flash') return 'Veo 3.1 Flash';
+    if (modelName === 'veo-3-1-pro') return 'Veo 3.1 Pro';
+    if (modelName === 'sora-2') return 'SORA 2';
+    if (modelName === 'runway-gen4-turbo') return 'Runway Gen-4 Turbo';
+    if (modelName === 'runway-act-two') return 'Runway Act Two';
+    if (modelName === 'kling-v2-5-turbo') return 'Kling v2.5 Turbo';
+    
+    // Image models
+    if (modelName === 'gemini-2.5-flash-image-preview') return 'Gemini 2.5 Flash Image Preview';
+    if (modelName === 'gemini-2.5-flash') return 'Gemini 2.5 Flash';
+    
+    // If it's already formatted or unknown, return as is
+    return modelName;
+  };
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [selectedAssets, setSelectedAssets] = useState<SelectedAsset[]>([]);
@@ -2680,7 +2700,7 @@ export function ImageGenerationDialog({
                         <div className="mt-1 px-1 space-y-0.5">
                           <div className="text-xs text-gray-600">
                             <span className="font-medium">Model:</span>{' '}
-                            <span className="text-gray-800">{img.modelName || 'N/A'}</span>
+                            <span className="text-gray-800">{formatModelName(img.modelName)}</span>
                           </div>
                           <div className="text-xs text-gray-600">
                             <span className="font-medium">Generated:</span>{' '}
@@ -2766,7 +2786,7 @@ export function ImageGenerationDialog({
                         <div className="mt-1 px-1 space-y-0.5">
                           <div className="text-xs text-gray-600">
                             <span className="font-medium">Model:</span>{' '}
-                            <span className="text-gray-800">{vid.modelName || 'N/A'}</span>
+                            <span className="text-gray-800">{formatModelName(vid.modelName)}</span>
                           </div>
                           <div className="text-xs text-gray-600">
                             <span className="font-medium">Generated:</span>{' '}
@@ -3886,12 +3906,13 @@ export function ImageGenerationDialog({
                     
                     if (data.videoUrl) {
                       // Add generated video to state immediately
+                      // Use the selected model from dropdown instead of API response
                       const newVideo = {
                         id: `gen-vid-${Date.now()}`,
                         videoUrl: data.videoUrl,
                         prompt: videoPrompt,
                         createdAt: new Date(),
-                        modelName: data.modelName,
+                        modelName: videoModel, // Use the selected model from dropdown
                         generatedAt: data.generatedAt ? new Date(data.generatedAt) : new Date(),
                       };
                       
