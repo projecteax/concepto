@@ -677,14 +677,13 @@ async function handleKlingGeneration(body: {
   klingDuration?: 5 | 10;
   klingMode?: 'std' | 'pro';
 }) {
-  const { 
+    const { 
     prompt = '', 
     type = 'image-to-video', 
     imageUrl, 
     startFrameUrl, 
     endFrameUrl, 
     episodeId, 
-    resolution = '720p', 
     klingDuration = 5,
     klingMode = 'std'
   } = body;
@@ -915,7 +914,14 @@ async function handleKlingGeneration(body: {
     let taskStatus = 'submitted';
     let attempts = 0;
     const maxAttempts = 120; // 20 minutes max (120 * 10 seconds)
-    let taskData: any = null;
+    let taskData: {
+      task_id?: string;
+      task_status?: string;
+      task_status_msg?: string;
+      task_result?: {
+        videos?: Array<{ url: string; duration?: number }>;
+      };
+    } | null = null;
 
     while (taskStatus !== 'succeed' && taskStatus !== 'failed' && attempts < maxAttempts) {
       await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
