@@ -34,6 +34,7 @@ export interface Show {
   id: string;
   name: string;
   description?: string;
+  archived?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

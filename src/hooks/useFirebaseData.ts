@@ -69,15 +69,19 @@ export function useFirebaseData() {
     }
   }, []);
 
-  // Load initial data
+  // Track if initial load has been triggered
+  const hasInitialLoadRef = useRef(false);
+  
+  // Load initial data - only once
   useEffect(() => {
-    // Add a small delay to prevent immediate loading issues
-    const timer = setTimeout(() => {
-      loadData();
-    }, 100);
+    // Prevent double loading in React Strict Mode or re-renders
+    if (hasInitialLoadRef.current) {
+      return;
+    }
     
-    return () => clearTimeout(timer);
-  }, [loadData]); // Include loadData dependency
+    hasInitialLoadRef.current = true;
+    loadData();
+  }, []); // Empty dependency array - only run once on mount
 
   // Show operations
   const createShow = async (show: Omit<Show, 'id' | 'createdAt' | 'updatedAt'>) => {
@@ -354,8 +358,12 @@ export function useFirebaseData() {
         lastLoadTimeRef.current = Date.now();
         console.log('🔄 Loading show data for:', showId);
         
-        // Don't set loading to true if we already have data (prevents UI flicker)
-        if (loadedShowIdRef.current === null) {
+        // Set loading to true if we're switching to a different show
+        // or if this is the first load (no data exists yet for any show)
+        const isSwitchingShow = loadedShowIdRef.current !== null && loadedShowIdRef.current !== showId;
+        const isFirstLoad = loadedShowIdRef.current === null;
+        
+        if (isSwitchingShow || isFirstLoad) {
           setLoading(true);
         }
         
@@ -389,6 +397,11 @@ export function useFirebaseData() {
 
     loadPromiseRef.current = loadPromise;
     return loadPromise;
+  }, []);
+
+  // Expose the currently loaded show ID so components can check if data is ready
+  const getLoadedShowId = useCallback(() => {
+    return loadedShowIdRef.current;
   }, []);
 
   return {
@@ -433,5 +446,6 @@ export function useFirebaseData() {
     // Utility
     loadShowData,
     loadData,
+    getLoadedShowId,
   };
 }

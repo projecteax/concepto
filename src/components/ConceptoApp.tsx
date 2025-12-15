@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { ShowSelection } from './ShowSelection';
 import { ShowDashboard } from './ShowDashboard';
 import { GlobalAssetsManager } from './GlobalAssetsManager';
@@ -16,6 +16,7 @@ import EpisodeDetail from './EpisodeDetail';
 import { EpisodeIdeas } from './EpisodeIdeas';
 import { GeneralIdeas } from './GeneralIdeas';
 import { GeneralIdeaDetail } from './GeneralIdeaDetail';
+import { LoadingPreloader } from './LoadingPreloader';
 import { Show, GlobalAsset, Episode, Character, AssetConcept, EpisodeIdea, GeneralIdea } from '@/types';
 import { useFirebaseData } from '@/hooks/useFirebaseData';
 
@@ -74,100 +75,106 @@ export function ConceptoApp({
     createAssetConcept,
     deleteAssetConcept,
     loadShowData,
+    getLoadedShowId,
   } = useFirebaseData();
 
-  // Track if we've initialized to prevent repeated loads
-  const hasInitializedRef = useRef(false);
-  const lastInitialShowIdRef = useRef<string | null>(null);
+  // Consolidated initialization tracking
+  const initializationRef = useRef({
+    showId: null as string | null,
+    episodeId: null as string | null,
+    assetId: null as string | null,
+    hasInitialized: false,
+  });
 
-  // Initialize from URL parameters - only run once per showId
-  // Use a ref to store loadShowData to prevent effect re-runs
-  const loadShowDataRef2 = useRef(loadShowData);
-  useEffect(() => {
-    loadShowDataRef2.current = loadShowData;
-  }, [loadShowData]);
-
-  useEffect(() => {
-    if (initialShowId && shows.length > 0) {
-      // Skip if we've already initialized for this showId
-      if (hasInitializedRef.current && lastInitialShowIdRef.current === initialShowId) {
-        return;
-      }
-
-      const show = shows.find(s => s.id === initialShowId);
-      if (show) {
-        console.log('🔄 ConceptoApp: Initializing show', show.id);
-        setSelectedShow(show);
-        loadShowDataRef2.current(show.id);
-        hasInitializedRef.current = true;
-        lastInitialShowIdRef.current = initialShowId;
-      }
-    }
-  }, [initialShowId, shows.length]); // Only depend on length, not the whole array or function
-
-
-  // Track if we've set the initial episode to prevent repeated updates
-  const hasSetInitialEpisodeRef = useRef(false);
-  const lastInitialEpisodeIdRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (initialEpisodeId && episodes.length > 0) {
-      // Skip if we've already set this episode
-      if (hasSetInitialEpisodeRef.current && lastInitialEpisodeIdRef.current === initialEpisodeId) {
-        return;
-      }
-
-      const episode = episodes.find(e => e.id === initialEpisodeId);
-      if (episode) {
-        setSelectedEpisode(episode);
-        hasSetInitialEpisodeRef.current = true;
-        lastInitialEpisodeIdRef.current = initialEpisodeId;
-      }
-    }
-  }, [initialEpisodeId, episodes.length]); // Only depend on length, not the whole array
-
-  // Track if we've set the initial asset to prevent repeated updates
-  const hasSetInitialAssetRef = useRef(false);
-  const lastInitialAssetIdRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (initialAssetId && globalAssets.length > 0) {
-      // Skip if we've already set this asset
-      if (hasSetInitialAssetRef.current && lastInitialAssetIdRef.current === initialAssetId) {
-        return;
-      }
-
-      const asset = globalAssets.find(a => a.id === initialAssetId);
-      if (asset) {
-        setSelectedAsset(asset);
-        hasSetInitialAssetRef.current = true;
-        lastInitialAssetIdRef.current = initialAssetId;
-      }
-    }
-  }, [initialAssetId, globalAssets.length]); // Only depend on length, not the whole array
-
-  // Load show data when a show is selected
-  // Track which show is currently loaded to prevent redundant loads
-  const currentLoadedShowIdRef = useRef<string | null>(null);
-
-  // Load show data when selectedShow changes, but only if it's different
-  // Use a ref to store loadShowData to prevent effect re-runs
+  // Store loadShowData in ref to prevent effect re-runs
   const loadShowDataRef = useRef(loadShowData);
   useEffect(() => {
     loadShowDataRef.current = loadShowData;
   }, [loadShowData]);
 
-  useEffect(() => {
-    if (selectedShow && selectedShow.id && selectedShow.id !== currentLoadedShowIdRef.current) {
-      console.log('🔄 ConceptoApp: Loading show data for', selectedShow.id);
-      currentLoadedShowIdRef.current = selectedShow.id;
-      loadShowDataRef.current(selectedShow.id);
+  // Track if we're about to load data (to show loader immediately)
+  const [isAboutToLoad, setIsAboutToLoad] = useState(false);
+  
+  // Track the last show we tried to load to prevent duplicate loads
+  const lastLoadAttemptRef = useRef<string | null>(null);
+  
+  // Consolidated loading function - only called from one place
+  // Must be defined before useEffect that uses it
+  const loadShowDataIfNeeded = useCallback((showId: string) => {
+    const currentlyLoadedShowId = getLoadedShowId();
+    
+    // Skip if already loaded or already attempting to load
+    if (showId === currentlyLoadedShowId || showId === lastLoadAttemptRef.current) {
+      console.log('⏭️ Skipping load - already loaded or loading:', showId);
+      return;
     }
-  }, [selectedShow?.id]); // Only depend on the ID, not the function
+    
+    console.log('🔄 Loading show data for:', showId);
+    lastLoadAttemptRef.current = showId;
+    setIsAboutToLoad(true);
+    
+    const loadPromise = loadShowDataRef.current(showId);
+    if (loadPromise) {
+      loadPromise.finally(() => {
+        setIsAboutToLoad(false);
+        // Clear the attempt ref after a delay to allow for retries if needed
+        setTimeout(() => {
+          if (lastLoadAttemptRef.current === showId) {
+            lastLoadAttemptRef.current = null;
+          }
+        }, 1000);
+      });
+    } else {
+      setIsAboutToLoad(false);
+      lastLoadAttemptRef.current = null;
+    }
+  }, [getLoadedShowId]);
+
+  // Single effect to handle all initialization from URL parameters
+  useEffect(() => {
+    // Wait for shows to be loaded first
+    if (shows.length === 0) {
+      return;
+    }
+
+    const init = initializationRef.current;
+    
+    // Initialize show from URL - only once per showId
+    if (initialShowId && initialShowId !== init.showId) {
+      const show = shows.find(s => s.id === initialShowId);
+      if (show && selectedShow?.id !== show.id) {
+        console.log('🔄 ConceptoApp: Initializing show from URL', show.id);
+        init.showId = initialShowId;
+        setSelectedShow(show);
+        // Load data for URL-based navigation
+        loadShowDataIfNeeded(show.id);
+      }
+    }
+
+    // Initialize episode from URL (after show data is loaded)
+    if (initialEpisodeId && initialEpisodeId !== init.episodeId && episodes.length > 0) {
+      const episode = episodes.find(e => e.id === initialEpisodeId);
+      if (episode && selectedEpisode?.id !== episode.id) {
+        console.log('🔄 ConceptoApp: Initializing episode from URL', episode.id);
+        init.episodeId = initialEpisodeId;
+        setSelectedEpisode(episode);
+      }
+    }
+
+    // Initialize asset from URL (after show data is loaded)
+    if (initialAssetId && initialAssetId !== init.assetId && globalAssets.length > 0) {
+      const asset = globalAssets.find(a => a.id === initialAssetId);
+      if (asset && selectedAsset?.id !== asset.id) {
+        console.log('🔄 ConceptoApp: Initializing asset from URL', asset.id);
+        init.assetId = initialAssetId;
+        setSelectedAsset(asset);
+      }
+    }
+
+    init.hasInitialized = true;
+  }, [initialShowId, initialEpisodeId, initialAssetId, shows.length, episodes.length, globalAssets.length, selectedShow?.id, selectedEpisode?.id, selectedAsset?.id, loadShowDataIfNeeded]);
 
   const handleSelectShow = (show: Show) => {
-    setSelectedShow(show);
-    setCurrentView('dashboard');
     const basePath = isPublicMode ? '/public' : '/app';
     router.push(`${basePath}/shows/${show.id}`);
   };
@@ -197,6 +204,14 @@ export function ConceptoApp({
       }
     } catch (error) {
       console.error('Failed to delete show:', error);
+    }
+  };
+
+  const handleArchiveShow = async (showId: string, archived: boolean) => {
+    try {
+      await updateShow(showId, { archived });
+    } catch (error) {
+      console.error('Failed to archive show:', error);
     }
   };
 
@@ -239,15 +254,12 @@ export function ConceptoApp({
   };
 
   const handleSelectGlobalAssets = (category?: 'character' | 'location' | 'gadget' | 'texture' | 'background' | 'vehicle' | 'all') => {
-    setSelectedCategory(category || 'all');
-    setCurrentView('global-assets');
     const basePath = isPublicMode ? '/public' : '/app';
     const categoryParam = category && category !== 'all' ? `?category=${category}` : '';
     router.push(`${basePath}/shows/${selectedShow?.id}/assets${categoryParam}`);
   };
 
   const handleSelectEpisodes = () => {
-    setCurrentView('episodes');
     const basePath = isPublicMode ? '/public' : '/app';
     router.push(`${basePath}/shows/${selectedShow?.id}/episodes`);
   };
@@ -261,41 +273,27 @@ export function ConceptoApp({
   };
 
   const handleSelectAsset = (asset: GlobalAsset) => {
-    setSelectedAsset(asset);
     const basePath = isPublicMode ? '/public' : '/app';
     router.push(`${basePath}/shows/${selectedShow?.id}/assets/${asset.id}`);
   };
 
   const handleBackToShows = () => {
-    setCurrentView('shows');
-    setSelectedShow(null);
-    setSelectedAsset(null);
-    setSelectedEpisode(null);
-    setSelectedGeneralIdea(null);
     const basePath = isPublicMode ? '/public' : '/app';
     router.push(`${basePath}/shows`);
   };
 
   const handleBackToDashboard = () => {
-    setCurrentView('dashboard');
-    setSelectedAsset(null);
-    setSelectedEpisode(null);
-    setSelectedGeneralIdea(null);
     const basePath = isPublicMode ? '/public' : '/app';
     router.push(`${basePath}/shows/${selectedShow?.id}`);
   };
 
   const handleBackToGlobalAssets = () => {
-    setCurrentView('global-assets');
-    setSelectedAsset(null);
     const basePath = isPublicMode ? '/public' : '/app';
     const categoryParam = selectedCategory && selectedCategory !== 'all' ? `?category=${selectedCategory}` : '';
     router.push(`${basePath}/shows/${selectedShow?.id}/assets${categoryParam}`);
   };
 
   const handleBackToEpisodes = () => {
-    setCurrentView('episodes');
-    setSelectedEpisode(null);
     const basePath = isPublicMode ? '/public' : '/app';
     router.push(`${basePath}/shows/${selectedShow?.id}/episodes`);
   };
@@ -434,8 +432,6 @@ export function ConceptoApp({
   };
 
   const handleSelectEpisode = (episode: Episode) => {
-    setSelectedEpisode(episode);
-    setCurrentView('episode-detail');
     const basePath = isPublicMode ? '/public' : '/app';
     router.push(`${basePath}/shows/${selectedShow?.id}/episodes/${episode.id}`);
   };
@@ -509,16 +505,42 @@ export function ConceptoApp({
   };
 
 
-  // Show loading state
-  if (loading && shows.length === 0) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading your shows...</p>
-        </div>
-      </div>
-    );
+  // Track loading state more accurately
+  const isInitialLoad = loading && shows.length === 0;
+  
+  // Check if we have the correct data for the selected show
+  // This must be checked BEFORE rendering content to prevent flicker
+  const currentlyLoadedShowId = getLoadedShowId();
+  
+  // Verify that existing data actually belongs to the selected show
+  // This prevents showing data from a previous show
+  const hasCorrectData = selectedShow && 
+    currentlyLoadedShowId === selectedShow.id &&
+    (globalAssets.length === 0 || globalAssets.every(a => a.showId === selectedShow.id)) &&
+    (episodes.length === 0 || episodes.every(e => e.showId === selectedShow.id));
+  
+  // Check if we need to load data for the selected show
+  // We need to load if:
+  // 1. We have a selected show
+  // 2. Shows are loaded (initial load is complete)
+  // 3. We don't have the correct data for this show
+  const needsShowData = selectedShow && 
+    shows.length > 0 && // Shows are loaded
+    !hasCorrectData; // We don't have correct data for this show
+  
+  // Track if we're loading show-specific data
+  // Show loader if we need data AND (we're loading OR about to load)
+  const isLoadingShowData = needsShowData && (loading || isAboutToLoad);
+  
+  // Show loading preloader during initial load
+  if (isInitialLoad) {
+    return <LoadingPreloader message="Loading your shows..." />;
+  }
+  
+  // Show loading when we need to load data for the selected show
+  // This prevents showing content with wrong/empty data from previous show
+  if (needsShowData && selectedShow) {
+    return <LoadingPreloader message={`Loading ${selectedShow.name}...`} />;
   }
 
   // Show error state
@@ -554,6 +576,7 @@ export function ConceptoApp({
           onAddShow={isPublicMode ? () => {} : handleAddShow}
           onEditShow={isPublicMode ? () => {} : handleEditShow}
           onDeleteShow={isPublicMode ? () => {} : handleDeleteShow}
+          onArchiveShow={isPublicMode ? () => {} : handleArchiveShow}
         />
       );
 
