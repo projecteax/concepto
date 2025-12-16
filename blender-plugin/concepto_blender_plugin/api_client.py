@@ -113,8 +113,18 @@ class ConceptoAPIClient:
     def upload_shot_images(self, shot_id: str, 
                           main_image_path: Optional[str] = None,
                           start_frame_path: Optional[str] = None,
-                          end_frame_path: Optional[str] = None) -> Tuple[bool, Dict]:
-        """Upload/replace shot images"""
+                          end_frame_path: Optional[str] = None,
+                          mode: str = 'replace',
+                          sourceModel: Optional[str] = None,
+                          kind: Optional[str] = None,
+                          episodeId: Optional[str] = None,
+                          segmentId: Optional[str] = None) -> Tuple[bool, Dict]:
+        """Upload shot images.
+        
+        mode:
+          - 'replace' (default): overwrites main/start/end on the shot
+          - 'append': appends as a new generated image (does not overwrite main/start/end)
+        """
         files = {}
         file_handles = []
         
@@ -143,8 +153,20 @@ class ConceptoAPIClient:
             
             if not files:
                 return False, {"error": "No images provided or files don't exist"}
-            
-            success, result = self._make_request('POST', f'/shots/{shot_id}/images', files=files)
+
+            data = {
+                'mode': mode,
+            }
+            if sourceModel:
+                data['sourceModel'] = sourceModel
+            if kind:
+                data['kind'] = kind
+            if episodeId:
+                data['episodeId'] = episodeId
+            if segmentId:
+                data['segmentId'] = segmentId
+
+            success, result = self._make_request('POST', f'/shots/{shot_id}/images', files=files, data=data)
             return success, result
         except Exception as e:
             return False, {"error": f"Upload error: {str(e)}", "code": "UPLOAD_ERROR"}

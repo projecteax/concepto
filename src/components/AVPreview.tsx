@@ -1,7 +1,10 @@
+'use client';
+
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Episode, AVScript, AVPreviewData, AVPreviewTrack, GlobalAsset, AVShot, AVSegment, AVPreviewClip } from '@/types';
 import { Play, Pause, Save, Upload, Plus, Trash2, Volume2, VolumeX, Music, Mic, Image as ImageIcon, Film, SkipBack, GripVertical, Video, Loader2, Download } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
+import { useSessionStorageState } from '@/hooks/useSessionStorageState';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import JSZip from 'jszip';
@@ -41,6 +44,10 @@ export function AVPreview({
   onSave,
   globalAssets
 }: AVPreviewProps) {
+  // Session-only persistence for the current episode (survives component switches, clears on tab close)
+  const scriptSceneFilterKey = `concepto:av:scriptSceneFilter:${episodeId}`;
+  const previewSelectedSegmentKey = `concepto:av:selectedSegmentId:${episodeId}`;
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -51,7 +58,14 @@ export function AVPreview({
   const [isExportingFCPXML, setIsExportingFCPXML] = useState(false);
   
   // Scene Selection - must select a scene, no "all"
-  const [selectedSegmentId, setSelectedSegmentId] = useState<string>('');
+  const [selectedSegmentId, setSelectedSegmentId] = useSessionStorageState<string>(
+    previewSelectedSegmentKey,
+    '',
+    {
+      serialize: (v) => v,
+      deserialize: (raw) => raw,
+    }
+  );
   
   // Clip Edits - track duration and offset per shot
   const [clipEdits, setClipEdits] = useState<{[shotId: string]: ClipEdit}>({});
@@ -91,12 +105,20 @@ export function AVPreview({
   
   const { uploadFile } = useS3Upload();
 
-  // Initialize selected segment to first scene if available
+  // Initialize selected segment to saved scene (session) or first scene if available
   useEffect(() => {
-    if (avScript && avScript.segments.length > 0 && !selectedSegmentId) {
-      setSelectedSegmentId(avScript.segments[0].id);
+    if (!avScript || avScript.segments.length === 0) return;
+
+    const isValid =
+      selectedSegmentId &&
+      selectedSegmentId !== 'all' &&
+      avScript.segments.some(s => s.id === selectedSegmentId);
+
+    if (!isValid) {
+      const first = avScript.segments[0].id;
+      setSelectedSegmentId(first);
     }
-  }, [avScript, selectedSegmentId]);
+  }, [avScript, selectedSegmentId, setSelectedSegmentId]);
 
   // Initialize tracks if empty
   useEffect(() => {
@@ -1658,7 +1680,14 @@ export function AVPreview({
           <select 
             value={selectedSegmentId}
             onChange={(e) => {
-                setSelectedSegmentId(e.target.value);
+                const next = e.target.value;
+                setSelectedSegmentId(next);
+                // Keep AV Script filter aligned when user switches scenes in preview.
+                try {
+                  window.sessionStorage.setItem(scriptSceneFilterKey, next);
+                } catch {
+                  // ignore storage errors
+                }
                 setCurrentTime(0); // Reset to beginning of scene
             }}
             className="bg-gray-800 border border-gray-700 text-sm rounded-md px-3 py-1.5 text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"

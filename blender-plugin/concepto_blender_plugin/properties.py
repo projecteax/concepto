@@ -186,7 +186,10 @@ def get_shot_items(self, context):
             description = f"{shot.shot_number}: {visual_preview}"
         else:
             description = shot.shot_number
-        items.append((shot.shot_id, display_name, description))
+        # IMPORTANT: shot IDs may not be globally unique across segments.
+        # Use a composite key so selection + uploads resolve to the correct segment+shot.
+        composite_key = f"{shot.segment_id}|{shot.shot_id}"
+        items.append((composite_key, display_name, description))
     
     return items
 
@@ -205,6 +208,7 @@ def update_shot_selection(self, context):
     if hasattr(context.scene, 'concepto_state'):
         state = context.scene.concepto_state
         if self.selected_shot_enum != 'NONE':
+            # Store composite key (segmentId|shotId) for disambiguation
             state.selected_shot_id = self.selected_shot_enum
 
 class ConceptoPluginState(PropertyGroup):

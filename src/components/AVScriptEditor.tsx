@@ -27,6 +27,7 @@ import {
   PlusCircle
 } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
+import { useSessionStorageState } from '@/hooks/useSessionStorageState';
 import CommentThread from './CommentThread';
 import { ImageGenerationDialog } from './ImageGenerationDialog';
 import { AVEnhanceDialog } from './AVEnhanceDialog';
@@ -53,6 +54,10 @@ export function AVScriptEditor({
   screenplayData,
   showId = '',
 }: AVScriptEditorProps) {
+  // Session-only persistence for the current episode (survives component switches, clears on tab close)
+  const scriptSceneFilterKey = `concepto:av:scriptSceneFilter:${episodeId}`;
+  const previewSelectedSegmentKey = `concepto:av:selectedSegmentId:${episodeId}`;
+
   const [script, setScript] = useState<AVScript>(avScript || {
     id: `av-script-${Date.now()}`,
     episodeId,
@@ -87,8 +92,25 @@ export function AVScriptEditor({
   const [isAnyPopupOpen, setIsAnyPopupOpen] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [selectedSceneFilter, setSelectedSceneFilter] = useState<string>('all'); // 'all' or segment id
+  const [selectedSceneFilter, setSelectedSceneFilter] = useSessionStorageState<string>(
+    scriptSceneFilterKey,
+    'all',
+    {
+      serialize: (v) => v,
+      deserialize: (raw) => raw,
+    }
+  ); // 'all' or segment id
   const autosaveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  // If the saved filter references a scene that no longer exists, fall back to "all"
+  useEffect(() => {
+    if (
+      selectedSceneFilter !== 'all' &&
+      !script.segments.some(s => s.id === selectedSceneFilter)
+    ) {
+      setSelectedSceneFilter('all');
+    }
+  }, [script.segments, selectedSceneFilter, setSelectedSceneFilter]);
 
   const { uploadFile } = useS3Upload();
 
@@ -942,7 +964,18 @@ export function AVScriptEditor({
             </label>
             <select
               value={selectedSceneFilter}
-              onChange={(e) => setSelectedSceneFilter(e.target.value)}
+              onChange={(e) => {
+                const next = e.target.value;
+                setSelectedSceneFilter(next);
+                // If a specific scene is selected, sync it for AVPreview too.
+                if (next !== 'all') {
+                  try {
+                    window.sessionStorage.setItem(previewSelectedSegmentKey, next);
+                  } catch {
+                    // ignore storage errors
+                  }
+                }
+              }}
               className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
             >
               <option value="all">All Scenes</option>

@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Concepto AV Script Sync",
     "author": "Concepto Team",
-    "version": (1, 1, 0),
+    "version": (1, 1, 1),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Concepto",
     "description": "Sync AV script data and images with Concepto app. Supports SC01T01 format for shot names.",

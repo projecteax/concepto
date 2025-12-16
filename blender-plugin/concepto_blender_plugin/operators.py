@@ -186,15 +186,16 @@ class CONCEPTO_OT_LoadEpisode(Operator):
                 # Clear existing shots
                 context.scene.concepto_shots.clear()
                 
-                # Reset selections
-                state.selected_segment_id = ''
-                state.selected_shot_id = ''
-                state.selected_segment_enum = 'NONE'
-                state.selected_shot_enum = 'NONE'
+                # Preserve current selections where possible (reloading shouldn't force re-selection)
+                prev_segment_id = state.selected_segment_id
+                prev_shot_id = state.selected_shot_id
+                prev_segment_enum = state.selected_segment_enum
+                prev_shot_enum = state.selected_shot_enum
                 
                 # Populate shots from segments
                 av_script = episode_data.get('avScript', {})
                 segments = av_script.get('segments', [])
+                seen_shot_ids = {}
                 
                 for segment in segments:
                     segment_id = segment.get('id', '')
@@ -205,6 +206,13 @@ class CONCEPTO_OT_LoadEpisode(Operator):
                     for shot in shots:
                         shot_item = context.scene.concepto_shots.add()
                         shot_item.shot_id = shot.get('id', '')
+                        # Detect duplicate shot IDs across segments (can cause wrong selection/upload)
+                        sid = shot_item.shot_id
+                        if sid:
+                            if sid in seen_shot_ids and seen_shot_ids[sid] != segment_id:
+                                print(f"WARNING: Duplicate shot_id detected across segments: {sid} ({seen_shot_ids[sid]} and {segment_id})")
+                            else:
+                                seen_shot_ids[sid] = segment_id
                         # Use take number (e.g., SC01T01 or SC01T01_image) and extract just the take part (SC01T01)
                         # The 'take' field contains the shot identifier in format SC{segmentNumber}T{takeNumber}
                         take = shot.get('take', '')
@@ -235,6 +243,47 @@ class CONCEPTO_OT_LoadEpisode(Operator):
                             shot_item.end_frame_url = image_thread.get('endFrame', '')
                 
                 self.report({'INFO'}, f"Loaded {len(context.scene.concepto_shots)} shots")
+
+                # Restore selections if they still exist
+                segment_exists = False
+                if prev_segment_id:
+                    for s in segments:
+                        if s.get('id', '') == prev_segment_id:
+                            segment_exists = True
+                            break
+                if segment_exists:
+                    state.selected_segment_id = prev_segment_id
+                    state.selected_segment_enum = prev_segment_id
+                else:
+                    state.selected_segment_id = ''
+                    state.selected_segment_enum = 'NONE'
+                    # If segment no longer exists, also clear shot
+                    prev_shot_id = ''
+
+                if prev_shot_id and state.selected_segment_id:
+                    # Support composite keys
+                    seg_id = state.selected_segment_id
+                    shot_id = prev_shot_id
+                    if '|' in prev_shot_id:
+                        try:
+                            seg_id, shot_id = prev_shot_id.split('|', 1)
+                        except:
+                            seg_id = state.selected_segment_id
+                            shot_id = prev_shot_id
+                    shot_exists = False
+                    for shot_item in context.scene.concepto_shots:
+                        if shot_item.segment_id == seg_id and shot_item.shot_id == shot_id:
+                            shot_exists = True
+                            break
+                    if shot_exists:
+                        state.selected_shot_id = f"{seg_id}|{shot_id}"
+                        state.selected_shot_enum = f"{seg_id}|{shot_id}"
+                    else:
+                        state.selected_shot_id = ''
+                        state.selected_shot_enum = 'NONE'
+                else:
+                    state.selected_shot_id = ''
+                    state.selected_shot_enum = 'NONE'
             else:
                 error_msg = result.get('error', 'Unknown error')
                 error_details = result.get('details', '')
@@ -274,8 +323,10 @@ class CONCEPTO_OT_UpdateShotVisual(Operator):
             self.report({'ERROR'}, "API not configured")
             return {'CANCELLED'}
         
+        # Support composite keys (segmentId|shotId)
+        shot_id = self.shot_id.split('|', 1)[1] if '|' in self.shot_id else self.shot_id
         client = api_client.ConceptoAPIClient(api_endpoint, api_key)
-        success, result = client.update_shot(self.shot_id, visual=self.visual_text)
+        success, result = client.update_shot(shot_id, visual=self.visual_text)
         
         if success:
             self.report({'INFO'}, "Shot updated successfully")
@@ -385,8 +436,8 @@ class CONCEPTO_OT_RenderCurrentView(Operator):
 class CONCEPTO_OT_UploadRenderedImage(Operator):
     """Upload rendered image to replace selected image"""
     bl_idname = "concepto.upload_rendered_image"
-    bl_label = "Upload & Overwrite"
-    bl_description = "Upload rendered image to replace selected image"
+    bl_label = "Upload (Append)"
+    bl_description = "Upload rendered image as the next one (does not overwrite main/start/end)"
     bl_options = {'REGISTER', 'UNDO'}
     
     def execute(self, context):
@@ -428,11 +479,28 @@ class CONCEPTO_OT_UploadRenderedImage(Operator):
             elif state.selected_image_type == 'END':
                 end_path = state.rendered_image_path
             
+            # Support composite keys (segmentId|shotId)
+            seg_id = state.selected_segment_id
+            shot_id_raw = state.selected_shot_id
+            shot_id = shot_id_raw
+            if '|' in shot_id_raw:
+                try:
+                    seg_id, shot_id = shot_id_raw.split('|', 1)
+                except:
+                    shot_id = shot_id_raw.split('|', 1)[1] if '|' in shot_id_raw else shot_id_raw
+
+            # EpisodeId hint for server-side disambiguation (important if shot IDs repeat)
+            episode_id = (prefs.episode_id if prefs else None) or api.episode_id
             success, result = client.upload_shot_images(
-                state.selected_shot_id,
+                shot_id,
                 main_image_path=main_path,
                 start_frame_path=start_path,
-                end_frame_path=end_path
+                end_frame_path=end_path,
+                mode='append',
+                sourceModel='blender',
+                kind=state.selected_image_type,
+                episodeId=episode_id,
+                segmentId=seg_id
             )
             
             if success:
@@ -441,17 +509,22 @@ class CONCEPTO_OT_UploadRenderedImage(Operator):
                     'START': 'Start Frame',
                     'END': 'End Frame'
                 }.get(state.selected_image_type, 'Image')
-                self.report({'INFO'}, f"{image_type_name} uploaded successfully")
-                # Reload episode to get updated image URLs
-                bpy.ops.concepto.load_episode()
-                state.show_render_preview = False
-                # Clear selected image type after successful upload
-                state.selected_image_type = 'NONE'
+                self.report({'INFO'}, f"{image_type_name} appended successfully (Blender)")
+                # Keep selections and keep the last rendered file available for re-upload if needed.
             else:
                 error_msg = result.get('error', 'Unknown error')
                 error_details = result.get('details', '')
                 if error_details:
-                    self.report({'ERROR'}, f"Upload failed: {error_msg}\nDetails: {error_details[:100]}")
+                    # details may be a dict (e.g., server returns structured details)
+                    try:
+                        import json
+                        if isinstance(error_details, (dict, list)):
+                            details_str = json.dumps(error_details)
+                        else:
+                            details_str = str(error_details)
+                    except Exception:
+                        details_str = str(error_details)
+                    self.report({'ERROR'}, f"Upload failed: {error_msg}\nDetails: {details_str[:200]}")
                 else:
                     self.report({'ERROR'}, f"Upload failed: {error_msg}")
                 return {'CANCELLED'}
@@ -474,9 +547,21 @@ class CONCEPTO_OT_SelectShot(Operator):
     
     def execute(self, context):
         state = context.scene.concepto_state
-        state.selected_shot_id = self.shot_id
-        # Update enum to reflect selection
-        state.selected_shot_enum = self.shot_id
+        # Prefer setting a composite key if we can resolve the segment from current selection
+        resolved_seg = state.selected_segment_id
+        resolved_id = self.shot_id
+        try:
+            # If current segment has a shot with this ID, use that segment for disambiguation
+            for s in context.scene.concepto_shots:
+                if s.shot_id == self.shot_id and s.segment_id == state.selected_segment_id:
+                    resolved_seg = s.segment_id
+                    break
+        except:
+            pass
+        composite = f"{resolved_seg}|{resolved_id}" if resolved_seg else resolved_id
+        state.selected_shot_id = composite
+        # Update enum to reflect selection (enum values are composite keys)
+        state.selected_shot_enum = composite
         return {'FINISHED'}
 
 class CONCEPTO_OT_SelectImageType(Operator):
@@ -663,13 +748,8 @@ class CONCEPTO_OT_CancelRenderPreview(Operator):
                         bpy.data.images.remove(img)
                         break
         
-        # Remove temp file
-        if state.rendered_image_path and os.path.exists(state.rendered_image_path):
-            try:
-                os.remove(state.rendered_image_path)
-            except:
-                pass
-        state.rendered_image_path = ""
+        # IMPORTANT: Keep rendered_image_path so the user can upload the last render without re-rendering.
+        # (We only hide the preview UI and unload the image from Blender.)
         return {'FINISHED'}
 
 class CONCEPTO_OT_SyncPreferences(Operator):
@@ -740,7 +820,9 @@ class CONCEPTO_OT_EditShotVisual(Operator):
             return {'CANCELLED'}
         
         client = api_client.ConceptoAPIClient(api_endpoint, api_key)
-        success, result = client.update_shot(self.shot_id, visual=self.current_visual)
+        # Support composite keys (segmentId|shotId)
+        shot_id = self.shot_id.split('|', 1)[1] if '|' in self.shot_id else self.shot_id
+        success, result = client.update_shot(shot_id, visual=self.current_visual)
         
         if success:
             self.report({'INFO'}, "Visual updated successfully")

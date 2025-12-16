@@ -187,8 +187,16 @@ class CONCEPTO_PT_ShotsList(Panel):
         # Show selected shot info
         if state.selected_shot_id:
             selected_shot = None
+            selected_seg = state.selected_segment_id
+            selected_shot_id = state.selected_shot_id
+            # Support composite keys (segmentId|shotId) for disambiguation
+            if '|' in selected_shot_id:
+                try:
+                    selected_seg, selected_shot_id = selected_shot_id.split('|', 1)
+                except:
+                    pass
             for shot in filtered_shots:
-                if shot.shot_id == state.selected_shot_id:
+                if shot.shot_id == selected_shot_id and shot.segment_id == selected_seg:
                     selected_shot = shot
                     break
             
@@ -217,8 +225,16 @@ class CONCEPTO_PT_ShotImages(Panel):
         
         # Find selected shot
         shot = None
+        selected_seg = state.selected_segment_id
+        selected_shot_id = state.selected_shot_id
+        # Support composite keys (segmentId|shotId) for disambiguation
+        if '|' in selected_shot_id:
+            try:
+                selected_seg, selected_shot_id = selected_shot_id.split('|', 1)
+            except:
+                pass
         for s in context.scene.concepto_shots:
-            if s.shot_id == state.selected_shot_id:
+            if s.shot_id == selected_shot_id and s.segment_id == selected_seg:
                 shot = s
                 break
         
@@ -443,11 +459,27 @@ class CONCEPTO_PT_ShotImages(Panel):
                     'END': 'End Frame'
                 }.get(state.selected_image_type, 'Image')
                 row.operator("concepto.upload_rendered_image", 
-                           text=f"Accept & Upload as {image_type_name}", 
+                           text=f"Upload (Append) as {image_type_name}", 
                            icon='EXPORT')
-                row.operator("concepto.cancel_render_preview", text="Cancel", emboss=False)
+                row.operator("concepto.cancel_render_preview", text="Hide Preview", emboss=False)
             else:
                 layout.label(text="Rendering...", icon='TIME')
+        else:
+            # Even if preview is hidden, allow uploading the last rendered file without re-rendering.
+            if state.rendered_image_path and os.path.exists(state.rendered_image_path):
+                layout.separator()
+                layout.label(text="Last Rendered File:", icon='FILE_IMAGE')
+                layout.label(text=os.path.basename(state.rendered_image_path), icon='IMAGE_DATA')
+                row = layout.row()
+                row.scale_y = 1.4
+                image_type_name = {
+                    'MAIN': 'Main Image',
+                    'START': 'Start Frame',
+                    'END': 'End Frame'
+                }.get(state.selected_image_type, 'Image')
+                row.operator("concepto.upload_rendered_image",
+                           text=f"Upload Last Render (Append) as {image_type_name}",
+                           icon='EXPORT')
 
 # List of panel classes to register
 _classes = (
