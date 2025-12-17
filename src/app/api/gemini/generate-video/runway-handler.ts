@@ -209,7 +209,7 @@ export async function handleRunwayGeneration(body: RunwayRequestBody) {
     throw new Error('RUNWAY_API_KEY is not configured. Please add it to your environment variables.');
   }
 
-  const { model, type, imageUrl, referenceVideoUrl, characterVideoUrl, episodeId, runwayDuration = 5 } = body;
+  const { model, type, imageUrl, referenceVideoUrl, episodeId, runwayDuration = 5 } = body;
 
   // Determine which Runway model and endpoint to use
   const isActTwo = model === 'runway-act-two';

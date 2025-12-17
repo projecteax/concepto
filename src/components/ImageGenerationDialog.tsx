@@ -3735,7 +3735,7 @@ export function ImageGenerationDialog({
             {videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video' && (
               <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                 <p className="text-sm text-blue-800">
-                  <strong>ACT Two Character Performance:</strong> This model controls your character's facial expressions and body movements based on the reference video. No prompt or duration needed - the character will follow the reference video's performance.
+                  <strong>ACT Two Character Performance:</strong> This model controls your character&apos;s facial expressions and body movements based on the reference video. No prompt or duration needed - the character will follow the reference video&apos;s performance.
                 </p>
               </div>
             )}
