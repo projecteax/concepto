@@ -123,6 +123,7 @@ export function ImageGenerationDialog({
   const [endFrame, setEndFrame] = useState<string | null>(null);
   const [referenceImage, setReferenceImage] = useState<string | null>(initialImageUrl || null);
   const [referenceVideo, setReferenceVideo] = useState<string | null>(null);
+  const [characterVideo, setCharacterVideo] = useState<string | null>(null);
   const [mainImageId, setMainImageId] = useState<string | null>(null); // Can be 'startFrame', 'endFrame', 'referenceImage', or generated image ID
   const [mainVideoId, setMainVideoId] = useState<string | null>(null); // Can be 'referenceVideo' or generated video ID
   const [generatedVideos, setGeneratedVideos] = useState<Array<{ id: string; videoUrl: string; prompt: string; createdAt: Date; modelName?: string; generatedAt?: Date }>>([]);
@@ -159,6 +160,7 @@ export function ImageGenerationDialog({
   const endFrameFileInputRef = useRef<HTMLInputElement>(null);
   const referenceImageFileInputRef = useRef<HTMLInputElement>(null);
   const referenceVideoFileInputRef = useRef<HTMLInputElement>(null);
+  const characterVideoFileInputRef = useRef<HTMLInputElement>(null);
   const additionalReferenceImageFileInputRef = useRef<HTMLInputElement>(null);
   const { uploadFile } = useS3Upload();
 
@@ -609,6 +611,7 @@ export function ImageGenerationDialog({
           setEndFrame(syncedThread.endFrame || null);
           setReferenceImage(syncedThread.referenceImage || initialImageUrl || null);
           setReferenceVideo(syncedThread.referenceVideo || null);
+          setCharacterVideo((syncedThread as typeof syncedThread & { characterVideo?: string }).characterVideo || null);
           // Update main image/video IDs
           if (syncedThread.mainImageId) {
             setMainImageId(syncedThread.mainImageId);
@@ -622,6 +625,7 @@ export function ImageGenerationDialog({
           // Load referenceImage from thread or initialImageUrl
           setReferenceImage(threadToLoad.referenceImage || initialImageUrl || null);
           setReferenceVideo(threadToLoad.referenceVideo || null);
+          setCharacterVideo((threadToLoad as typeof threadToLoad & { characterVideo?: string }).characterVideo || null);
         }
         // Set main image/video IDs - convert from thread format to display format if needed
         // Only set if we didn't already set them during sync
@@ -1767,6 +1771,32 @@ export function ImageGenerationDialog({
     }
   };
 
+  // Handler for uploading Act Two character video
+  const handleUploadCharacterVideo = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('video/')) {
+      alert('Please select a video file');
+      return;
+    }
+
+    try {
+      const fileKey = `episodes/${episodeId}/character-videos/${Date.now()}-${file.name}`;
+      const result = await uploadFile(file, fileKey);
+      if (result) {
+        setCharacterVideo(result.url);
+      }
+    } catch (error) {
+      console.error('Error uploading character video:', error);
+      alert('Failed to upload character video');
+    }
+
+    if (characterVideoFileInputRef.current) {
+      characterVideoFileInputRef.current.value = '';
+    }
+  };
+
   // Handler for uploading additional reference image
   const handleUploadAdditionalReferenceImage = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -1847,6 +1877,7 @@ export function ImageGenerationDialog({
       endFrame: endFrame || undefined,
       referenceImage: referenceImage || undefined,
       referenceVideo: referenceVideo || undefined,
+      characterVideo: characterVideo || undefined,
       mainImageId: mainImageId || selectedImageId || undefined,
       mainVideoId: mainVideoId || undefined,
       messages: messages,
@@ -2295,6 +2326,8 @@ export function ImageGenerationDialog({
                   className="hidden"
                 />
               </div>
+
+              {/* Note: Act Two uses images for character (not videos) - see main image or generated images above */}
             </div>
 
             {/* Right Column - Generated Content Grid + Prompt Area */}
@@ -3349,8 +3382,8 @@ export function ImageGenerationDialog({
               </div>
             )}
 
-            {/* Duration Selection */}
-            {videoModel.startsWith('runway') ? (
+            {/* Duration Selection - NOT shown for ACT Two character performance */}
+            {videoModel.startsWith('runway') && !(videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video') ? (
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Video Duration: {runwayDuration}s
@@ -3636,7 +3669,7 @@ export function ImageGenerationDialog({
                       if (referenceVideo && getMainImageUrl()) {
                         setSelectedVideoInputType('reference-video');
                       } else {
-                        alert('Both main image and reference video are required for Act Two character performance.');
+                        alert('Act Two requires a reference video and a character image (main image or generated image).');
                       }
                     } else {
                       alert('Reference video generation is not yet implemented for this model.');
@@ -3684,19 +3717,28 @@ export function ImageGenerationDialog({
             </div>
             )}
 
-            {/* Prompt */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Prompt (editable)
-              </label>
-              <textarea
-                value={videoPrompt}
-                onChange={(e) => setVideoPrompt(e.target.value)}
-                rows={4}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none"
-                placeholder="Enter video generation prompt (pre-populated with audio text)..."
-              />
-            </div>
+            {/* Prompt - NOT shown for ACT Two character performance */}
+            {!(videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video') && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Prompt (editable)
+                </label>
+                <textarea
+                  value={videoPrompt}
+                  onChange={(e) => setVideoPrompt(e.target.value)}
+                  rows={4}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none"
+                  placeholder="Enter video generation prompt (pre-populated with audio text)..."
+                />
+              </div>
+            )}
+            {videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video' && (
+              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm text-blue-800">
+                  <strong>ACT Two Character Performance:</strong> This model controls your character's facial expressions and body movements based on the reference video. No prompt or duration needed - the character will follow the reference video's performance.
+                </p>
+              </div>
+            )}
 
             {/* Generate Button */}
             <div className="flex items-center justify-end gap-2">
@@ -3754,7 +3796,7 @@ export function ImageGenerationDialog({
                     
                     if (videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video') {
                       if (!referenceVideo || !getMainImageUrl()) {
-                        alert('Both main image (character) and reference video are required for Act Two');
+                        alert('Act Two requires a reference video and a character image (main image or generated image)');
                         return;
                       }
                     }
@@ -3775,6 +3817,7 @@ export function ImageGenerationDialog({
                       episodeId: string;
                       type?: 'image-to-video' | 'frames-to-video' | 'character-performance';
                       imageUrl?: string;
+                      characterVideoUrl?: string;
                       startFrameUrl?: string;
                       endFrameUrl?: string;
                       referenceVideoUrl?: string;
@@ -3843,7 +3886,8 @@ export function ImageGenerationDialog({
                         requestBody.duration = 8; // Must be 8 for frames-to-video (interpolation)
                       }
                     } else if (videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video') {
-                      // Act Two character performance
+                      // Act Two character performance - uses image for character (not video)
+                      // Note: ACT Two character performance does NOT use prompt or duration
                       requestBody.type = 'character-performance';
                       const mainImageUrl = getMainImageUrl();
                       if (mainImageUrl) {
@@ -3852,7 +3896,7 @@ export function ImageGenerationDialog({
                       if (referenceVideo) {
                         requestBody.referenceVideoUrl = referenceVideo;
                       }
-                      requestBody.runwayDuration = runwayDuration;
+                      // Do NOT send prompt or duration for ACT Two character-performance
                     } else if (!videoModel.startsWith('kling') && selectedVideoInputType === 'main') {
                       // Image to video (for SORA and other non-Kling models)
                       requestBody.type = 'image-to-video';
@@ -3985,7 +4029,7 @@ export function ImageGenerationDialog({
                   (!selectedVideoInputType || !videoPrompt.trim() || 
                    (selectedVideoInputType === 'main' && !getMainImageUrl()) ||
                    (selectedVideoInputType === 'start-end' && (!startFrame || !endFrame)) ||
-                   (videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video' && !referenceVideo))}
+                   (videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video' && (!referenceVideo || (!characterVideo && !getMainImageUrl()))))}
                 className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
               >
                 {isGeneratingVideo ? (
