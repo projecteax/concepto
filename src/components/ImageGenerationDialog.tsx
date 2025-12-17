@@ -1877,7 +1877,6 @@ export function ImageGenerationDialog({
       endFrame: endFrame || undefined,
       referenceImage: referenceImage || undefined,
       referenceVideo: referenceVideo || undefined,
-      characterVideo: characterVideo || undefined,
       mainImageId: mainImageId || selectedImageId || undefined,
       mainVideoId: mainVideoId || undefined,
       messages: messages,
@@ -4029,7 +4028,7 @@ export function ImageGenerationDialog({
                   (!selectedVideoInputType || !videoPrompt.trim() || 
                    (selectedVideoInputType === 'main' && !getMainImageUrl()) ||
                    (selectedVideoInputType === 'start-end' && (!startFrame || !endFrame)) ||
-                   (videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video' && (!referenceVideo || (!characterVideo && !getMainImageUrl()))))}
+                   (videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video' && (!referenceVideo || !getMainImageUrl())))}
                 className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
               >
                 {isGeneratingVideo ? (
