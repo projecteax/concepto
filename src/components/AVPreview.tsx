@@ -1653,8 +1653,8 @@ export function AVPreview({
   return (
     <div className="flex flex-col h-[calc(100vh-200px)] bg-gray-950 text-white rounded-lg overflow-hidden select-none">
       {/* Header / Toolbar */}
-      <div className="h-14 border-b border-gray-800 flex items-center justify-between px-4 bg-gray-900 shadow-sm">
-        <div className="flex items-center space-x-4">
+      <div className="border-b border-gray-800 bg-gray-900 shadow-sm px-3 py-3 sm:px-4 sm:h-14 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center bg-gray-800 rounded-lg p-1 border border-gray-700">
              <button
                 onClick={handlePlayFromBeginning}
@@ -1671,11 +1671,11 @@ export function AVPreview({
              </button>
           </div>
           
-          <div className="text-xl font-mono text-indigo-400 bg-gray-800 px-3 py-1 rounded border border-gray-700 min-w-[140px] text-center">
-            {formatTime(currentTime)} <span className="text-gray-500 text-base">/ {formatTime(duration)}</span>
+          <div className="text-base sm:text-xl font-mono text-indigo-400 bg-gray-800 px-3 py-1 rounded border border-gray-700 min-w-[140px] text-center">
+            {formatTime(currentTime)} <span className="text-gray-500 text-xs sm:text-base">/ {formatTime(duration)}</span>
           </div>
 
-          <div className="h-6 w-px bg-gray-800 mx-2" />
+          <div className="hidden sm:block h-6 w-px bg-gray-800 mx-2" />
 
           <select 
             value={selectedSegmentId}
@@ -1690,7 +1690,7 @@ export function AVPreview({
                 }
                 setCurrentTime(0); // Reset to beginning of scene
             }}
-            className="bg-gray-800 border border-gray-700 text-sm rounded-md px-3 py-1.5 text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="bg-gray-800 border border-gray-700 text-xs sm:text-sm rounded-md px-2 sm:px-3 py-1.5 text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           >
             {!avScript || avScript.segments.length === 0 ? (
               <option value="">No scenes available</option>
@@ -1704,21 +1704,21 @@ export function AVPreview({
           </select>
         </div>
 
-        <div className="flex items-center space-x-4">
+        <div className="flex flex-wrap items-center justify-start sm:justify-end gap-2 sm:gap-3">
           <div className="flex items-center space-x-2 bg-gray-800 rounded-lg p-1.5 border border-gray-700">
-            <span className="text-xs text-gray-400 font-medium px-2">Zoom</span>
+            <span className="text-[10px] sm:text-xs text-gray-400 font-medium px-2">Zoom</span>
             <input 
               type="range" 
               min="5" 
               max="100" 
               value={scale} 
               onChange={(e) => setScale(Number(e.target.value))}
-              className="w-24 accent-indigo-500 h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+              className="w-20 sm:w-24 accent-indigo-500 h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
             />
           </div>
           <button
             onClick={handleSaveProject}
-            className="flex items-center space-x-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded-md transition-all text-sm font-medium shadow-sm active:transform active:scale-95"
+            className="flex items-center space-x-1 sm:space-x-2 px-3 py-2 sm:px-4 bg-green-600 hover:bg-green-700 rounded-md transition-all text-xs sm:text-sm font-medium shadow-sm active:transform active:scale-95"
           >
             <Save className="w-4 h-4" />
             <span>Save Project</span>
@@ -1726,7 +1726,7 @@ export function AVPreview({
           <button
             onClick={handleExportFCPXML}
             disabled={isExportingFCPXML || !selectedSegmentId}
-            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-500 disabled:cursor-not-allowed rounded-md transition-all text-sm font-medium shadow-sm active:transform active:scale-95"
+            className="flex items-center space-x-1 sm:space-x-2 px-3 py-2 sm:px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-500 disabled:cursor-not-allowed rounded-md transition-all text-xs sm:text-sm font-medium shadow-sm active:transform active:scale-95"
           >
             <Download className="w-4 h-4" />
             <span>{isExportingFCPXML ? 'Exporting...' : 'Export FCP XML'}</span>
@@ -1734,7 +1734,7 @@ export function AVPreview({
           <button
             onClick={handleRender}
             disabled={isRendering || !selectedSegmentId}
-            className="flex items-center space-x-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-500 disabled:cursor-not-allowed rounded-md transition-all text-sm font-medium shadow-sm active:transform active:scale-95"
+            className="flex items-center space-x-1 sm:space-x-2 px-3 py-2 sm:px-4 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-500 disabled:cursor-not-allowed rounded-md transition-all text-xs sm:text-sm font-medium shadow-sm active:transform active:scale-95"
           >
             <Video className="w-4 h-4" />
             <span>{isRendering ? `Rendering... ${Math.round(renderProgress)}%` : 'Render Video'}</span>

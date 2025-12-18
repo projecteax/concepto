@@ -1162,17 +1162,17 @@ export default function EpisodeDetail({
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
+      <div className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center space-x-3 sm:space-x-4">
             <button
               onClick={onBack}
-              className="flex items-center space-x-2 text-gray-600 hover:text-gray-900"
+              className="flex items-center space-x-2 text-sm sm:text-base text-gray-600 hover:text-gray-900"
             >
               <ArrowLeft className="w-5 h-5" />
               <span>Back to Episodes</span>
             </button>
-            <div className="h-6 w-px bg-gray-300" />
+            <div className="hidden sm:block h-6 w-px bg-gray-300" />
             <div className="flex-1">
               {editingTitle ? (
                 <div className="flex items-center space-x-2">
@@ -1180,7 +1180,7 @@ export default function EpisodeDetail({
                     type="text"
                     value={tempTitle}
                     onChange={(e) => setTempTitle(e.target.value)}
-                    className="text-2xl font-bold text-gray-900 bg-transparent border-b-2 border-indigo-500 focus:outline-none flex-1"
+                    className="text-xl sm:text-2xl font-bold text-gray-900 bg-transparent border-b-2 border-indigo-500 focus:outline-none flex-1 min-w-0"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') handleSaveTitle();
                       if (e.key === 'Escape') handleCancelTitle();
@@ -1203,14 +1203,16 @@ export default function EpisodeDetail({
                 </div>
               ) : (
                 <h1 
-                  className="text-2xl font-bold text-gray-900 cursor-pointer hover:text-indigo-600 transition-colors"
+                  className="text-xl sm:text-2xl font-bold text-gray-900 cursor-pointer hover:text-indigo-600 transition-colors line-clamp-2"
                   onClick={() => setEditingTitle(true)}
                   title="Click to edit title"
                 >
                   {localEpisode.title}
                 </h1>
               )}
-              <p className="text-sm text-gray-500">{show.name} • Episode {localEpisode.episodeNumber}</p>
+              <p className="text-xs sm:text-sm text-gray-500 truncate">
+                {show.name} • Episode {localEpisode.episodeNumber}
+              </p>
             </div>
           </div>
         </div>
@@ -1218,13 +1220,13 @@ export default function EpisodeDetail({
 
       {/* Tabs */}
       <div className="bg-white border-b border-gray-200">
-        <div className="px-6 flex items-center justify-between">
-          <nav className="flex space-x-8">
+        <div className="px-4 sm:px-6 flex items-center justify-between">
+          <nav className="flex space-x-4 sm:space-x-8 overflow-x-auto no-scrollbar">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as 'overview' | 'av-script' | 'av-preview' | 'av-editing' | 'screenwriting' | 'characters' | 'locations' | 'gadgets')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                className={`py-3 sm:py-4 px-1 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap ${
                   activeTab === tab.id
                     ? 'border-indigo-500 text-indigo-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -1235,7 +1237,7 @@ export default function EpisodeDetail({
             ))}
           </nav>
           {activeTab === 'screenwriting' && (
-            <div className="flex items-center gap-3">
+            <div className="hidden md:flex items-center gap-3">
               <button
                 onClick={() => screenplayEditorRef.current?.togglePreview()}
                 className="px-3 py-1.5 rounded-md text-sm font-medium border bg-white hover:bg-gray-100 text-gray-800 flex items-center gap-2"
@@ -1276,7 +1278,7 @@ export default function EpisodeDetail({
       </div>
 
       {/* Content */}
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         {activeTab === 'overview' && (
           <div className="space-y-6">
             <div className="bg-white rounded-lg shadow p-6">

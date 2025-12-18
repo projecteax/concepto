@@ -865,23 +865,29 @@ export function AVScriptEditor({
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200">
         {/* Header */}
-        <div className="border-b border-gray-200 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900">{script.title}</h2>
-              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                {script.version}
-              </span>
+        <div className="border-b border-gray-200 p-4 sm:p-6">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-start justify-between gap-3 md:gap-4 w-full md:w-auto">
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-900">{script.title}</h2>
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 mt-1">
+                  {script.version}
+                </span>
+              </div>
+              <div className="md:hidden text-right">
+                <div className="text-xs text-gray-500">Total RT</div>
+                <div className="text-sm font-semibold text-gray-900">{formatDuration(script.totalRuntime)}</div>
+              </div>
             </div>
-            <div className="flex items-center gap-4">
-              <div className="text-right">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 md:gap-4">
+              <div className="hidden md:block text-right">
                 <div className="text-sm text-gray-500">Total RT</div>
                 <div className="text-lg font-semibold text-gray-900">{formatDuration(script.totalRuntime)}</div>
               </div>
               {/* Import AV Button */}
               <button
                 onClick={() => setShowImportAVDialog(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2 text-xs sm:text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
                 title="Import AV script from CSV file"
               >
                 <Upload className="w-4 h-4" />
@@ -890,7 +896,7 @@ export function AVScriptEditor({
               {/* Get API Button */}
               <button
                 onClick={() => setShowApiKeyDialog(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2 text-xs sm:text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
                 title="Get API configuration for Blender plugin"
               >
                 <Key className="w-4 h-4" />
@@ -900,7 +906,7 @@ export function AVScriptEditor({
               <button
                 onClick={handleDownloadPlugin}
                 disabled={isDownloadingPlugin}
-                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2 text-xs sm:text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Download Blender plugin as zip file"
               >
                 {isDownloadingPlugin ? (
@@ -914,7 +920,7 @@ export function AVScriptEditor({
               <button
                 onClick={() => setShowAutoPopulateDialog(true)}
                 disabled={!screenplayData}
-                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2 text-xs sm:text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
                 title="Auto-populate AV script from screenplay"
               >
                 <Sparkles className="w-4 h-4" />
@@ -924,7 +930,7 @@ export function AVScriptEditor({
               <button
                 onClick={handleManualSave}
                 disabled={isSaving}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2 text-xs sm:text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
                 title="Save manually"
               >
                 {isSaving ? (
@@ -941,16 +947,16 @@ export function AVScriptEditor({
               </button>
               {/* Save Status */}
               {lastSavedAt && !isSaving && (
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-gray-500 whitespace-nowrap">
                   Saved {new Date(lastSavedAt).toLocaleTimeString()}
                 </div>
               )}
             </div>
           </div>
-          <div className="mt-4 flex items-center space-x-6">
+          <div className="mt-3 sm:mt-4 flex flex-wrap items-center gap-4">
             <div>
-              <span className="text-sm text-gray-500">Total Words:</span>
-              <span className="ml-2 font-medium text-gray-900">{script.totalWords}</span>
+              <span className="text-xs sm:text-sm text-gray-500">Total Words:</span>
+              <span className="ml-2 text-sm sm:text-base font-medium text-gray-900">{script.totalWords}</span>
             </div>
           </div>
         </div>
@@ -1112,7 +1118,7 @@ export function AVScriptEditor({
 
             {/* Shots Table */}
             <div className="border border-gray-200 rounded-lg overflow-hidden">
-              <div className="grid grid-cols-12 bg-gray-50 border-b border-gray-200">
+              <div className="hidden md:grid grid-cols-12 bg-gray-50 border-b border-gray-200">
                 <div className="col-span-1 px-2 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Row</div>
                 <div className="col-span-1 px-1 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Take</div>
                 <div className="col-span-2 px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Audio</div>
@@ -2065,9 +2071,9 @@ function ShotRow({
   };
 
   return (
-    <div className="grid grid-cols-12 border-b border-gray-200 hover:bg-gray-50">
+    <div className="grid grid-cols-1 md:grid-cols-12 border-b border-gray-200 hover:bg-gray-50 gap-y-2 md:gap-y-0">
       {/* Row Number */}
-      <div className="col-span-1 px-2 py-3 flex flex-col">
+      <div className="col-span-12 md:col-span-1 px-2 py-3 flex flex-col">
         <div className="flex items-center mb-1">
           <div
             draggable={!isAnyPopupOpen && !!onDragStart}
@@ -2099,14 +2105,14 @@ function ShotRow({
       </div>
 
       {/* Take */}
-      <div className="col-span-1 px-1 py-3 flex items-center">
+      <div className="col-span-12 md:col-span-1 px-2 md:px-1 py-1 md:py-3 flex items-center">
         <div className="text-xs font-mono font-medium text-gray-900">
           {shot.take || `SC${segmentNumber.toString().padStart(2, '0')}T01`}
         </div>
       </div>
 
       {/* Audio */}
-      <div className="col-span-2 px-4 py-3">
+      <div className="col-span-12 md:col-span-2 px-2 md:px-4 py-1 md:py-3">
         <AutoResizeTextarea
           value={shot.audio}
           onChange={(e) => onUpdate({ audio: e.target.value })}
@@ -2427,7 +2433,7 @@ function ShotRow({
       </div>
 
       {/* Visual */}
-      <div className="col-span-2 px-4 py-3">
+      <div className="col-span-12 md:col-span-2 px-2 md:px-4 py-1 md:py-3">
         <AutoResizeTextarea
           value={shot.visual}
           onChange={(e) => onUpdate({ visual: e.target.value })}
@@ -2437,7 +2443,7 @@ function ShotRow({
       </div>
 
       {/* Image */}
-      <div className="col-span-2 px-4 py-3">
+      <div className="col-span-12 md:col-span-2 px-2 md:px-4 py-1 md:py-3">
         <div className="relative">
           {shot.imageUrl ? (
             <div className="relative group">
@@ -2511,7 +2517,7 @@ function ShotRow({
       </div>
 
       {/* Video */}
-      <div className="col-span-2 px-4 py-3">
+      <div className="col-span-12 md:col-span-2 px-2 md:px-4 py-1 md:py-3">
         <div className="relative">
           {shot.videoUrl ? (
             <div className="relative group">
@@ -2630,7 +2636,7 @@ function ShotRow({
       </div>
 
       {/* Duration & Actions */}
-      <div className="col-span-2 px-4 py-3">
+      <div className="col-span-12 md:col-span-2 px-2 md:px-4 py-2 md:py-3 border-t md:border-t-0 md:border-l border-gray-100">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <label className="text-xs font-medium text-gray-700">Duration:</label>

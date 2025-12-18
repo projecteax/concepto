@@ -124,8 +124,10 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
 
   // Industry standard formatting for A4 page
   // US Standard screenplay format: 8.5" x 11" with specific margins
+  // On mobile we cap the width to the viewport so the page fits without horizontal scrolling
   const pageStyles = {
-    width: '8.5in',
+    width: '100%',
+    maxWidth: '8.5in',
     minHeight: '11in',
     margin: '0 auto',
     padding: '1in 1in', // 1 inch top/bottom, 1 inch left/right
@@ -1631,12 +1633,12 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
       `}</style>
       <div className="h-full flex flex-col bg-white screenplay-editor" style={{ direction: 'ltr', unicodeBidi: 'embed' }} dir="ltr">
         {/* Editor with left sidebar */}
-        <div className="flex-1 bg-gray-100 p-6 flex">
+        <div className="flex-1 bg-gray-100 p-4 sm:p-6 flex flex-col lg:flex-row">
           {!isPreviewMode && (
-            <div className="w-16 mr-6 sticky top-4 self-start">
-              <div className="flex flex-col items-center gap-3">
+            <div className="mb-4 lg:mb-0 lg:w-16 lg:mr-6 lg:sticky top-4 self-start">
+              <div className="flex flex-row items-center gap-3 overflow-x-auto pb-2 lg:pb-0 lg:flex-col lg:items-center lg:gap-3">
                 {/* Language Toggle */}
-                <div className="flex flex-col gap-1 mb-2">
+                <div className="flex flex-row lg:flex-col gap-1 mb-2 flex-shrink-0">
                   <button
                     onClick={() => setLanguage('PL')}
                     className={`w-12 h-8 rounded-md font-medium text-xs transition-colors ${
@@ -1671,8 +1673,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                     <Wand2 className="w-5 h-5" />
                   </button>
                 )}
-                
-                <div className="w-full border-t border-gray-300 my-2"></div>
+                <div className="hidden lg:block w-full border-t border-gray-300 my-2"></div>
                 
                 <button
                   onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); addElement('scene-setting', selectedElementIdRef.current || undefined); }}
@@ -1787,7 +1788,10 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
 
           {/* Right comments panel */}
           {!isPreviewMode && activeCommentElementId && (
-            <div ref={commentsPanelRef} className="w-80 ml-6 sticky top-4 self-start bg-white border border-gray-200 rounded-lg shadow-sm p-3 h-fit max-h-[80vh] overflow-auto">
+            <div
+              ref={commentsPanelRef}
+              className="w-full mt-4 lg:mt-0 lg:w-80 lg:ml-6 lg:sticky top-4 self-start bg-white border border-gray-200 rounded-lg shadow-sm p-3 h-fit max-h-[80vh] overflow-auto"
+            >
               <div className="flex items-center justify-between mb-2">
                 <h4 className="font-medium text-gray-800 text-sm">Comments</h4>
                 <button
