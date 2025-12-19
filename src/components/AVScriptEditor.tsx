@@ -24,7 +24,8 @@ import {
   Key,
   Package,
   Video,
-  PlusCircle
+  PlusCircle,
+  Info
 } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { useSessionStorageState } from '@/hooks/useSessionStorageState';
@@ -74,6 +75,11 @@ export function AVScriptEditor({
   const [newSegmentTitle, setNewSegmentTitle] = useState('');
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
   const [enlargedVideo, setEnlargedVideo] = useState<string | null>(null);
+  const [promptModal, setPromptModal] = useState<{
+    type: 'image' | 'video';
+    prompt: string;
+    modelName?: string;
+  } | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
     type: 'segment' | 'shot' | 'image';
     id: string;
@@ -528,7 +534,7 @@ export function AVScriptEditor({
         segment.id === segmentId 
           ? {
               ...segment,
-              shots: segment.shots.map(shot => 
+              shots: segment.shots.map(shot =>
                 shot.id === shotId 
                   ? { 
                       ...shot, 
@@ -547,6 +553,211 @@ export function AVScriptEditor({
     setScript(updatedScript);
     // Don't save immediately - let autosave handle it (10 second debounce)
     // This prevents saving on every keystroke, reducing Firebase writes significantly
+  };
+
+  // Get default duration for a model if not provided
+  const getDefaultDuration = (modelName: string | undefined): number => {
+    if (!modelName) return 0;
+    
+    // Kling only supports 5 or 10 seconds
+    if (modelName.startsWith('kling')) {
+      return 5; // Default to 5 seconds
+    }
+    
+    // Veo typically uses 4, 6, or 8 seconds
+    if (modelName.startsWith('veo')) {
+      return 8; // Default to 8 seconds
+    }
+    
+    // Runway supports 2-10 seconds
+    if (modelName.startsWith('runway')) {
+      return 5; // Default to 5 seconds
+    }
+    
+    // Sora supports variable durations
+    if (modelName.startsWith('sora')) {
+      return 8; // Default to 8 seconds
+    }
+    
+    return 0;
+  };
+
+  // Calculate cost for a video generation
+  const calculateVideoCost = (
+    modelName: string | undefined,
+    duration: number | undefined,
+    resolution?: '720p' | '1080p',
+    klingMode?: 'std' | 'pro'
+  ): number => {
+    if (!modelName) return 0;
+    
+    // Use default duration if not provided (for existing videos)
+    const actualDuration = duration || getDefaultDuration(modelName);
+    if (!actualDuration) return 0;
+
+    // Runway API pricing (credits per second, 1 credit = $0.01)
+    if (modelName === 'runway-gen4-turbo') {
+      return (5 * actualDuration) * 0.01; // 5 credits/sec
+    }
+    if (modelName === 'runway-gen4-aleph') {
+      return (15 * actualDuration) * 0.01; // 15 credits/sec
+    }
+    if (modelName === 'runway-gen3a-turbo') {
+      return (5 * actualDuration) * 0.01; // 5 credits/sec
+    }
+    if (modelName === 'runway-upscale-v1') {
+      return (2 * actualDuration) * 0.01; // 2 credits/sec
+    }
+    if (modelName === 'runway-act-two') {
+      return (5 * actualDuration) * 0.01; // 5 credits/sec
+    }
+
+    // Veo 3.1 pricing
+    if (modelName === 'veo-3-1-flash' || modelName === 'veo-3-1-fast-generate-preview') {
+      return 0.15 * actualDuration; // $0.15/sec
+    }
+    if (modelName === 'veo-3-1-pro' || modelName === 'veo-3-1-generate-preview') {
+      return 0.40 * actualDuration; // $0.40/sec
+    }
+
+    // Veo 3.0 pricing
+    if (modelName === 'veo-3-0-fast-generate-001') {
+      return 0.15 * actualDuration; // $0.15/sec
+    }
+    if (modelName === 'veo-3-0-generate-001') {
+      return 0.40 * actualDuration; // $0.40/sec
+    }
+
+    // Kling 2.5 Turbo pricing (fixed prices based on duration and mode)
+    if (modelName === 'kling-v2-5-turbo') {
+      // Default to 'std' mode if not specified
+      const mode = klingMode || 'std';
+      if (mode === 'std') {
+        if (actualDuration === 5) return 0.21;
+        if (actualDuration === 10) return 0.42;
+        // If duration doesn't match exactly, use closest (5s default)
+        return 0.21;
+      } else if (mode === 'pro') {
+        if (actualDuration === 5) return 0.35;
+        if (actualDuration === 10) return 0.70;
+        // If duration doesn't match exactly, use closest (5s default)
+        return 0.35;
+      }
+      return 0; // Unknown mode
+    }
+
+    // Sora pricing
+    if (modelName === 'sora-2') {
+      return 0.10 * actualDuration; // $0.10/sec
+    }
+    if (modelName === 'sora-2-pro') {
+      if (resolution === '1080p' || resolution === '720p') {
+        return 0.30 * actualDuration; // $0.30/sec for 720p/1080p
+      }
+      return 0.30 * actualDuration; // Default to $0.30/sec
+    }
+
+    return 0; // Unknown model
+  };
+
+  // Calculate cost for a single shot
+  const calculateShotCost = (shot: AVShot): number => {
+    if (!shot.imageGenerationThread?.generatedVideos) return 0;
+    
+    let total = 0;
+    shot.imageGenerationThread.generatedVideos.forEach(video => {
+      // Check if manual cost is set (for both uploaded and generated videos without modelName)
+      if ((video as any).manualCost !== undefined && (video as any).manualCost > 0) {
+        total += (video as any).manualCost;
+      } else if (video.modelName) {
+        // Calculate cost for generated videos with modelName
+        total += calculateVideoCost(
+          video.modelName,
+          (video as any).duration,
+          (video as any).resolution,
+          (video as any).klingMode
+        );
+      }
+      // If no modelName and no manualCost, cost is 0
+    });
+    
+    return total;
+  };
+
+  // Calculate total cost for a segment
+  const calculateSegmentCost = (segment: AVSegment): number => {
+    return segment.shots.reduce((total, shot) => total + calculateShotCost(shot), 0);
+  };
+
+  // Helper function to extract prompt from shot
+  const getPromptFromShot = (shot: AVShot, type: 'image' | 'video'): { prompt: string; modelName?: string } | null => {
+    if (!shot.imageGenerationThread) return null;
+
+    const thread = shot.imageGenerationThread;
+
+    if (type === 'image') {
+      if (!shot.imageUrl) return null;
+
+      // First, try to find by mainImageId
+      if (thread.mainImageId) {
+        // Check if it's a generated image
+        const generatedImage = thread.generatedImages?.find(img => img.id === thread.mainImageId);
+        if (generatedImage && generatedImage.imageUrl === shot.imageUrl) {
+          return { prompt: generatedImage.prompt, modelName: generatedImage.modelName };
+        }
+        // Check if it's a reference image, start frame, or end frame
+        if (thread.mainImageId === 'referenceImage' && thread.referenceImage === shot.imageUrl) {
+          return { prompt: 'Reference image (uploaded)' };
+        }
+        if (thread.mainImageId === 'startFrame' && thread.startFrame === shot.imageUrl) {
+          return { prompt: 'Start frame (uploaded)' };
+        }
+        if (thread.mainImageId === 'endFrame' && thread.endFrame === shot.imageUrl) {
+          return { prompt: 'End frame (uploaded)' };
+        }
+      }
+
+      // Fallback: try to find by matching URL in generatedImages
+      const matchingImage = thread.generatedImages?.find(img => img.imageUrl === shot.imageUrl);
+      if (matchingImage) {
+        return { prompt: matchingImage.prompt, modelName: matchingImage.modelName };
+      }
+
+      // Final fallback: get the most recent generated image prompt
+      if (thread.generatedImages && thread.generatedImages.length > 0) {
+        const latestImage = thread.generatedImages[thread.generatedImages.length - 1];
+        return { prompt: latestImage.prompt, modelName: latestImage.modelName };
+      }
+    } else if (type === 'video') {
+      if (!shot.videoUrl) return null;
+
+      // First, try to find by mainVideoId
+      if (thread.mainVideoId) {
+        // Check if it's a generated video
+        const generatedVideo = thread.generatedVideos?.find(vid => vid.id === thread.mainVideoId);
+        if (generatedVideo && generatedVideo.videoUrl === shot.videoUrl) {
+          return { prompt: generatedVideo.prompt, modelName: generatedVideo.modelName };
+        }
+        // Check if it's a reference video
+        if (thread.mainVideoId === 'referenceVideo' && thread.referenceVideo === shot.videoUrl) {
+          return { prompt: 'Reference video (uploaded)' };
+        }
+      }
+
+      // Fallback: try to find by matching URL in generatedVideos
+      const matchingVideo = thread.generatedVideos?.find(vid => vid.videoUrl === shot.videoUrl);
+      if (matchingVideo) {
+        return { prompt: matchingVideo.prompt, modelName: matchingVideo.modelName };
+      }
+
+      // Final fallback: get the most recent generated video prompt
+      if (thread.generatedVideos && thread.generatedVideos.length > 0) {
+        const latestVideo = thread.generatedVideos[thread.generatedVideos.length - 1];
+        return { prompt: latestVideo.prompt, modelName: latestVideo.modelName };
+      }
+    }
+
+    return null;
   };
 
   const handleDeleteSegment = async (segmentId: string) => {
@@ -1004,7 +1215,12 @@ export function AVScriptEditor({
                     <h3 className="text-xl font-semibold text-gray-900">
                       Scene {segment.segmentNumber.toString().padStart(2, '0')}
                     </h3>
-                    <p className="text-sm text-gray-600">{segment.title}</p>
+                    <div className="flex items-center gap-3">
+                      <p className="text-sm text-gray-600">{segment.title}</p>
+                      <span className="text-sm font-semibold text-blue-700">
+                        TOTAL COST: ${calculateSegmentCost(segment).toFixed(2)}
+                      </span>
+                    </div>
                   </div>
                   <CommentThread 
                     targetType="av-segment" 
@@ -1166,6 +1382,7 @@ export function AVScriptEditor({
                       onUpdate={(updates) => handleUpdateShot(segment.id, shot.id, updates)}
                       onDragStart={handleDragStart}
                       isAnyPopupOpen={isAnyPopupOpen}
+                      calculateShotCost={calculateShotCost}
                       onImageUpload={async (file) => {
                         const result = await uploadFile(file, `episodes/${episodeId}/av-script/storyboards/`);
                         if (result) {
@@ -1308,6 +1525,12 @@ export function AVScriptEditor({
                       onImageGenerate={() => {
                         setCurrentShotForGeneration({ segmentId: segment.id, shotId: shot.id });
                         setShowImageGenerationDialog(true);
+                      }}
+                      onShowPrompt={(type) => {
+                        const promptData = getPromptFromShot(shot, type);
+                        if (promptData) {
+                          setPromptModal({ type, ...promptData });
+                        }
                       }}
                       onEnlargeImage={setEnlargedImage}
                       onEnlargeVideo={setEnlargedVideo}
@@ -1588,6 +1811,38 @@ export function AVScriptEditor({
         </div>
       )}
 
+      {/* Prompt Info Modal */}
+      {promptModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50" onClick={() => setPromptModal(null)}>
+          <div className="relative max-w-2xl w-full mx-4 bg-white rounded-lg shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Generation Prompt {promptModal.type === 'image' ? '(Image)' : '(Video)'}
+              </h3>
+              <button
+                onClick={() => setPromptModal(null)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6">
+              {promptModal.modelName && (
+                <div className="mb-4">
+                  <span className="text-sm font-medium text-gray-700">Model: </span>
+                  <span className="text-sm text-gray-600">{promptModal.modelName}</span>
+                </div>
+              )}
+              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <p className="text-sm text-gray-800 whitespace-pre-wrap break-words">
+                  {promptModal.prompt || 'No prompt available'}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Image Generation Dialog */}
       {showImageGenerationDialog && currentShotForGeneration && (() => {
         const segment = script.segments.find(s => s.id === currentShotForGeneration.segmentId);
@@ -1839,9 +2094,11 @@ interface ShotRowProps {
   onAudioUpload: (file: File, audioFileId: string, voiceId: string, voiceName: string) => Promise<void>;
   onAudioGenerate: (text: string, voiceId: string, voiceName: string) => Promise<void>;
   onImageGenerate?: () => void;
+  onShowPrompt?: (type: 'image' | 'video') => void;
   onPopupStateChange?: (isOpen: boolean) => void;
   onDragStart?: (e: React.DragEvent, shot: AVShot, segmentId: string, index: number) => void;
   isAnyPopupOpen?: boolean;
+  calculateShotCost?: (shot: AVShot) => number;
 }
 
 function ShotRow({ 
@@ -1861,9 +2118,11 @@ function ShotRow({
   onAudioUpload,
   onAudioGenerate,
   onImageGenerate,
+  onShowPrompt,
   onPopupStateChange,
   onDragStart,
-  isAnyPopupOpen = false
+  isAnyPopupOpen = false,
+  calculateShotCost
 }: ShotRowProps) {
   const [showAudioPopup, setShowAudioPopup] = useState(false);
   const [showEnhanceDialog, setShowEnhanceDialog] = useState(false);
@@ -2105,10 +2364,18 @@ function ShotRow({
       </div>
 
       {/* Take */}
-      <div className="col-span-12 md:col-span-1 px-2 md:px-1 py-1 md:py-3 flex items-center">
+      <div className="col-span-12 md:col-span-1 px-2 md:px-1 py-1 md:py-3 flex flex-col items-start">
         <div className="text-xs font-mono font-medium text-gray-900">
           {shot.take || `SC${segmentNumber.toString().padStart(2, '0')}T01`}
         </div>
+        {(() => {
+          const cost = calculateShotCost ? calculateShotCost(shot) : 0;
+          return cost > 0 ? (
+            <div className="text-xs font-semibold text-blue-700 mt-1">
+              ${cost.toFixed(2)}
+            </div>
+          ) : null;
+        })()}
       </div>
 
       {/* Audio */}
@@ -2477,6 +2744,18 @@ function ShotRow({
                     <Sparkles className="w-3 h-3" />
                   </button>
                 )}
+                {onShowPrompt && shot.imageGenerationThread && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onShowPrompt('image');
+                    }}
+                    className="bg-gray-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-gray-700"
+                    title="Show generation prompt"
+                  >
+                    <Info className="w-3 h-3" />
+                  </button>
+                )}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -2551,6 +2830,18 @@ function ShotRow({
                     title="Edit/Continue generation"
                   >
                     <Sparkles className="w-3 h-3" />
+                  </button>
+                )}
+                {onShowPrompt && shot.imageGenerationThread && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onShowPrompt('video');
+                    }}
+                    className="bg-gray-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-gray-700"
+                    title="Show generation prompt"
+                  >
+                    <Info className="w-3 h-3" />
                   </button>
                 )}
                 {onEnlargeVideo && (

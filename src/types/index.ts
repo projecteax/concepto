@@ -351,6 +351,10 @@ export interface AVShotImageGenerationThread {
     createdAt: Date;
     modelName?: string; // Model used for generation
     generatedAt?: Date; // Timestamp when generation occurred
+    manualCost?: number; // Manual cost entry (for uploaded videos or videos without modelName)
+    duration?: number; // Duration in seconds
+    resolution?: '720p' | '1080p'; // Video resolution
+    klingMode?: 'std' | 'pro'; // Kling AI mode
   }>;
   selectedImageId?: string;
   createdAt: Date;

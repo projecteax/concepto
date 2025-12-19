@@ -22,7 +22,8 @@ import {
   ChevronLeft,
   Star,
   Copy,
-  CheckCircle
+  CheckCircle,
+  Info
 } from 'lucide-react';
 import { GlobalAsset, Character, AVShotImageGenerationThread } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -98,6 +99,232 @@ export function ImageGenerationDialog({
     return modelName;
   };
 
+  // Load video duration from actual video file
+  const loadVideoDuration = (videoUrl: string): Promise<number> => {
+    return new Promise<number>((resolve) => {
+      // Check if we already have this duration
+      if (videoDurations[videoUrl]) {
+        resolve(videoDurations[videoUrl]);
+        return;
+      }
+
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      
+      const timeout = setTimeout(() => {
+        console.warn(`⚠️ Timeout loading video metadata for ${videoUrl}`);
+        resolve(0);
+      }, 5000); // 5 second timeout
+      
+      video.onloadedmetadata = () => {
+        clearTimeout(timeout);
+        if (video.duration && isFinite(video.duration)) {
+          const duration = Math.round(video.duration);
+          setVideoDurations(prev => ({ ...prev, [videoUrl]: duration }));
+          resolve(duration);
+        } else {
+          resolve(0);
+        }
+      };
+      
+      video.onerror = () => {
+        clearTimeout(timeout);
+        console.warn(`⚠️ Error loading video metadata for ${videoUrl}`);
+        resolve(0);
+      };
+      
+      video.src = videoUrl;
+    });
+  };
+
+  // Get default duration for a model if not provided (only used as fallback)
+  const getDefaultDuration = (modelName: string | undefined): number => {
+    if (!modelName) return 0;
+    
+    // Kling only supports 5 or 10 seconds
+    if (modelName.startsWith('kling')) {
+      return 5; // Default to 5 seconds
+    }
+    
+    // Veo typically uses 4, 6, or 8 seconds
+    if (modelName.startsWith('veo')) {
+      return 8; // Default to 8 seconds
+    }
+    
+    // Runway supports 2-10 seconds
+    if (modelName.startsWith('runway')) {
+      return 5; // Default to 5 seconds
+    }
+    
+    // Sora supports variable durations
+    if (modelName.startsWith('sora')) {
+      return 8; // Default to 8 seconds
+    }
+    
+    return 0;
+  };
+
+  // Calculate cost for a video generation
+  const calculateVideoCost = (
+    modelName: string | undefined,
+    duration: number | undefined,
+    resolution?: '720p' | '1080p',
+    klingMode?: 'std' | 'pro'
+  ): number => {
+    if (!modelName) return 0;
+    
+    // Use default duration if not provided (for existing videos)
+    const actualDuration = duration || getDefaultDuration(modelName);
+    if (!actualDuration) return 0;
+
+    // Runway API pricing (credits per second, 1 credit = $0.01)
+    if (modelName === 'runway-gen4-turbo') {
+      return (5 * actualDuration) * 0.01; // 5 credits/sec
+    }
+    if (modelName === 'runway-gen4-aleph') {
+      return (15 * actualDuration) * 0.01; // 15 credits/sec
+    }
+    if (modelName === 'runway-gen3a-turbo') {
+      return (5 * actualDuration) * 0.01; // 5 credits/sec
+    }
+    if (modelName === 'runway-upscale-v1') {
+      return (2 * actualDuration) * 0.01; // 2 credits/sec
+    }
+    if (modelName === 'runway-act-two') {
+      return (5 * actualDuration) * 0.01; // 5 credits/sec
+    }
+
+    // Veo 3.1 pricing
+    if (modelName === 'veo-3-1-flash' || modelName === 'veo-3-1-fast-generate-preview') {
+      return 0.15 * actualDuration; // $0.15/sec
+    }
+    if (modelName === 'veo-3-1-pro' || modelName === 'veo-3-1-generate-preview') {
+      return 0.40 * actualDuration; // $0.40/sec
+    }
+
+    // Veo 3.0 pricing
+    if (modelName === 'veo-3-0-fast-generate-001') {
+      return 0.15 * actualDuration; // $0.15/sec
+    }
+    if (modelName === 'veo-3-0-generate-001') {
+      return 0.40 * actualDuration; // $0.40/sec
+    }
+
+    // Kling 2.5 Turbo pricing (fixed prices based on duration and mode)
+    if (modelName === 'kling-v2-5-turbo') {
+      // Default to 'std' mode if not specified
+      const mode = klingMode || 'std';
+      if (mode === 'std') {
+        if (actualDuration === 5) return 0.21;
+        if (actualDuration === 10) return 0.42;
+        // If duration doesn't match exactly, use closest (5s default)
+        return 0.21;
+      } else if (mode === 'pro') {
+        if (actualDuration === 5) return 0.35;
+        if (actualDuration === 10) return 0.70;
+        // If duration doesn't match exactly, use closest (5s default)
+        return 0.35;
+      }
+      return 0; // Unknown mode
+    }
+
+    // Sora pricing
+    if (modelName === 'sora-2') {
+      return 0.10 * actualDuration; // $0.10/sec
+    }
+    if (modelName === 'sora-2-pro') {
+      if (resolution === '1080p' || resolution === '720p') {
+        // Check if it's the higher resolution version (1024p)
+        // For now, assume 720p/1080p is $0.30/sec, but we'd need to track actual resolution
+        return 0.30 * actualDuration; // $0.30/sec for 720p/1080p
+      }
+      return 0.30 * actualDuration; // Default to $0.30/sec
+    }
+
+    return 0; // Unknown model
+  };
+
+  // Calculate total cost for all generations in this shot
+  const calculateTotalCost = (): number => {
+    let total = 0;
+
+    // Add costs for all generated videos
+    generatedVideos.forEach(video => {
+      // If manual cost is set, use it (especially for videos without modelName)
+      if (video.manualCost !== undefined && video.manualCost > 0) {
+        total += video.manualCost;
+      } else if (video.modelName) {
+        // Calculate cost based on model if available
+        total += calculateVideoCost(
+          video.modelName,
+          video.duration || videoDurations[video.videoUrl],
+          video.resolution,
+          video.klingMode
+        );
+      }
+      // If no modelName and no manualCost, cost is 0
+    });
+
+    // Add manual costs for uploaded videos
+    uploadedVideos.forEach(video => {
+      total += video.manualCost || 0;
+    });
+
+    return total;
+  };
+
+  // Group videos by model for cost breakdown
+  const getCostBreakdownByModel = (): Array<{modelName: string; count: number; totalCost: number}> => {
+    const modelMap = new Map<string, {count: number; totalCost: number}>();
+    
+    generatedVideos.forEach(video => {
+      let cost = 0;
+      let modelDisplayName = '';
+      
+      // If manual cost is set, use it
+      if (video.manualCost !== undefined && video.manualCost > 0) {
+        cost = video.manualCost;
+        modelDisplayName = video.modelName ? formatModelName(video.modelName) : 'Unknown Model';
+      } else if (video.modelName) {
+        // Calculate cost based on model if available
+        cost = calculateVideoCost(
+          video.modelName,
+          video.duration || videoDurations[video.videoUrl],
+          video.resolution,
+          video.klingMode
+        );
+        modelDisplayName = formatModelName(video.modelName);
+      } else {
+        // Skip videos with no model and no manual cost
+        return;
+      }
+      
+      if (!modelMap.has(modelDisplayName)) {
+        modelMap.set(modelDisplayName, { count: 0, totalCost: 0 });
+      }
+      
+      const existing = modelMap.get(modelDisplayName)!;
+      existing.count += 1;
+      existing.totalCost += cost;
+    });
+    
+    // Add uploaded videos with manual costs
+    const uploadedWithCost = uploadedVideos.filter(v => (v.manualCost || 0) > 0);
+    if (uploadedWithCost.length > 0) {
+      const totalUploadedCost = uploadedWithCost.reduce((sum, v) => sum + (v.manualCost || 0), 0);
+      modelMap.set('Uploaded Videos', { 
+        count: uploadedWithCost.length, 
+        totalCost: totalUploadedCost 
+      });
+    }
+    
+    return Array.from(modelMap.entries()).map(([modelName, data]) => ({
+      modelName,
+      count: data.count,
+      totalCost: data.totalCost,
+    }));
+  };
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [selectedAssets, setSelectedAssets] = useState<SelectedAsset[]>([]);
@@ -126,7 +353,9 @@ export function ImageGenerationDialog({
   const [characterVideo, setCharacterVideo] = useState<string | null>(null);
   const [mainImageId, setMainImageId] = useState<string | null>(null); // Can be 'startFrame', 'endFrame', 'referenceImage', or generated image ID
   const [mainVideoId, setMainVideoId] = useState<string | null>(null); // Can be 'referenceVideo' or generated video ID
-  const [generatedVideos, setGeneratedVideos] = useState<Array<{ id: string; videoUrl: string; prompt: string; createdAt: Date; modelName?: string; generatedAt?: Date }>>([]);
+  const [generatedVideos, setGeneratedVideos] = useState<Array<{ id: string; videoUrl: string; prompt: string; createdAt: Date; modelName?: string; generatedAt?: Date; duration?: number; resolution?: '720p' | '1080p'; klingMode?: 'std' | 'pro'; manualCost?: number }>>([]);
+  const [videoDurations, setVideoDurations] = useState<{[url: string]: number}>({});
+  const [editingGeneratedVideoCost, setEditingGeneratedVideoCost] = useState<{id: string; cost: number} | null>(null);
   
   // VEO multi-image selection (up to 3 images)
   const [selectedVeoImages, setSelectedVeoImages] = useState<Array<{ url: string; filename: string; id: string }>>([]);
@@ -134,6 +363,11 @@ export function ImageGenerationDialog({
   const [isGeneratingStartFrame, setIsGeneratingStartFrame] = useState(false);
   const [isGeneratingEndFrame, setIsGeneratingEndFrame] = useState(false);
   const [showVideoGenerationModal, setShowVideoGenerationModal] = useState(false);
+  const [promptModal, setPromptModal] = useState<{
+    type: 'image' | 'video';
+    prompt: string;
+    modelName?: string;
+  } | null>(null);
   const [videoModel, setVideoModel] = useState<string>('veo-3-1-flash');
   const [videoPrompt, setVideoPrompt] = useState<string>('');
   const [selectedVideoInputType, setSelectedVideoInputType] = useState<'main' | 'start-end' | 'reference-video' | null>(null);
@@ -145,7 +379,8 @@ export function ImageGenerationDialog({
   const [klingMode, setKlingMode] = useState<'std' | 'pro'>('std'); // For Kling AI (Standard or Pro mode)
   const [enlargedContent, setEnlargedContent] = useState<{ type: 'image' | 'video'; url: string } | null>(null);
   const [uploadedImages, setUploadedImages] = useState<Array<{ id: string; imageUrl: string; createdAt: Date }>>([]);
-  const [uploadedVideos, setUploadedVideos] = useState<Array<{ id: string; videoUrl: string; createdAt: Date }>>([]);
+  const [uploadedVideos, setUploadedVideos] = useState<Array<{ id: string; videoUrl: string; createdAt: Date; manualCost?: number }>>([]);
+  const [editingVideoCost, setEditingVideoCost] = useState<{id: string; cost: number} | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'image' | 'video'; id: string; url: string } | null>(null);
   const isPerformingOperation = useRef(false); // Flag to prevent reloading during operations
   const lastLoadedThreadId = useRef<string | undefined>(undefined); // Track last loaded thread ID
@@ -341,6 +576,17 @@ export function ImageGenerationDialog({
     
     return prompt;
   };
+
+  // Load video durations when videos are loaded
+  useEffect(() => {
+    if (generatedVideos.length > 0) {
+      generatedVideos.forEach(video => {
+        if (video.videoUrl && !video.duration && !videoDurations[video.videoUrl]) {
+          loadVideoDuration(video.videoUrl);
+        }
+      });
+    }
+  }, [generatedVideos.length]); // Only run when number of videos changes
 
   // Initialize from existing thread or reset
   useEffect(() => {
@@ -645,7 +891,7 @@ export function ImageGenerationDialog({
         // Separate uploaded items from generated ones and deduplicate by URL
         // First, collect all unique URLs to avoid duplicates
         const uploadedImgsMap = new Map<string, { id: string; imageUrl: string; createdAt: Date | string | number }>();
-        const uploadedVidsMap = new Map<string, { id: string; videoUrl: string; createdAt: Date | string | number }>();
+        const uploadedVidsMap = new Map<string, { id: string; videoUrl: string; createdAt: Date | string | number; manualCost?: number }>();
         const genImagesMap = new Map<string, typeof allImages[0]>();
         const genVideosMap = new Map<string, typeof allVideos[0]>();
         
@@ -678,6 +924,7 @@ export function ImageGenerationDialog({
                 id: vid.id.startsWith('uploaded-vid-') ? vid.id : `uploaded-vid-${vid.id}`,
                 videoUrl: vid.videoUrl,
                 createdAt: vid.createdAt,
+                manualCost: (vid as any).manualCost,
               });
             }
           } else {
@@ -714,14 +961,41 @@ export function ImageGenerationDialog({
           modelName: img.modelName,
           generatedAt: img.generatedAt ? toDate(img.generatedAt) : undefined,
         })));
-        setGeneratedVideos(genVideos.map(v => ({
-          id: v.id,
-          videoUrl: v.videoUrl,
-          prompt: v.prompt,
-          createdAt: toDate(v.createdAt),
-          modelName: v.modelName,
-          generatedAt: v.generatedAt ? toDate(v.generatedAt) : undefined,
-        })));
+        // Load videos first, then load durations asynchronously
+        const videosWithoutDurations = genVideos.map((v) => {
+          let inferredDuration = (v as any).duration;
+          let inferredKlingMode = (v as any).klingMode;
+          let inferredManualCost = (v as any).manualCost;
+          
+          return {
+            id: v.id,
+            videoUrl: v.videoUrl,
+            prompt: v.prompt,
+            createdAt: toDate(v.createdAt),
+            modelName: v.modelName,
+            generatedAt: v.generatedAt ? toDate(v.generatedAt) : undefined,
+            duration: inferredDuration,
+            resolution: (v as any).resolution,
+            klingMode: inferredKlingMode,
+            manualCost: inferredManualCost,
+          };
+        });
+        
+        setGeneratedVideos(videosWithoutDurations);
+        
+        // Load durations for videos that don't have them (async, updates state when done)
+        (async () => {
+          for (const video of videosWithoutDurations) {
+            if (!video.duration && video.videoUrl) {
+              const duration = await loadVideoDuration(video.videoUrl);
+              if (duration > 0) {
+                setGeneratedVideos(prev => prev.map(v => 
+                  v.id === video.id ? { ...v, duration } : v
+                ));
+              }
+            }
+          }
+        })();
         setUploadedImages(uploadedImgs.map(img => ({
           ...img,
           createdAt: toDate(img.createdAt),
@@ -729,6 +1003,7 @@ export function ImageGenerationDialog({
         setUploadedVideos(uploadedVids.map(vid => ({
           ...vid,
           createdAt: toDate(vid.createdAt),
+          manualCost: (vid as any).manualCost,
         })));
         // Load uploaded images/videos from initialImageUrl if present and not already loaded
         // Use a Set to track existing URLs to avoid duplicates
@@ -1854,6 +2129,7 @@ export function ImageGenerationDialog({
         videoUrl: vid.videoUrl,
         prompt: 'Uploaded video',
         createdAt: vid.createdAt,
+        manualCost: vid.manualCost,
       })),
       ...generatedVideos.map(vid => ({
         id: vid.id,
@@ -1862,6 +2138,7 @@ export function ImageGenerationDialog({
         createdAt: vid.createdAt,
         modelName: vid.modelName,
         generatedAt: vid.generatedAt,
+        manualCost: vid.manualCost,
       })),
     ];
 
@@ -2331,6 +2608,27 @@ export function ImageGenerationDialog({
 
             {/* Right Column - Generated Content Grid + Prompt Area */}
             <div className="flex-1 flex flex-col overflow-hidden">
+              {/* Cost Breakdown */}
+              {generatedVideos.length > 0 && (
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-semibold text-gray-900">Generation Cost Breakdown</h3>
+                    <span className="text-lg font-bold text-blue-700">
+                      ${calculateTotalCost().toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    {getCostBreakdownByModel().map((item, idx) => (
+                      <div key={idx} className="text-xs text-gray-700 flex items-center justify-between">
+                        <span className="truncate flex-1">
+                          {item.modelName} {item.count > 1 && `×${item.count}`}
+                        </span>
+                        <span className="ml-2 font-medium">${item.totalCost.toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {/* Scrollable Generated Content Grid */}
               <div className="flex-1 overflow-y-auto mb-4">
                 {/* Grid with 3 items per row */}
@@ -2356,20 +2654,32 @@ export function ImageGenerationDialog({
                           MAIN
                         </div>
                       )}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleMain('startFrame');
-                        }}
-                        className={`absolute top-1 right-1 p-1 rounded z-10 ${
-                          mainImageId === 'startFrame'
-                            ? 'bg-green-600 text-white'
-                            : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
-                        }`}
-                        title="Set as Main"
-                      >
-                        <Star className="w-3 h-3" />
-                      </button>
+                      <div className="absolute top-1 right-1 flex gap-1 z-10">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPromptModal({ type: 'image', prompt: 'Start frame (uploaded)' });
+                          }}
+                          className="bg-gray-600 text-white rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-700"
+                          title="Show prompt"
+                        >
+                          <Info className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleMain('startFrame');
+                          }}
+                          className={`p-1 rounded ${
+                            mainImageId === 'startFrame'
+                              ? 'bg-green-600 text-white'
+                              : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                          }`}
+                          title="Set as Main"
+                        >
+                          <Star className="w-3 h-3" />
+                        </button>
+                      </div>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -2416,20 +2726,32 @@ export function ImageGenerationDialog({
                           MAIN
                         </div>
                       )}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleMain('endFrame');
-                        }}
-                        className={`absolute top-1 right-1 p-1 rounded z-10 ${
-                          mainImageId === 'endFrame'
-                            ? 'bg-green-600 text-white'
-                            : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
-                        }`}
-                        title="Set as Main"
-                      >
-                        <Star className="w-3 h-3" />
-                      </button>
+                      <div className="absolute top-1 right-1 flex gap-1 z-10">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPromptModal({ type: 'image', prompt: 'End frame (uploaded)' });
+                          }}
+                          className="bg-gray-600 text-white rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-700"
+                          title="Show prompt"
+                        >
+                          <Info className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleMain('endFrame');
+                          }}
+                          className={`p-1 rounded ${
+                            mainImageId === 'endFrame'
+                              ? 'bg-green-600 text-white'
+                              : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                          }`}
+                          title="Set as Main"
+                        >
+                          <Star className="w-3 h-3" />
+                        </button>
+                      </div>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -2473,20 +2795,32 @@ export function ImageGenerationDialog({
                           MAIN
                         </div>
                       )}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleMain('referenceImage');
-                        }}
-                        className={`absolute top-1 right-1 p-1 rounded z-10 ${
-                          mainImageId === 'referenceImage'
-                            ? 'bg-green-600 text-white'
-                            : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
-                        }`}
-                        title="Set as Main"
-                      >
-                        <Star className="w-3 h-3" />
-                      </button>
+                      <div className="absolute top-1 right-1 flex gap-1 z-10">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPromptModal({ type: 'image', prompt: 'Reference image (uploaded)' });
+                          }}
+                          className="bg-gray-600 text-white rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-700"
+                          title="Show prompt"
+                        >
+                          <Info className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleMain('referenceImage');
+                          }}
+                          className={`p-1 rounded ${
+                            mainImageId === 'referenceImage'
+                              ? 'bg-green-600 text-white'
+                              : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                          }`}
+                          title="Set as Main"
+                        >
+                          <Star className="w-3 h-3" />
+                        </button>
+                      </div>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -2564,6 +2898,16 @@ export function ImageGenerationDialog({
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
+                            setPromptModal({ type: 'image', prompt: 'Uploaded image' });
+                          }}
+                          className="bg-gray-600 text-white rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-700"
+                          title="Show prompt"
+                        >
+                          <Info className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
                             handleToggleMain(`uploaded-image-${img.id}`);
                           }}
                           className={`p-1 rounded ${
@@ -2591,50 +2935,149 @@ export function ImageGenerationDialog({
                   
                   {/* Uploaded Videos */}
                   {uploadedVideos.map((vid, idx) => (
-                    <div
-                      key={`uploaded-vid-${vid.id}-${idx}`}
-                      onClick={() => setEnlargedContent({ type: 'video', url: vid.videoUrl })}
-                      className="relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group"
-                    >
-                      <video
-                        src={vid.videoUrl}
-                        className="w-full h-full object-cover"
-                        muted
-                      />
-                      {/* Video camera icon to indicate this is a video */}
-                      <div className="absolute bottom-1 right-1 bg-black bg-opacity-60 rounded-full p-1.5 pointer-events-none z-10">
-                        <Video className="w-3 h-3 text-white" />
+                    <div key={`uploaded-vid-${vid.id}-${idx}`} className="flex flex-col">
+                      <div
+                        onClick={() => setEnlargedContent({ type: 'video', url: vid.videoUrl })}
+                        className="relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group"
+                      >
+                        <video
+                          src={vid.videoUrl}
+                          className="w-full h-full object-cover"
+                          muted
+                        />
+                        {/* Video camera icon to indicate this is a video */}
+                        <div className="absolute bottom-1 right-1 bg-black bg-opacity-60 rounded-full p-1.5 pointer-events-none z-10">
+                          <Video className="w-3 h-3 text-white" />
+                        </div>
+                        <div className="absolute top-1 right-1 flex gap-1 z-10">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPromptModal({ type: 'video', prompt: 'Uploaded video' });
+                            }}
+                            className="bg-gray-600 text-white rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-700"
+                            title="Show prompt"
+                          >
+                            <Info className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleMainVideo(`uploaded-video-${vid.id}`);
+                            }}
+                            className={`px-2 py-1 text-xs rounded ${
+                              mainVideoId === `uploaded-video-${vid.id}`
+                                ? 'bg-green-600 text-white'
+                                : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                            }`}
+                          >
+                            MAIN
+                          </button>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteConfirm({ type: 'video', id: vid.id, url: vid.videoUrl });
+                          }}
+                          className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-red-600"
+                          title="Delete video"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={(e) => handleDownloadVideo(vid.videoUrl, e)}
+                          className="absolute bottom-1 left-1 p-1 bg-blue-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-blue-600"
+                          title="Download video"
+                        >
+                          <Download className="w-3 h-3" />
+                        </button>
                       </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleMainVideo(`uploaded-video-${vid.id}`);
-                        }}
-                        className={`absolute top-1 right-1 px-2 py-1 text-xs rounded z-10 ${
-                          mainVideoId === `uploaded-video-${vid.id}`
-                            ? 'bg-green-600 text-white'
-                            : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
-                        }`}
-                      >
-                        MAIN
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeleteConfirm({ type: 'video', id: vid.id, url: vid.videoUrl });
-                        }}
-                        className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-red-600"
-                        title="Delete video"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                      <button
-                        onClick={(e) => handleDownloadVideo(vid.videoUrl, e)}
-                        className="absolute bottom-1 left-1 p-1 bg-blue-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-blue-600"
-                        title="Download video"
-                      >
-                        <Download className="w-3 h-3" />
-                      </button>
+                      {/* Metadata below thumbnail */}
+                      <div className="mt-1 px-1 space-y-0.5">
+                        <div className="text-xs text-gray-600">
+                          <span className="font-medium">Type:</span>{' '}
+                          <span className="text-gray-800">Uploaded</span>
+                        </div>
+                        {editingVideoCost?.id === vid.id ? (
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs font-medium text-gray-700">Cost: $</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={editingVideoCost.cost}
+                              onChange={(e) => {
+                                const value = parseFloat(e.target.value) || 0;
+                                setEditingVideoCost({ id: vid.id, cost: value });
+                              }}
+                              onBlur={() => {
+                                if (editingVideoCost) {
+                                  setUploadedVideos(prev => prev.map(v => 
+                                    v.id === vid.id ? { ...v, manualCost: editingVideoCost.cost } : v
+                                  ));
+                                  setEditingVideoCost(null);
+                                }
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  if (editingVideoCost) {
+                                    setUploadedVideos(prev => prev.map(v => 
+                                      v.id === vid.id ? { ...v, manualCost: editingVideoCost.cost } : v
+                                    ));
+                                    setEditingVideoCost(null);
+                                  }
+                                } else if (e.key === 'Escape') {
+                                  setEditingVideoCost(null);
+                                }
+                              }}
+                              className="w-16 px-1 py-0.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                              autoFocus
+                            />
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (editingVideoCost) {
+                                  setUploadedVideos(prev => prev.map(v => 
+                                    v.id === vid.id ? { ...v, manualCost: editingVideoCost.cost } : v
+                                  ));
+                                  setEditingVideoCost(null);
+                                }
+                              }}
+                              className="text-green-600 hover:text-green-800"
+                              title="Save cost"
+                            >
+                              <Check className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingVideoCost(null);
+                              }}
+                              className="text-red-600 hover:text-red-800"
+                              title="Cancel"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            <div className="text-xs font-semibold text-blue-700">
+                              <span className="font-medium">Cost:</span>{' '}
+                              ${(vid.manualCost || 0).toFixed(2)}
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingVideoCost({ id: vid.id, cost: vid.manualCost || 0 });
+                              }}
+                              className="text-gray-500 hover:text-gray-700"
+                              title="Edit cost"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ))}
                   
@@ -2674,6 +3117,16 @@ export function ImageGenerationDialog({
                           )}
                           {/* Icon buttons for first/last/main - positioned at corners */}
                           <div className="absolute top-1 right-1 flex gap-1 z-10">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPromptModal({ type: 'image', prompt: img.prompt, modelName: img.modelName });
+                              }}
+                              className="bg-gray-600 text-white rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-700"
+                              title="Show prompt"
+                            >
+                              <Info className="w-3 h-3" />
+                            </button>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -2783,19 +3236,31 @@ export function ImageGenerationDialog({
                           <div className="absolute bottom-1 right-1 bg-black bg-opacity-60 rounded-full p-1.5 pointer-events-none z-10">
                             <Video className="w-3 h-3 text-white" />
                           </div>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleToggleMainVideo(vid.id);
-                            }}
-                            className={`absolute top-1 right-1 px-2 py-1 text-xs rounded z-10 ${
-                              mainVideoId === vid.id
-                                ? 'bg-green-600 text-white'
-                                : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
-                            }`}
-                          >
-                            MAIN
-                          </button>
+                          <div className="absolute top-1 right-1 flex gap-1 z-10">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPromptModal({ type: 'video', prompt: vid.prompt, modelName: vid.modelName });
+                              }}
+                              className="bg-gray-600 text-white rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-700"
+                              title="Show prompt"
+                            >
+                              <Info className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleToggleMainVideo(vid.id);
+                              }}
+                              className={`px-2 py-1 text-xs rounded ${
+                                mainVideoId === vid.id
+                                  ? 'bg-green-600 text-white'
+                                  : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                              }`}
+                            >
+                              MAIN
+                            </button>
+                          </div>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -2820,6 +3285,106 @@ export function ImageGenerationDialog({
                             <span className="font-medium">Model:</span>{' '}
                             <span className="text-gray-800">{formatModelName(vid.modelName)}</span>
                           </div>
+                          {(vid.duration || videoDurations[vid.videoUrl]) && (
+                            <div className="text-xs text-gray-600">
+                              <span className="font-medium">Duration:</span>{' '}
+                              <span className="text-gray-800">
+                                {Math.round(vid.duration || videoDurations[vid.videoUrl] || 0)}s
+                              </span>
+                            </div>
+                          )}
+                          {(() => {
+                            const calculatedCost = vid.modelName 
+                              ? calculateVideoCost(vid.modelName, vid.duration || videoDurations[vid.videoUrl], vid.resolution, vid.klingMode)
+                              : 0;
+                            const displayCost = (vid.manualCost !== undefined && vid.manualCost > 0) 
+                              ? vid.manualCost 
+                              : calculatedCost;
+                            
+                            if (displayCost > 0 || !vid.modelName) {
+                              return editingGeneratedVideoCost?.id === vid.id ? (
+                                <div className="flex items-center gap-1">
+                                  <span className="text-xs font-medium text-gray-700">Cost: $</span>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={editingGeneratedVideoCost.cost}
+                                    onChange={(e) => {
+                                      const value = parseFloat(e.target.value) || 0;
+                                      setEditingGeneratedVideoCost({ id: vid.id, cost: value });
+                                    }}
+                                    onBlur={() => {
+                                      if (editingGeneratedVideoCost) {
+                                        setGeneratedVideos(prev => prev.map(v => 
+                                          v.id === vid.id ? { ...v, manualCost: editingGeneratedVideoCost.cost } : v
+                                        ));
+                                        setEditingGeneratedVideoCost(null);
+                                      }
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        if (editingGeneratedVideoCost) {
+                                          setGeneratedVideos(prev => prev.map(v => 
+                                            v.id === vid.id ? { ...v, manualCost: editingGeneratedVideoCost.cost } : v
+                                          ));
+                                          setEditingGeneratedVideoCost(null);
+                                        }
+                                      } else if (e.key === 'Escape') {
+                                        setEditingGeneratedVideoCost(null);
+                                      }
+                                    }}
+                                    className="w-16 px-1 py-0.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                    autoFocus
+                                  />
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (editingGeneratedVideoCost) {
+                                        setGeneratedVideos(prev => prev.map(v => 
+                                          v.id === vid.id ? { ...v, manualCost: editingGeneratedVideoCost.cost } : v
+                                        ));
+                                        setEditingGeneratedVideoCost(null);
+                                      }
+                                    }}
+                                    className="text-green-600 hover:text-green-800"
+                                    title="Save cost"
+                                  >
+                                    <Check className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingGeneratedVideoCost(null);
+                                    }}
+                                    className="text-red-600 hover:text-red-800"
+                                    title="Cancel"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1">
+                                  <div className="text-xs font-semibold text-blue-700">
+                                    <span className="font-medium">Cost:</span>{' '}
+                                    ${displayCost.toFixed(2)}
+                                    {vid.manualCost !== undefined && vid.manualCost > 0 && ' (manual)'}
+                                  </div>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingGeneratedVideoCost({ id: vid.id, cost: vid.manualCost || calculatedCost || 0 });
+                                    }}
+                                    className="text-gray-500 hover:text-gray-700"
+                                    title="Edit cost"
+                                  >
+                                    <Edit3 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
                           <div className="text-xs text-gray-600">
                             <span className="font-medium">Generated:</span>{' '}
                             <span className="text-gray-800">
@@ -3097,6 +3662,7 @@ export function ImageGenerationDialog({
                                 videoUrl: vid.videoUrl,
                                 prompt: 'Uploaded video',
                                 createdAt: vid.createdAt,
+                                manualCost: vid.manualCost,
                               })),
                               ...generatedVideos,
                             ];
@@ -3137,6 +3703,7 @@ export function ImageGenerationDialog({
                               id: uploadedVidId,
                               videoUrl: result.url,
                               createdAt: new Date(),
+                              manualCost: 0, // Default to 0, user can edit it
                             };
                             
                             const shouldSetAsMainVideo = !mainVideoId;
@@ -3172,15 +3739,30 @@ export function ImageGenerationDialog({
                             ];
                             
                             const allVideos = [
-                              ...uploadedVideos,
-                              newVideo,
-                              ...generatedVideos,
-                            ].map(vid => ({
-                              id: vid.id,
-                              videoUrl: vid.videoUrl,
-                              prompt: ('prompt' in vid && typeof vid.prompt === 'string') ? vid.prompt : 'Uploaded video',
-                              createdAt: vid.createdAt,
-                            }));
+                              ...uploadedVideos.map(vid => ({
+                                id: vid.id,
+                                videoUrl: vid.videoUrl,
+                                prompt: 'Uploaded video',
+                                createdAt: vid.createdAt,
+                                manualCost: vid.manualCost,
+                              })),
+                              {
+                                id: newVideo.id,
+                                videoUrl: newVideo.videoUrl,
+                                prompt: 'Uploaded video',
+                                createdAt: newVideo.createdAt,
+                                manualCost: newVideo.manualCost,
+                              },
+                              ...generatedVideos.map(vid => ({
+                                id: vid.id,
+                                videoUrl: vid.videoUrl,
+                                prompt: vid.prompt,
+                                createdAt: vid.createdAt,
+                                modelName: vid.modelName,
+                                generatedAt: vid.generatedAt,
+                                manualCost: vid.manualCost,
+                              })),
+                            ];
                             
                             const thread = {
                               id: existingThread?.id || `thread-${Date.now()}`,
@@ -3948,6 +4530,18 @@ export function ImageGenerationDialog({
                     const data = await response.json();
                     
                     if (data.videoUrl) {
+                      // Determine actual duration used
+                      let actualDuration: number;
+                      if (videoModel.startsWith('kling')) {
+                        actualDuration = klingDuration;
+                      } else if (videoModel.startsWith('runway')) {
+                        actualDuration = runwayDuration;
+                      } else if (selectedVideoInputType === 'start-end') {
+                        actualDuration = 8; // Frames-to-video always uses 8 seconds
+                      } else {
+                        actualDuration = videoDuration;
+                      }
+
                       // Add generated video to state immediately
                       // Use the selected model from dropdown instead of API response
                       const newVideo = {
@@ -3957,6 +4551,9 @@ export function ImageGenerationDialog({
                         createdAt: new Date(),
                         modelName: videoModel, // Use the selected model from dropdown
                         generatedAt: data.generatedAt ? new Date(data.generatedAt) : new Date(),
+                        duration: actualDuration,
+                        resolution: videoResolution,
+                        klingMode: videoModel.startsWith('kling') ? klingMode : undefined,
                       };
                       
                       // Update state immediately
@@ -4417,12 +5014,15 @@ export function ImageGenerationDialog({
                           videoUrl: vid.videoUrl,
                           prompt: 'Uploaded video',
                           createdAt: vid.createdAt,
+                          manualCost: vid.manualCost,
                         })),
                         ...generatedVideos.map(vid => ({
                           id: vid.id,
                           videoUrl: vid.videoUrl,
                           prompt: vid.prompt,
                           createdAt: vid.createdAt,
+                          modelName: vid.modelName,
+                          manualCost: vid.manualCost,
                         })),
                       ];
                       const thread: AVShotImageGenerationThread = {
@@ -4560,12 +5160,15 @@ export function ImageGenerationDialog({
                           videoUrl: vid.videoUrl,
                           prompt: 'Uploaded video',
                           createdAt: vid.createdAt,
+                          manualCost: vid.manualCost,
                         })),
                         ...generatedVideos.map(vid => ({
                           id: vid.id,
                           videoUrl: vid.videoUrl,
                           prompt: vid.prompt,
                           createdAt: vid.createdAt,
+                          modelName: vid.modelName,
+                          manualCost: vid.manualCost,
                         })),
                       ];
                       const thread: AVShotImageGenerationThread = {
@@ -4634,6 +5237,7 @@ export function ImageGenerationDialog({
                             videoUrl: vid.videoUrl,
                             prompt: 'Uploaded video',
                             createdAt: vid.createdAt,
+                            manualCost: vid.manualCost,
                           })),
                           ...newGeneratedVideos.map(vid => ({
                             id: vid.id,
@@ -4694,6 +5298,38 @@ export function ImageGenerationDialog({
               >
                 Cancel
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Prompt Info Modal */}
+      {promptModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50" onClick={() => setPromptModal(null)}>
+          <div className="relative max-w-2xl w-full mx-4 bg-white rounded-lg shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Generation Prompt {promptModal.type === 'image' ? '(Image)' : '(Video)'}
+              </h3>
+              <button
+                onClick={() => setPromptModal(null)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6">
+              {promptModal.modelName && (
+                <div className="mb-4">
+                  <span className="text-sm font-medium text-gray-700">Model: </span>
+                  <span className="text-sm text-gray-600">{formatModelName(promptModal.modelName)}</span>
+                </div>
+              )}
+              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <p className="text-sm text-gray-800 whitespace-pre-wrap break-words">
+                  {promptModal.prompt || 'No prompt available'}
+                </p>
+              </div>
             </div>
           </div>
         </div>
