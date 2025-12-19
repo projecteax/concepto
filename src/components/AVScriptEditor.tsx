@@ -666,16 +666,24 @@ export function AVScriptEditor({
     
     let total = 0;
     shot.imageGenerationThread.generatedVideos.forEach(video => {
+      // Type guard for video with extended properties
+      const videoWithExtras = video as typeof video & {
+        manualCost?: number;
+        duration?: number;
+        resolution?: '720p' | '1080p';
+        klingMode?: 'std' | 'pro';
+      };
+      
       // Check if manual cost is set (for both uploaded and generated videos without modelName)
-      if ((video as any).manualCost !== undefined && (video as any).manualCost > 0) {
-        total += (video as any).manualCost;
+      if (videoWithExtras.manualCost !== undefined && videoWithExtras.manualCost > 0) {
+        total += videoWithExtras.manualCost;
       } else if (video.modelName) {
         // Calculate cost for generated videos with modelName
         total += calculateVideoCost(
           video.modelName,
-          (video as any).duration,
-          (video as any).resolution,
-          (video as any).klingMode
+          videoWithExtras.duration,
+          videoWithExtras.resolution,
+          videoWithExtras.klingMode
         );
       }
       // If no modelName and no manualCost, cost is 0

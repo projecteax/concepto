@@ -917,6 +917,13 @@ export function ImageGenerationDialog({
         
         // Process videos - separate uploaded from generated
         allVideos.forEach(vid => {
+          const videoWithExtras = vid as typeof vid & {
+            manualCost?: number;
+            duration?: number;
+            resolution?: '720p' | '1080p';
+            klingMode?: 'std' | 'pro';
+          };
+          
           if (vid.prompt === 'Uploaded video') {
             // This is an uploaded video - add to uploadedVidsMap
             if (!uploadedVidsMap.has(vid.videoUrl)) {
@@ -924,7 +931,7 @@ export function ImageGenerationDialog({
                 id: vid.id.startsWith('uploaded-vid-') ? vid.id : `uploaded-vid-${vid.id}`,
                 videoUrl: vid.videoUrl,
                 createdAt: vid.createdAt,
-                manualCost: (vid as any).manualCost,
+                manualCost: videoWithExtras.manualCost,
               });
             }
           } else {
@@ -963,9 +970,16 @@ export function ImageGenerationDialog({
         })));
         // Load videos first, then load durations asynchronously
         const videosWithoutDurations = genVideos.map((v) => {
-          let inferredDuration = (v as any).duration;
-          let inferredKlingMode = (v as any).klingMode;
-          let inferredManualCost = (v as any).manualCost;
+          const videoWithExtras = v as typeof v & {
+            duration?: number;
+            resolution?: '720p' | '1080p';
+            klingMode?: 'std' | 'pro';
+            manualCost?: number;
+          };
+          
+          const inferredDuration = videoWithExtras.duration;
+          const inferredKlingMode = videoWithExtras.klingMode;
+          const inferredManualCost = videoWithExtras.manualCost;
           
           return {
             id: v.id,
@@ -975,7 +989,7 @@ export function ImageGenerationDialog({
             modelName: v.modelName,
             generatedAt: v.generatedAt ? toDate(v.generatedAt) : undefined,
             duration: inferredDuration,
-            resolution: (v as any).resolution,
+            resolution: videoWithExtras.resolution,
             klingMode: inferredKlingMode,
             manualCost: inferredManualCost,
           };
@@ -1000,11 +1014,14 @@ export function ImageGenerationDialog({
           ...img,
           createdAt: toDate(img.createdAt),
         })));
-        setUploadedVideos(uploadedVids.map(vid => ({
-          ...vid,
-          createdAt: toDate(vid.createdAt),
-          manualCost: (vid as any).manualCost,
-        })));
+        setUploadedVideos(uploadedVids.map(vid => {
+          const vidWithExtras = vid as typeof vid & { manualCost?: number };
+          return {
+            ...vid,
+            createdAt: toDate(vid.createdAt),
+            manualCost: vidWithExtras.manualCost,
+          };
+        }));
         // Load uploaded images/videos from initialImageUrl if present and not already loaded
         // Use a Set to track existing URLs to avoid duplicates
         const existingImageUrls = new Set(uploadedImgs.map(img => img.imageUrl));
