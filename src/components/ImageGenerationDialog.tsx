@@ -1059,26 +1059,28 @@ export function ImageGenerationDialog({
           const fullAsset = globalAssets.find(a => a.id === asset.id);
           if (!fullAsset) return null;
           
-          const thumbnailUrl = 
-            asset.type === 'gadget'
-              ? (fullAsset.aiRefImages?.fullGadget?.[0] || fullAsset.mainRender || fullAsset.galleryImages?.[0] || '')
-              : asset.type === 'location'
-                ? (fullAsset.aiRefImages?.ref01?.[0] || fullAsset.mainRender || fullAsset.galleryImages?.[0] || '')
-                : asset.type === 'vehicle'
-                  ? (fullAsset.aiRefImages?.exterior?.[0] || fullAsset.aiRefImages?.interior?.[0] || fullAsset.mainRender || fullAsset.galleryImages?.[0] || '')
-                  : ((fullAsset as Character).aiRefImages?.head?.[0] || (fullAsset as Character).mainImage || (fullAsset as Character).characterGallery?.[0] || '');
+          let thumbnailUrl = '';
+          if (asset.type === 'gadget') {
+            thumbnailUrl = fullAsset.aiRefImages?.fullGadget?.[0] || fullAsset.mainRender || fullAsset.galleryImages?.[0] || '';
+          } else if (asset.type === 'location') {
+            thumbnailUrl = fullAsset.aiRefImages?.ref01?.[0] || fullAsset.mainRender || fullAsset.galleryImages?.[0] || '';
+          } else if (asset.type === 'vehicle') {
+            thumbnailUrl = fullAsset.aiRefImages?.exterior?.[0] || fullAsset.aiRefImages?.interior?.[0] || fullAsset.mainRender || fullAsset.galleryImages?.[0] || '';
+          } else {
+            thumbnailUrl = ((fullAsset as Character).aiRefImages?.head?.[0] || (fullAsset as Character).mainImage || (fullAsset as Character).characterGallery?.[0] || '');
+          }
           
-          const images = 
-            asset.type === 'gadget'
-              ? [...(fullAsset.aiRefImages?.fullGadget || []).slice(0, 1), ...(fullAsset.mainRender ? [fullAsset.mainRender] : [])].slice(0, 1)
-              : asset.type === 'location'
-                ? [...(fullAsset.aiRefImages?.ref01 || []).slice(0, 1), ...(fullAsset.mainRender ? [fullAsset.mainRender] : [])].slice(0, 1)
-                : asset.type === 'vehicle'
-                  ? [...(fullAsset.aiRefImages?.exterior || []).slice(0, 1), ...(fullAsset.aiRefImages?.interior || []).slice(0, 1), ...(fullAsset.mainRender ? [fullAsset.mainRender] : [])].filter(Boolean).slice(0, 2)
-                  : [
-                      // Only use fullBody for characters
-                      ...((fullAsset as Character).aiRefImages?.fullBody || []).slice(0, 1),
-                    ];
+          let images: string[] = [];
+          if (asset.type === 'gadget') {
+            images = [...(fullAsset.aiRefImages?.fullGadget || []).slice(0, 1), ...(fullAsset.mainRender ? [fullAsset.mainRender] : [])].slice(0, 1);
+          } else if (asset.type === 'location') {
+            images = [...(fullAsset.aiRefImages?.ref01 || []).slice(0, 1), ...(fullAsset.mainRender ? [fullAsset.mainRender] : [])].slice(0, 1);
+          } else if (asset.type === 'vehicle') {
+            images = [...(fullAsset.aiRefImages?.exterior || []).slice(0, 1), ...(fullAsset.aiRefImages?.interior || []).slice(0, 1), ...(fullAsset.mainRender ? [fullAsset.mainRender] : [])].filter(Boolean).slice(0, 2);
+          } else {
+            // Only use fullBody for characters
+            images = [...((fullAsset as Character).aiRefImages?.fullBody || []).slice(0, 1)];
+          }
           
           return {
             id: asset.id,
