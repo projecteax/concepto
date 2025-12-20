@@ -281,7 +281,7 @@ function parseScreenplayResponse(text: string): ScreenplayElement[] {
         // Default to dialogue if we just had a character, otherwise action
         if (lastType === 'character') {
           currentType = 'dialogue';
-        } else if (lastType !== 'dialogue' && lastType !== 'parenthetical' && lastType !== 'character') {
+        } else if (lastType !== 'dialogue' && lastType !== 'parenthetical') {
           currentType = 'action';
         } else if (lastType === 'parenthetical') {
           currentType = 'dialogue';
