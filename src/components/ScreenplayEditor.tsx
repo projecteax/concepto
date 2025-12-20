@@ -78,6 +78,52 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
       localStorage.setItem('screenplay-language', language);
     }
   }, [language]);
+
+  // Sync localData when screenplayData prop changes
+  useEffect(() => {
+    if (screenplayData) {
+      setLocalData(prev => {
+        // Create a hash to detect actual changes - include content to catch content updates
+        const newHash = JSON.stringify({
+          title: screenplayData.title,
+          elementsCount: screenplayData.elements?.length || 0,
+          elementsENCount: screenplayData.elementsEN?.length || 0,
+          firstElementId: screenplayData.elements?.[0]?.id,
+          firstElementContent: screenplayData.elements?.[0]?.content?.substring(0, 50), // First 50 chars of content
+          lastElementId: screenplayData.elements?.[screenplayData.elements.length - 1]?.id,
+          lastElementContent: screenplayData.elements?.[screenplayData.elements.length - 1]?.content?.substring(0, 50),
+        });
+        
+        const prevHash = JSON.stringify({
+          title: prev.title,
+          elementsCount: prev.elements?.length || 0,
+          elementsENCount: prev.elementsEN?.length || 0,
+          firstElementId: prev.elements?.[0]?.id,
+          firstElementContent: prev.elements?.[0]?.content?.substring(0, 50),
+          lastElementId: prev.elements?.[prev.elements.length - 1]?.id,
+          lastElementContent: prev.elements?.[prev.elements.length - 1]?.content?.substring(0, 50),
+        });
+        
+        // Only update if data actually changed
+        if (newHash !== prevHash) {
+          console.log('🔄 ScreenplayEditor: Updating localData from prop', {
+            newElementsCount: screenplayData.elements?.length,
+            firstElementId: screenplayData.elements?.[0]?.id,
+            firstElementType: screenplayData.elements?.[0]?.type,
+            firstElementContent: screenplayData.elements?.[0]?.content?.substring(0, 100),
+            firstElementContentLength: screenplayData.elements?.[0]?.content?.length || 0,
+            prevElementsCount: prev.elements?.length || 0,
+          });
+          console.log('🔄 ScreenplayEditor: Full first element:', screenplayData.elements?.[0]);
+          return screenplayData;
+        } else {
+          console.log('⏭️ ScreenplayEditor: Hash unchanged, skipping update');
+        }
+        return prev;
+      });
+    }
+  }, [screenplayData]);
+
   const isFirstRenderRef = useRef(true);
   const autosaveTimerRef = useRef<number | null>(null);
   const commentsPanelRef = useRef<HTMLDivElement | null>(null);
@@ -1442,7 +1488,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                 }, 0);
               }
             }}
-            value={element.content}
+            value={element.content || ''}
             onChange={(e) => {
               if (language === 'EN') {
                 updateCurrentElement(element.id, e.target.value);

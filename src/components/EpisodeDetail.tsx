@@ -14,7 +14,8 @@ import {
   Upload,
   Download,
   Eye,
-  Users
+  Users,
+  Wand2
 } from 'lucide-react';
 import StoryboardDrawer from './StoryboardDrawer';
 import CommentThread from './CommentThread';
@@ -24,6 +25,8 @@ import { AVPreview } from './AVPreview';
 import ScreenplayEditor, { ScreenplayEditorHandle } from './ScreenplayEditor';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { useRealtimeEpisode } from '@/hooks/useRealtimeEpisode';
+import { EpisodeDescriptionGenerationDialog } from './EpisodeDescriptionGenerationDialog';
+import { ScreenplayGenerationDialog, ScreenplayVersion } from './ScreenplayGenerationDialog';
 
 interface EpisodeDetailProps {
   episode: Episode;
@@ -152,6 +155,11 @@ export default function EpisodeDetail({
   const [editingDescription, setEditingDescription] = useState(false);
   const [tempTitle, setTempTitle] = useState(episode.title);
   const [tempDescription, setTempDescription] = useState(episode.description || '');
+  const [showDescriptionDialog, setShowDescriptionDialog] = useState(false);
+  const [showScreenplayDialog, setShowScreenplayDialog] = useState(false);
+  
+  // Store screenplay versions in parent to persist across dialog opens/closes
+  const [screenplayVersions, setScreenplayVersions] = useState<ScreenplayVersion[]>([]);
   
   // Drawing states
   const [showDrawer, setShowDrawer] = useState(false);
@@ -1239,6 +1247,14 @@ export default function EpisodeDetail({
           {activeTab === 'screenwriting' && (
             <div className="hidden md:flex items-center gap-3">
               <button
+                onClick={() => setShowScreenplayDialog(true)}
+                className="px-3 py-1.5 rounded-md text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 flex items-center gap-2"
+                title="Auto-Create Screenplay with AI"
+              >
+                <Wand2 className="w-4 h-4" />
+                <span>Auto-Create</span>
+              </button>
+              <button
                 onClick={() => screenplayEditorRef.current?.togglePreview()}
                 className="px-3 py-1.5 rounded-md text-sm font-medium border bg-white hover:bg-gray-100 text-gray-800 flex items-center gap-2"
                 title="Preview"
@@ -1282,7 +1298,19 @@ export default function EpisodeDetail({
         {activeTab === 'overview' && (
           <div className="space-y-6">
             <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-lg font-medium text-gray-900 mb-4">Episode Description</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-medium text-gray-900">Episode Description</h2>
+                {!editingDescription && (
+                  <button
+                    onClick={() => setShowDescriptionDialog(true)}
+                    className="flex items-center space-x-1 px-3 py-1 text-xs bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 transition-colors"
+                    title="Generate description with AI"
+                  >
+                    <Wand2 className="w-3 h-3" />
+                    <span>Generate</span>
+                  </button>
+                )}
+              </div>
               {editingDescription ? (
                 <div className="space-y-3">
                   <textarea
@@ -1313,17 +1341,19 @@ export default function EpisodeDetail({
                   </div>
                 </div>
               ) : (
-                <div
-                  className="cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition-colors"
-                  onClick={() => setEditingDescription(true)}
-                  title="Click to edit description"
-                >
-                  <p className="text-gray-600">
-                    {localEpisode.description || 'No description available. Click to add one.'}
-                  </p>
-                  {!localEpisode.description && (
-                    <p className="text-sm text-gray-400 mt-1">Click to add description</p>
-                  )}
+                <div className="space-y-2">
+                  <div
+                    className="cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition-colors"
+                    onClick={() => setEditingDescription(true)}
+                    title="Click to edit description"
+                  >
+                    <p className="text-gray-600">
+                      {localEpisode.description || 'No description available. Click to add one.'}
+                    </p>
+                    {!localEpisode.description && (
+                      <p className="text-sm text-gray-400 mt-1">Click to add description</p>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -1487,22 +1517,148 @@ export default function EpisodeDetail({
         )}
 
         {activeTab === 'screenwriting' && (
-          <div className="bg-white rounded-lg shadow-sm h-full">
-            <ScreenplayEditor
-              ref={screenplayEditorRef}
-              episodeId={episode.id}
-              screenplayData={localEpisode.screenplayData || {
-                title: localEpisode.title || 'Untitled Screenplay',
-                elements: []
-              }}
-              onSave={(screenplayData) => {
-                setLocalEpisode(prev => ({ ...prev, screenplayData }));
-                setScreenplayLastSavedAt(Date.now());
-                onSave?.({ ...localEpisode, screenplayData });
-              }}
-            />
+          <div className="bg-white rounded-lg shadow-sm h-full flex flex-col">
+            {/* Mobile Auto-Create Button */}
+            <div className="md:hidden p-4 border-b border-gray-200">
+              <button
+                onClick={() => setShowScreenplayDialog(true)}
+                className="w-full px-4 py-2 rounded-md text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 flex items-center justify-center gap-2"
+                title="Auto-Create Screenplay with AI"
+              >
+                <Wand2 className="w-4 h-4" />
+                <span>Auto-Create Screenplay</span>
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto">
+              <ScreenplayEditor
+                key={`screenplay-${localEpisode.screenplayData?.elements?.length || 0}-${localEpisode.screenplayData?.elements?.[0]?.id || 'empty'}-${localEpisode.screenplayData?.elements?.[0]?.content?.substring(0, 20) || ''}`}
+                ref={screenplayEditorRef}
+                episodeId={episode.id}
+                screenplayData={localEpisode.screenplayData || {
+                  title: localEpisode.title || 'Untitled Screenplay',
+                  elements: []
+                }}
+                onSave={(screenplayData) => {
+                  setLocalEpisode(prev => ({ ...prev, screenplayData }));
+                  setScreenplayLastSavedAt(Date.now());
+                  onSave?.({ ...localEpisode, screenplayData });
+                }}
+              />
+            </div>
           </div>
         )}
+
+        {/* Screenplay Generation Dialog */}
+        <ScreenplayGenerationDialog
+          isOpen={showScreenplayDialog}
+          onClose={() => setShowScreenplayDialog(false)}
+          versions={screenplayVersions}
+          onVersionsChange={setScreenplayVersions}
+          onScreenplayGenerated={(elements) => {
+            console.log('📝 onScreenplayGenerated called with elements:', elements);
+            console.log('📝 Elements length:', elements.length);
+            console.log('📝 First element sample:', elements[0]);
+            console.log('📝 First element content:', elements[0]?.content);
+            console.log('📝 First element type:', elements[0]?.type);
+            
+            if (!elements || elements.length === 0) {
+              console.error('❌ No elements provided!');
+              return;
+            }
+            
+            // Create new screenplay data with generated elements
+            const timestamp = Date.now();
+            const newScreenplayData = {
+              title: localEpisode.title || 'Untitled Screenplay',
+              elements: elements.map((el, index) => {
+                // Ensure content is a string and not empty
+                const content = (el.content && typeof el.content === 'string' && el.content.trim()) 
+                  ? el.content.trim() 
+                  : '';
+                
+                const newElement = {
+                  id: `pl-element-${timestamp}-${index}`,
+                  type: el.type || 'general',
+                  content: content,
+                  position: index,
+                };
+                
+                if (index < 3) {
+                  console.log(`📝 Element ${index}:`, {
+                    id: newElement.id,
+                    type: newElement.type,
+                    contentLength: newElement.content.length,
+                    contentPreview: newElement.content.substring(0, 50),
+                  });
+                }
+                
+                return newElement;
+              }),
+              // Also create EN version (empty for now, can be translated later)
+              elementsEN: elements.map((el, index) => ({
+                id: `en-element-${timestamp}-${index}`,
+                type: el.type || 'general',
+                content: '', // Empty for now, will be translated later if needed
+                position: index,
+              })),
+            };
+            
+            console.log('📝 New screenplay data created:', {
+              title: newScreenplayData.title,
+              elementsCount: newScreenplayData.elements.length,
+              firstElement: newScreenplayData.elements[0],
+              firstElementContentLength: newScreenplayData.elements[0]?.content?.length || 0,
+            });
+            
+            // Create a new object reference to ensure React detects the change
+            const updatedEpisode = { 
+              ...localEpisode, 
+              screenplayData: {
+                ...newScreenplayData,
+                elements: [...newScreenplayData.elements], // New array reference
+                elementsEN: [...newScreenplayData.elementsEN], // New array reference
+              }
+            };
+            
+            console.log('📝 Updated episode:', {
+              screenplayDataExists: !!updatedEpisode.screenplayData,
+              elementsCount: updatedEpisode.screenplayData.elements.length,
+              firstElementId: updatedEpisode.screenplayData.elements[0]?.id,
+              firstElementContent: updatedEpisode.screenplayData.elements[0]?.content?.substring(0, 100),
+            });
+            
+            // Update local episode state
+            setLocalEpisode(updatedEpisode);
+            
+            // Save immediately
+            updateEpisodeAndSave(updatedEpisode, true);
+            
+            // Close dialog
+            setShowScreenplayDialog(false);
+            
+            // Force a re-render by updating the key after a short delay
+            setTimeout(() => {
+              // This will force ScreenplayEditor to remount with new data
+              const forceUpdateKey = `screenplay-${Date.now()}-${updatedEpisode.screenplayData.elements.length}`;
+              console.log('📝 Force update key:', forceUpdateKey);
+              
+              // Trigger a state update to force re-render
+              setLocalEpisode(prev => ({
+                ...prev,
+                screenplayData: {
+                  ...prev.screenplayData!,
+                  // Create new array references
+                  elements: prev.screenplayData!.elements.map(el => ({ ...el })),
+                  elementsEN: prev.screenplayData!.elementsEN?.map(el => ({ ...el })) || [],
+                }
+              }));
+            }, 100);
+          }}
+          showName={show.name}
+          showDescription={show.description || ''}
+          episodeTitle={localEpisode.title}
+          episodeDescription={localEpisode.description}
+        />
 
         {activeTab === 'characters' && (
           <div className="bg-white rounded-lg shadow p-6">
@@ -2172,6 +2328,22 @@ export default function EpisodeDetail({
           })()}
         </div>
       )}
+
+      {/* Episode Description Generation Dialog */}
+      <EpisodeDescriptionGenerationDialog
+        isOpen={showDescriptionDialog}
+        onClose={() => setShowDescriptionDialog(false)}
+        onDescriptionSelected={(description) => {
+          const updatedEpisode = { ...localEpisode, description: description.trim() };
+          setTempDescription(description.trim());
+          updateEpisodeAndSave(updatedEpisode);
+          setShowDescriptionDialog(false);
+        }}
+        showName={show.name}
+        showDescription={show.description || ''}
+        episodeTitle={localEpisode.title}
+        currentDescription={localEpisode.description}
+      />
     </div>
   );
 }

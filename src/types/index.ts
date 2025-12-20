@@ -75,6 +75,9 @@ export interface AIRefImages {
   // For gadgets
   fullGadget?: string[]; // Full gadget reference images
   multipleAnglesGadget?: string[]; // Multiple angles for gadgets
+  // For vehicles
+  interior?: string[]; // Interior reference images
+  exterior?: string[]; // Exterior reference images
 }
 
 export type AssetCategory = 
@@ -87,7 +90,7 @@ export type AssetCategory =
 
 export interface AssetConcept {
   category: AssetCategory;
-  conceptType?: 'pose' | 'clothing' | 'general' | 'expression' | 'action'; // Type of concept image
+  conceptType?: 'pose' | 'clothing' | 'general' | 'expression' | 'action' | 'interior' | 'exterior'; // Type of concept image
   tags: string[];
   isGenerated?: boolean;
   id: string;
@@ -120,10 +123,14 @@ export interface Character extends GlobalAsset {
 }
 
 export interface CharacterGeneral {
+  nickname?: string;
+  visualDescription?: string;
   age?: string;
   personality?: string;
   backstory?: string;
   specialAbilities?: string;
+  relations?: string; // Renamed from relationships
+  // Keep relationships for backward compatibility during migration
   relationships?: string;
 }
 

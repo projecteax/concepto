@@ -633,6 +633,7 @@ export function ConceptoApp({
                   onSave={isPublicMode ? () => {} : handleSaveCharacter}
                   onAddConcept={isPublicMode ? () => {} : handleAddConcept}
                   onDeleteConcept={isPublicMode ? () => {} : handleDeleteConcept}
+                  globalAssets={globalAssets}
                 />
               );
             case 'location':
@@ -642,6 +643,7 @@ export function ConceptoApp({
                   onBack={handleBackToGlobalAssets}
                   onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
                   onDeleteConcept={isPublicMode ? () => {} : handleDeleteConcept}
+                  globalAssets={globalAssets}
                 />
               );
             case 'gadget':
@@ -651,6 +653,7 @@ export function ConceptoApp({
                   onBack={handleBackToGlobalAssets}
                   onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
                   onDeleteConcept={isPublicMode ? () => {} : handleDeleteConcept}
+                  globalAssets={globalAssets}
                 />
               );
             case 'texture':
@@ -677,7 +680,9 @@ export function ConceptoApp({
                   vehicle={selectedAsset}
                   onBack={handleBackToGlobalAssets}
                   onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
+                  onAddConcept={isPublicMode ? () => {} : handleAddConcept}
                   onDeleteConcept={isPublicMode ? () => {} : handleDeleteConcept}
+                  globalAssets={globalAssets}
                 />
               );
             default:

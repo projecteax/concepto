@@ -25,11 +25,18 @@ import {
   Mic,
   Video,
   Edit3,
-  Sparkles
+  Sparkles,
+  Star,
+  ZoomIn
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { GLTFViewer } from './BabylonOnlyViewer';
+import { showService } from '@/lib/firebase-services';
+import { Show } from '@/types';
+import { BackstoryGenerationDialog } from './BackstoryGenerationDialog';
+import { AssetConceptGenerationDialog } from './AssetConceptGenerationDialog';
+import { GlobalAsset } from '@/types';
 
 interface CharacterDetailProps {
   character: Character;
@@ -37,6 +44,7 @@ interface CharacterDetailProps {
   onSave: (character: Character) => void;
   onAddConcept: (concept: Omit<AssetConcept, 'id' | 'createdAt' | 'updatedAt'>) => void;
   onDeleteConcept: (conceptId: string) => void;
+  globalAssets?: GlobalAsset[]; // For image generation context
 }
 
 export function CharacterDetail({
@@ -44,7 +52,8 @@ export function CharacterDetail({
   onBack,
   onSave,
   onAddConcept,
-  onDeleteConcept
+  onDeleteConcept,
+  globalAssets = []
 }: CharacterDetailProps) {
   const [activeTab, setActiveTab] = useState<'general' | 'clothing' | 'gallery' | 'pose-concepts' | '3d-models' | 'production' | 'voice' | 'video-examples' | 'ai-ref'>('general');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -147,6 +156,17 @@ export function CharacterDetail({
   const [uploadedVoiceFiles, setUploadedVoiceFiles] = useState<File[]>([]);
   const [uploadingVoiceFiles, setUploadingVoiceFiles] = useState<Map<string, { progress: number; error?: string }>>(new Map());
   const [voiceFormData, setVoiceFormData] = useState<Map<number, { description: string; language: string }>>(new Map());
+
+  // Show information for backstory generation
+  const [show, setShow] = useState<Show | null>(null);
+  const [showBackstoryDialog, setShowBackstoryDialog] = useState(false);
+  
+  // Image generation state
+  const [showImageGenerationDialog, setShowImageGenerationDialog] = useState(false);
+  const [selectedConceptIds, setSelectedConceptIds] = useState<Set<string>>(new Set());
+  
+  // REF assignment modal state
+  const [refAssignmentModal, setRefAssignmentModal] = useState<{ conceptId: string; imageUrl: string; conceptName: string } | null>(null);
   
   // Update uploadedModels state when character data changes
   useEffect(() => {
@@ -171,6 +191,31 @@ export function CharacterDetail({
     }
   }, [character.aiRefImages]);
 
+  // Fetch show information for backstory generation
+  useEffect(() => {
+    const fetchShow = async () => {
+      if (character.showId) {
+        try {
+          const shows = await showService.getAll();
+          const foundShow = shows.find(s => s.id === character.showId);
+          if (foundShow) {
+            setShow(foundShow);
+          }
+        } catch (error) {
+          console.error('Error fetching show:', error);
+        }
+      }
+    };
+    fetchShow();
+  }, [character.showId]);
+
+  // Migrate relationships to relations for backward compatibility
+  useEffect(() => {
+    if (general.relationships && !general.relations) {
+      setGeneral(prev => ({ ...prev, relations: prev.relationships }));
+    }
+  }, [general.relationships, general.relations]);
+
   // Handle ESC key to close image modal
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -188,12 +233,36 @@ export function CharacterDetail({
   // S3 upload hook
   const { uploadFile, uploadState } = useS3Upload();
 
+  const handleBackstoryGenerated = useCallback((backstory: string) => {
+    setGeneral(prev => ({ ...prev, backstory }));
+  }, []);
+
   const handleSave = useCallback(() => {
     console.log('💾 Saving character with uploadedModels:', uploadedModels);
+    // Ensure relations is set (migrate from relationships if needed)
+    // Remove undefined values to prevent Firestore errors
+    const relationsValue = general.relations || general.relationships;
+    const generalToSave: CharacterGeneral = {};
+    
+    // Only include defined fields
+    if (general.nickname !== undefined) generalToSave.nickname = general.nickname;
+    if (general.visualDescription !== undefined) generalToSave.visualDescription = general.visualDescription;
+    if (general.age !== undefined) generalToSave.age = general.age;
+    if (general.personality !== undefined) generalToSave.personality = general.personality;
+    if (general.backstory !== undefined) generalToSave.backstory = general.backstory;
+    if (general.specialAbilities !== undefined) generalToSave.specialAbilities = general.specialAbilities;
+    if (relationsValue !== undefined && relationsValue !== '') {
+      generalToSave.relations = relationsValue;
+    }
+    // Keep relationships for backward compatibility if it exists
+    if (general.relationships !== undefined && general.relationships !== '') {
+      generalToSave.relationships = general.relationships;
+    }
+    
     const updatedCharacter: Character = {
       ...character,
       name: name.trim(),
-      general,
+      general: generalToSave,
       clothing,
       pose,
       voice,
@@ -805,10 +874,33 @@ export function CharacterDetail({
   };
 
   const handleRemoveAIRefImage = (category: 'fullBody' | 'multipleAngles' | 'head' | 'expressions', index: number) => {
-    setAiRefImages(prev => ({
-      ...prev,
-      [category]: (prev[category] || []).filter((_, i) => i !== index)
-    }));
+    const updatedAiRefImages = {
+      ...aiRefImages,
+      [category]: (aiRefImages[category] || []).filter((_, i) => i !== index)
+    };
+    setAiRefImages(updatedAiRefImages);
+    
+    // Save to database
+    const updatedCharacter = { ...character, aiRefImages: updatedAiRefImages };
+    onSave(updatedCharacter);
+  };
+
+  const handleAssignToAIRef = (category: 'fullBody' | 'multipleAngles' | 'head' | 'expressions') => {
+    if (!refAssignmentModal) return;
+    
+    const { imageUrl } = refAssignmentModal;
+    const updatedAiRefImages = {
+      ...aiRefImages,
+      [category]: [...(aiRefImages[category] || []), imageUrl]
+    };
+    setAiRefImages(updatedAiRefImages);
+    
+    // Save to database
+    const updatedCharacter = { ...character, aiRefImages: updatedAiRefImages };
+    onSave(updatedCharacter);
+    
+    // Close modal
+    setRefAssignmentModal(null);
   };
 
   const handleRemoveVoiceSample = (index: number) => {
@@ -820,7 +912,7 @@ export function CharacterDetail({
 
   // Sort and filter concepts based on selected criteria
   const getSortedConcepts = () => {
-    let concepts = [...character.concepts];
+    let concepts = [...(character.concepts || [])];
     
     // Filter by concept type
     if (selectedConceptType !== 'all') {
@@ -844,20 +936,20 @@ export function CharacterDetail({
 
   // Get concept counts by type
   const getConceptCounts = () => {
+    const concepts = character.concepts || [];
     const counts = {
-      all: character.concepts.length,
-      pose: character.concepts.filter(c => c.conceptType === 'pose').length,
-      clothing: character.concepts.filter(c => c.conceptType === 'clothing').length,
-      general: character.concepts.filter(c => c.conceptType === 'general').length,
-      expression: character.concepts.filter(c => c.conceptType === 'expression').length,
-      action: character.concepts.filter(c => c.conceptType === 'action').length,
+      all: concepts.length,
+      pose: concepts.filter(c => c.conceptType === 'pose').length,
+      clothing: concepts.filter(c => c.conceptType === 'clothing').length,
+      general: concepts.filter(c => c.conceptType === 'general').length,
+      expression: concepts.filter(c => c.conceptType === 'expression').length,
+      action: concepts.filter(c => c.conceptType === 'action').length,
     };
     return counts;
   };
 
   const tabs = [
     { id: 'general', label: 'General', icon: Users },
-    { id: 'clothing', label: 'Clothing', icon: Shirt },
     { id: 'gallery', label: 'Gallery', icon: ImageIcon },
     { id: 'pose-concepts', label: 'Concepts', icon: ImageIcon },
     { id: 'video-examples', label: 'Video Examples', icon: Video },
@@ -1029,7 +1121,34 @@ export function CharacterDetail({
                     </div>
                   </div>
                   
+                  {/* Character Name - Display only */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      NAME
+                    </label>
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Character name"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-semibold"
+                    />
+                  </div>
+                  
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        NICKNAME
+                      </label>
+                      <input
+                        type="text"
+                        value={general.nickname || ''}
+                        onChange={(e) => setGeneral(prev => ({ ...prev, nickname: e.target.value }))}
+                        placeholder="e.g., Sparky, The Brave One"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      />
+                    </div>
+                    
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Age
@@ -1042,24 +1161,32 @@ export function CharacterDetail({
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                       />
                     </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Personality
-                      </label>
-                      <input
-                        type="text"
-                        value={general.personality || ''}
-                        onChange={(e) => setGeneral(prev => ({ ...prev, personality: e.target.value }))}
-                        placeholder="e.g., Brave, curious, friendly"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                      />
-                    </div>
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Backstory
+                      VISUAL DESCRIPTION
+                    </label>
+                    <textarea
+                      value={general.visualDescription || ''}
+                      onChange={(e) => setGeneral(prev => ({ ...prev, visualDescription: e.target.value }))}
+                      placeholder="Describe the character's appearance, including physical features, clothing style, colors, etc."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                      rows={4}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center justify-between">
+                      <span>BACKSTORY</span>
+                      <button
+                        onClick={() => setShowBackstoryDialog(true)}
+                        className="flex items-center space-x-1 px-2 py-1 text-xs bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 transition-colors"
+                        title="Generate backstory with AI"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        <span>Generate</span>
+                      </button>
                     </label>
                     <textarea
                       value={general.backstory || ''}
@@ -1067,6 +1194,32 @@ export function CharacterDetail({
                       placeholder="Tell the character's backstory..."
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
                       rows={4}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      PERSONALITY
+                    </label>
+                    <input
+                      type="text"
+                      value={general.personality || ''}
+                      onChange={(e) => setGeneral(prev => ({ ...prev, personality: e.target.value }))}
+                      placeholder="e.g., Brave, curious, friendly"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      RELATIONS
+                    </label>
+                    <textarea
+                      value={general.relations || general.relationships || ''}
+                      onChange={(e) => setGeneral(prev => ({ ...prev, relations: e.target.value, relationships: e.target.value }))}
+                      placeholder="Describe relationships with other characters..."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                      rows={3}
                     />
                   </div>
 
@@ -1082,19 +1235,6 @@ export function CharacterDetail({
                       rows={3}
                     />
                   </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Relationships
-                    </label>
-                    <textarea
-                      value={general.relationships || ''}
-                      onChange={(e) => setGeneral(prev => ({ ...prev, relationships: e.target.value }))}
-                      placeholder="Describe relationships with other characters..."
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
-                      rows={3}
-                    />
-                  </div>
                 </div>
               )}
 
@@ -1104,6 +1244,14 @@ export function CharacterDetail({
                   <div className="flex items-center justify-between">
                     <h3 className="text-xl font-semibold text-gray-900">Character Gallery</h3>
                     <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => setShowImageGenerationDialog(true)}
+                        className="flex items-center space-x-1 px-3 py-1 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 cursor-pointer"
+                        title="Generate image based on character description"
+                      >
+                        <Sparkles className="w-4 h-4" />
+                        <span>Generate Image</span>
+                      </button>
                       <input
                         type="file"
                         accept="image/*"
@@ -1436,494 +1584,46 @@ export function CharacterDetail({
                 </div>
               )}
 
-              {/* Pose & Concepts Tab */}
+              {/* Concepts Tab */}
               {activeTab === 'pose-concepts' && (
-                <div className="space-y-8">
-                  {/* Pose Section */}
                 <div className="space-y-6">
-                  <h3 className="text-xl font-semibold text-gray-900">Pose & Reference</h3>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Default Pose
-                    </label>
-                    <div className="flex space-x-4">
-                      <label className="flex items-center">
-                        <input
-                          type="radio"
-                          value="T-pose"
-                          checked={pose.defaultPose === 'T-pose'}
-                          onChange={(e) => setPose(prev => ({ ...prev, defaultPose: e.target.value as 'T-pose' | 'free-pose' }))}
-                          className="mr-2"
-                        />
-                        T-pose
-                      </label>
-                      <label className="flex items-center">
-                        <input
-                          type="radio"
-                          value="free-pose"
-                          checked={pose.defaultPose === 'free-pose'}
-                          onChange={(e) => setPose(prev => ({ ...prev, defaultPose: e.target.value as 'T-pose' | 'free-pose' }))}
-                          className="mr-2"
-                        />
-                        Free pose
-                      </label>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Pose Description
-                    </label>
-                    <textarea
-                      value={pose.poseDescription || ''}
-                      onChange={(e) => setPose(prev => ({ ...prev, poseDescription: e.target.value }))}
-                      placeholder="Describe the character's typical pose and stance..."
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
-                      rows={4}
-                    />
-                  </div>
-                  </div>
-
-                  {/* Concepts Section */}
+                  {/* Concepts Section - Redesigned to match dialog */}
                   <div className="space-y-6">
                     <div className="flex items-center justify-between">
-                      <h3 className="text-xl font-semibold text-gray-900">Concept Art</h3>
-                  </div>
-
-                    {/* Upload Section */}
-                    <div className="border border-gray-200 rounded-lg p-6">
-                      <h4 className="text-lg font-medium text-gray-900 mb-4">Upload Images & Videos</h4>
-                      <div className="space-y-4">
-                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                      <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                          <p className="text-sm text-gray-600 mb-2">Upload your own images or videos</p>
-                      <div className="flex items-center justify-center space-x-2">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        multiple
-                            onChange={handleImageUpload}
-                        className="hidden"
-                            id="image-upload"
-                      />
-                      <label
-                            htmlFor="image-upload"
-                            className="inline-block px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 cursor-pointer transition-colors"
-                      >
-                          Choose Images
-                        </label>
-                        <input
-                          type="file"
-                          accept="video/*"
-                          multiple
-                          onChange={async (e) => {
-                            const files = e.target.files;
-                            if (files && files.length > 0) {
-                              setUploadedVideos(Array.from(files));
-                              const videoFiles = Array.from(files);
-                              for (let i = 0; i < videoFiles.length; i++) {
-                                const file = videoFiles[i];
-                                const fileId = `${Date.now()}-video-${i}`;
-                                setUploadingFiles(prev => new Map(prev.set(fileId, { progress: 0 })));
-                                try {
-                                  const result = await uploadFile(file, `characters/${character.id}/concepts/videos`);
-                                  if (result && result.url) {
-                                    setUploadedVideoUrls(prev => [...prev, result.url]);
-                                    setUploadingFiles(prev => new Map(prev.set(fileId, { progress: 100 })));
-                                  } else {
-                                    setUploadingFiles(prev => new Map(prev.set(fileId, { progress: 0, error: 'Upload failed' })));
-                                  }
-                                } catch (error) {
-                                  console.error('Video upload error:', error);
-                                  setUploadingFiles(prev => new Map(prev.set(fileId, { progress: 0, error: 'Upload failed' })));
-                                }
-                              }
-                            }
-                          }}
-                          className="hidden"
-                          id="video-upload"
-                        />
-                        <label
-                          htmlFor="video-upload"
-                          className="inline-block px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 cursor-pointer transition-colors"
-                        >
-                          Choose Videos
-                      </label>
-                      </div>
-                    </div>
-
-                        {/* Uploaded Videos Preview */}
-                        {uploadedVideoUrls.length > 0 && (
-                          <div className="space-y-4">
-                            <h5 className="text-sm font-medium text-gray-700">Uploaded Videos</h5>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                              {uploadedVideoUrls.map((url, index) => {
-                                const fileId = `${Date.now()}-video-${index}`;
-                                const uploadInfo = uploadingFiles.get(fileId);
-                                const isUploading = uploadInfo && uploadInfo.progress < 100;
-                                const hasError = uploadInfo?.error;
-                                
-                                return (
-                                  <div key={index} className="relative border border-gray-200 rounded-lg overflow-hidden">
-                                    <div className="relative">
-                                      <video
-                                        src={url}
-                                        controls
-                                        className="w-full h-32 object-cover"
-                                      />
-                                      
-                                      {/* Upload Progress Overlay */}
-                                      {isUploading && (
-                                        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-                                          <div className="text-center text-white">
-                                            <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" />
-                                            <div className="text-xs">
-                                              {uploadInfo?.progress || 0}%
-                                            </div>
-                                          </div>
-                                        </div>
-                                      )}
-                                      
-                                      {/* Error Overlay */}
-                                      {hasError && (
-                                        <div className="absolute inset-0 bg-red-500 bg-opacity-75 flex items-center justify-center">
-                                          <div className="text-center text-white">
-                                            <AlertCircle className="w-6 h-6 mx-auto mb-2" />
-                                            <div className="text-xs">Upload Failed</div>
-                                          </div>
-                                        </div>
-                                      )}
-
-                                      {/* Success Indicator */}
-                                      {uploadInfo?.progress === 100 && !hasError && (
-                                        <div className="absolute top-2 right-2">
-                                          <CheckCircle className="w-5 h-5 text-green-500" />
-                                        </div>
-                                      )}
-                                    </div>
-                                    
-                                    <div className="p-3 space-y-2">
-                                      <textarea
-                                        placeholder="Description (optional)..."
-                                        value={imageFormData.get(index + 1000)?.description || ''}
-                                        onChange={(e) => {
-                                          const currentData = imageFormData.get(index + 1000) || { description: '', relevanceScale: 3 };
-                                          setImageFormData(new Map(imageFormData.set(index + 1000, { ...currentData, description: e.target.value })));
-                                        }}
-                                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-transparent resize-none"
-                                        rows={2}
-                                      />
-                                      
-                                      <div className="flex items-center space-x-2">
-                                        <label className="text-xs text-gray-600">Type:</label>
-                                        <select 
-                                          data-concept-type={index + 1000}
-                                          className="text-xs border border-gray-300 rounded px-1 py-1"
-                                          onChange={(e) => {
-                                            const currentData = imageFormData.get(index + 1000) || { description: '', relevanceScale: 3 };
-                                            setImageFormData(new Map(imageFormData.set(index + 1000, { ...currentData, conceptType: e.target.value as 'pose' | 'clothing' | 'general' | 'expression' | 'action' })));
-                                          }}
-                                        >
-                                          <option value="general">General</option>
-                                          <option value="pose">Pose</option>
-                                          <option value="clothing">Clothing</option>
-                                          <option value="expression">Expression</option>
-                                          <option value="action">Action</option>
-                                        </select>
-                                      </div>
-                                      
-                                      <div className="flex items-center justify-between">
-                                        <button
-                                          onClick={() => {
-                                            const formData = imageFormData.get(index + 1000);
-                                            const conceptTypeSelect = document.querySelector(`select[data-concept-type="${index + 1000}"]`) as HTMLSelectElement;
-                                            const conceptType = (conceptTypeSelect?.value as 'pose' | 'clothing' | 'general' | 'expression' | 'action') || 'general';
-                                            handleSaveUploadedConcept(null, url, formData?.description || '', formData?.relevanceScale || 3, conceptType);
-                                            setUploadedVideoUrls(prev => prev.filter((_, i) => i !== index));
-                                            setImageFormData(prev => {
-                                              const newMap = new Map(prev);
-                                              newMap.delete(index + 1000);
-                                              return newMap;
-                                            });
-                                          }}
-                                          className="px-3 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
-                                        >
-                                          Save as Concept
-                                        </button>
-                                        <button
-                                          onClick={() => {
-                                            setUploadedVideoUrls(prev => prev.filter((_, i) => i !== index));
-                                            setImageFormData(prev => {
-                                              const newMap = new Map(prev);
-                                              newMap.delete(index + 1000);
-                                              return newMap;
-                                            });
-                                          }}
-                                          className="px-3 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600"
-                                        >
-                                          Remove
-                                        </button>
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Uploaded Images Preview */}
-                        {uploadedImageUrls.length > 0 && (
-                          <div className="space-y-4">
-                            <h5 className="text-sm font-medium text-gray-700">Uploaded Images</h5>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                              {uploadedImageUrls.map((url, index) => {
-                                const fileId = `${Date.now()}-${index}`;
-                                const uploadInfo = uploadingFiles.get(fileId);
-                                const isUploading = uploadInfo && uploadInfo.progress < 100;
-                                const hasError = uploadInfo?.error;
-                                
-                                return (
-                                  <div key={index} className="relative border border-gray-200 rounded-lg overflow-hidden">
-                                    <div className="relative">
-                                      <img
-                                        src={url}
-                                        alt={`Uploaded ${index + 1}`}
-                                        className="w-full h-32 object-cover"
-                                      />
-                                      
-                                      {/* Upload Progress Overlay */}
-                                      {isUploading && (
-                                        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-                                          <div className="text-center text-white">
-                                            <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" />
-                                            <div className="text-xs">
-                                              {uploadInfo?.progress || 0}%
-                                            </div>
-                                          </div>
-                                        </div>
-                                      )}
-                                      
-                                      {/* Error Overlay */}
-                                      {hasError && (
-                                        <div className="absolute inset-0 bg-red-500 bg-opacity-75 flex items-center justify-center">
-                                          <div className="text-center text-white">
-                                            <AlertCircle className="w-6 h-6 mx-auto mb-2" />
-                                            <div className="text-xs">Upload Failed</div>
-                  </div>
-                </div>
-              )}
-
-                                      {/* Success Indicator */}
-                                      {uploadInfo?.progress === 100 && !hasError && (
-                                        <div className="absolute top-2 right-2">
-                                          <CheckCircle className="w-5 h-5 text-green-500" />
-                                        </div>
-                                      )}
-                                    </div>
-                                    
-                                    <div className="p-3 space-y-2">
-                                      <textarea
-                                        placeholder="Description (optional)..."
-                                        value={imageFormData.get(index)?.description || ''}
-                                        onChange={(e) => {
-                                          const currentData = imageFormData.get(index) || { description: '', relevanceScale: 3 };
-                                          setImageFormData(new Map(imageFormData.set(index, { ...currentData, description: e.target.value })));
-                                        }}
-                                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-transparent resize-none"
-                                        rows={2}
-                                      />
-                                      
-                                      <div className="flex items-center space-x-2">
-                                        <label className="text-xs text-gray-600">Type:</label>
-                                        <select 
-                                          data-concept-type={index}
-                                          className="text-xs border border-gray-300 rounded px-1 py-1"
-                                          onChange={(e) => {
-                                            const currentData = imageFormData.get(index) || { description: '', relevanceScale: 3 };
-                                            setImageFormData(new Map(imageFormData.set(index, { ...currentData, conceptType: e.target.value as 'pose' | 'clothing' | 'general' | 'expression' | 'action' })));
-                                          }}
-                                        >
-                                          <option value="general">General</option>
-                                          <option value="pose">Pose</option>
-                                          <option value="clothing">Clothing</option>
-                                          <option value="expression">Expression</option>
-                                          <option value="action">Action</option>
-                                        </select>
-                                      </div>
-                                      
-                                      <div className="flex items-center space-x-2">
-                                        <label className="text-xs text-gray-600">Relevance:</label>
-                                        <select 
-                                          value={imageFormData.get(index)?.relevanceScale || 3}
-                                          onChange={(e) => {
-                                            const currentData = imageFormData.get(index) || { description: '', relevanceScale: 3 };
-                                            setImageFormData(new Map(imageFormData.set(index, { ...currentData, relevanceScale: parseInt(e.target.value) })));
-                                          }}
-                                          className="text-xs border border-gray-300 rounded px-1 py-1"
-                                        >
-                                          <option value={1}>1 - Low</option>
-                                          <option value={2}>2 - Below Average</option>
-                                          <option value={3}>3 - Average</option>
-                                          <option value={4}>4 - Above Average</option>
-                                          <option value={5}>5 - High</option>
-                                        </select>
-                                      </div>
-                                      
-                                      <div className="flex justify-between">
-                                        <button
-                                          onClick={() => {
-                                            const formData = imageFormData.get(index);
-                                            const conceptTypeSelect = document.querySelector(`select[data-concept-type="${index}"]`) as HTMLSelectElement;
-                                            const conceptType = (conceptTypeSelect?.value as 'pose' | 'clothing' | 'general' | 'expression' | 'action') || 'general';
-                                            handleSaveUploadedConcept(url, null, formData?.description || '', formData?.relevanceScale || 3, conceptType);
-                                            removeUploadedImage(index);
-                                          }}
-                                          disabled={isUploading || !!hasError}
-                                          className={cn(
-                                            "text-xs px-2 py-1 rounded transition-colors",
-                                            isUploading || !!hasError
-                                              ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                                              : "bg-green-600 text-white hover:bg-green-700"
-                                          )}
-                                        >
-                                          Save
-                                        </button>
-                    <button
-                                          onClick={() => removeUploadedImage(index)}
-                                          className="text-xs px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700"
-                    >
-                                          Remove
-                    </button>
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                  </div>
-
-                  {/* Generation Panel */}
-                  <div className="border border-gray-200 rounded-lg p-6">
-                    <h4 className="text-lg font-medium text-gray-900 mb-4">Generate Concept Art</h4>
-                    <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Prompt
-                        </label>
-                        <textarea
-                          value={generationPrompt}
-                          onChange={(e) => setGenerationPrompt(e.target.value)}
-                          placeholder="Describe how you want the character to look..."
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
-                          rows={3}
-                        />
-                      </div>
-                      
-                      <button
-                        onClick={handleGenerateConcept}
-                        disabled={isGenerating || !generationPrompt.trim()}
-                        className={cn(
-                          "flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-colors",
-                          isGenerating || !generationPrompt.trim()
-                            ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                            : "bg-indigo-600 text-white hover:bg-indigo-700"
-                        )}
+                        <h3 className="text-xl font-semibold text-gray-900">Concept Art Gallery</h3>
+                        <p className="text-sm text-gray-500 mt-1">
+                          {(character.concepts || []).length} {(character.concepts || []).length === 1 ? 'concept' : 'concepts'}
+                          {mainImageUrl && (
+                            <span className="ml-2 text-green-600 flex items-center space-x-1">
+                              <Star className="w-3 h-3 fill-current" />
+                              <span>Main concept set</span>
+                            </span>
+                          )}
+                        </p>
+                  </div>
+                          <button
+                        onClick={() => setShowImageGenerationDialog(true)}
+                        className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 cursor-pointer"
+                        title="Generate concept art"
                       >
-                        {isGenerating ? (
-                          <>
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                            <span>Generating...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Wand2 className="w-4 h-4" />
-                            <span>Generate</span>
-                          </>
-                        )}
-                      </button>
+                        <Sparkles className="w-4 h-4" />
+                        <span>Generate Concept</span>
+                          </button>
                     </div>
 
-                    {/* Generated Image */}
-                    {generatedImage && (
-                      <div className="mt-6 space-y-4">
-                        <img
-                          src={generatedImage}
-                          alt="Generated concept"
-                          className="w-full max-w-md rounded-lg"
-                        />
-                        <div className="flex space-x-3">
-                          <input
-                            type="text"
-                            value={newConceptName}
-                            onChange={(e) => setNewConceptName(e.target.value)}
-                            placeholder="Concept name..."
-                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                          />
-                          <button
-                            onClick={handleSaveConcept}
-                            disabled={!newConceptName.trim()}
-                            className={cn(
-                              "px-4 py-2 rounded-lg font-medium transition-colors",
-                              newConceptName.trim()
-                                ? "bg-green-600 text-white hover:bg-green-700"
-                                : "bg-gray-100 text-gray-400 cursor-not-allowed"
-                            )}
-                          >
-                            Save Concept
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
 
-                    {/* Concepts Gallery */}
-                    {character.concepts.length > 0 ? (
-                      <div className="space-y-6">
-                        <div className="space-y-4">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <h4 className="text-xl font-semibold text-gray-900">
-                                Concept Gallery
-                              </h4>
-                              <p className="text-sm text-gray-600 mt-1">
-                                {getSortedConcepts().length} of {character.concepts.length} concepts
-                              </p>
-                            </div>
-                            
-                            {/* View Mode Toggle */}
-                            <div className="flex items-center border border-gray-300 rounded">
-                              <button
-                                onClick={() => setViewMode('grid')}
-                                className={cn(
-                                  "p-2 transition-colors",
-                                  viewMode === 'grid'
-                                    ? "bg-indigo-100 text-indigo-600"
-                                    : "text-gray-500 hover:text-gray-700"
-                                )}
-                              >
-                                <Grid3X3 className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => setViewMode('list')}
-                                className={cn(
-                                  "p-2 transition-colors",
-                                  viewMode === 'list'
-                                    ? "bg-indigo-100 text-indigo-600"
-                                    : "text-gray-500 hover:text-gray-700"
-                                )}
-                              >
-                                <List className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </div>
+                    {/* Concepts Gallery - Two-panel layout matching dialog */}
+                    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                      {/* Left Panel - Filters and Controls (matching dialog left panel) */}
+                      <div className="lg:col-span-1 space-y-4">
+                        <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                          <h4 className="text-sm font-semibold text-gray-900 mb-4">Filters</h4>
                           
-                          {/* Category Filters */}
-                          <div className="flex flex-wrap gap-2">
+                          {/* Concept Type Filter */}
+                          <div className="space-y-3 mb-4">
+                            <label className="block text-xs font-medium text-gray-700">Concept Type</label>
+                            <div className="space-y-2">
                             {(['all', 'pose', 'clothing', 'general', 'expression', 'action'] as const).map((type) => {
                               const counts = getConceptCounts();
                               return (
@@ -1931,229 +1631,250 @@ export function CharacterDetail({
                                   key={type}
                                   onClick={() => setSelectedConceptType(type)}
                                   className={cn(
-                                    "px-3 py-1 text-sm rounded-full transition-colors",
+                                      "w-full text-left px-3 py-2 text-sm rounded-lg transition-colors",
                                     selectedConceptType === type
                                       ? "bg-indigo-600 text-white"
-                                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                                  )}
-                                >
-                                  {type === 'all' ? 'All' : type.charAt(0).toUpperCase() + type.slice(1)} ({counts[type]})
+                                        : "bg-white text-gray-700 hover:bg-gray-100 border border-gray-200"
+                                    )}
+                                  >
+                                      <div className="flex items-center justify-between">
+                                      <span>{type === 'all' ? 'All Types' : type.charAt(0).toUpperCase() + type.slice(1)}</span>
+                                      <span className={cn(
+                                        "text-xs px-2 py-0.5 rounded-full",
+                                        selectedConceptType === type
+                                          ? "bg-white/20 text-white"
+                                          : "bg-gray-200 text-gray-600"
+                                      )}>
+                                        {counts[type]}
+                                      </span>
+                                      </div>
                                 </button>
-                              );
-                            })}
+                                );
+                              })}
+                            </div>
                           </div>
                           
-                          {/* Sort Controls */}
-                          <div className="flex items-center space-x-3">
-                            <Filter className="w-4 h-4 text-gray-500" />
+                          {/* Style Filter (for AI-generated concepts) */}
+                          <div className="space-y-3 mb-4">
+                            <label className="block text-xs font-medium text-gray-700">Art Style</label>
                             <select
                               value={sortBy}
                               onChange={(e) => setSortBy(e.target.value as 'newest' | 'oldest' | 'relevance' | 'name')}
-                              className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-1 focus:ring-indigo-500 focus:border-transparent"
+                              className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
                             >
                               <option value="newest">Newest First</option>
                               <option value="oldest">Oldest First</option>
                               <option value="relevance">Relevance</option>
                               <option value="name">Name A-Z</option>
                             </select>
-                          </div>
-                        </div>
-                        
-                        {/* Concepts Display */}
-                        <div className={cn(
-                          "gap-4",
-                          viewMode === 'grid' 
-                            ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3" 
-                            : "space-y-4"
-                        )}>
-                          {getSortedConcepts().map((concept) => (
+                                            </div>
+
+                          {/* Main Concept Indicator */}
+                          {mainImageUrl && (
+                            <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                              <div className="flex items-center space-x-2">
+                                <Star className="w-4 h-4 text-green-600 fill-current" />
+                                <div className="flex-1">
+                                  <div className="text-xs font-medium text-green-900">Main Concept</div>
+                                  <div className="text-xs text-green-700">Set as reference for future generations</div>
+                  </div>
+                </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                      </div>
+                                      
+                      {/* Right Panel - Concepts Grid (matching dialog right panel) */}
+                      <div className="lg:col-span-3">
+                        {(character.concepts || []).length > 0 ? (
+                          <div className="space-y-4">
+                            {/* Concepts Grid - Exact match to dialog style */}
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                              {getSortedConcepts().map((concept) => {
+                                const isMainConcept = concept.imageUrl === mainImageUrl;
+                                // Extract style from tags if available
+                                const conceptStyle = concept.tags?.find(tag => 
+                                  ['2d-disney', '3d-pixar', 'studio-ghibli', '2d-cartoon', '3d-realistic', 'watercolor', 'digital-painting'].includes(tag)
+                                );
+                                const styleLabel = conceptStyle 
+                                  ? conceptStyle.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+                                  : null;
+
+                                return (
                             <div 
                               key={concept.id} 
-                              className={cn(
-                                "border border-gray-200 rounded-lg overflow-hidden bg-white shadow-sm hover:shadow-md transition-all duration-200 hover:border-indigo-300",
-                                viewMode === 'list' && "flex"
-                              )}
-                            >
-                        {concept.imageUrl && (
-                                <div className={cn(
-                                  "relative group overflow-hidden",
-                                  viewMode === 'list' ? "w-32 h-32 flex-shrink-0" : "w-full h-48"
-                                )}>
+                                    className={`relative group border-2 rounded-lg overflow-hidden cursor-pointer transition-all bg-white ${
+                                      isMainConcept
+                                        ? 'border-green-500 ring-2 ring-green-200 shadow-lg'
+                                        : 'border-gray-200 hover:border-gray-300 hover:shadow-md'
+                                    }`}
+                                    onClick={(e) => {
+                                      // If clicking on checkbox, don't trigger image preview
+                                      if ((e.target as HTMLElement).closest('input[type="checkbox"]')) {
+                                        return;
+                                      }
+                                      setSelectedImage({ url: concept.imageUrl || concept.videoUrl || '', alt: concept.name });
+                                    }}
+                                  >
+                                    {/* REF Button */}
+                                    {concept.imageUrl && (
+                                      <div 
+                                        className="absolute top-2 left-2 z-20"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setRefAssignmentModal({
+                                            conceptId: concept.id,
+                                            imageUrl: concept.imageUrl!,
+                                            conceptName: concept.name
+                                          });
+                                        }}
+                                      >
+                                        <button
+                                          className="px-2 py-1 bg-indigo-600 text-white text-xs font-medium rounded shadow-lg hover:bg-indigo-700 transition-colors"
+                                          title="Assign to AI reference"
+                                        >
+                                          REF
+                                        </button>
+                                      </div>
+                                    )}
+                                    {concept.imageUrl ? (
                           <img
                             src={concept.imageUrl}
                             alt={concept.name}
-                            className={cn(
-                              "object-contain cursor-pointer",
-                              viewMode === 'list' ? "w-full h-full" : "w-full h-full"
-                            )}
-                            onClick={() => setSelectedImage({ url: concept.imageUrl!, alt: concept.name })}
-                            onError={(e) => {
-                              console.error('Image failed to load:', concept.imageUrl);
-                              const img = e.target as HTMLImageElement;
-                              img.style.backgroundColor = '#ff0000';
-                              img.style.color = '#ffffff';
-                              img.style.display = 'flex';
-                              img.style.alignItems = 'center';
-                              img.style.justifyContent = 'center';
-                              img.alt = 'Failed to load image';
-                            }}
-                            onLoad={(e) => {
-                              console.log('Image loaded successfully:', concept.imageUrl);
-                            }}
-                            style={{ 
-                              minHeight: viewMode === 'list' ? '128px' : '192px',
-                              backgroundColor: '#f8f9fa'
-                            }}
-                          />
-                        </div>
-                              )}
-                        {concept.videoUrl && (
-                          <div className={cn(
-                            "relative group overflow-hidden",
-                            viewMode === 'list' ? "w-32 h-32 flex-shrink-0" : "w-full h-48"
-                          )}>
+                                        className="w-full h-64 object-cover"
+                                      />
+                                    ) : concept.videoUrl ? (
                             <video
                               src={concept.videoUrl}
-                              controls
-                              className={cn(
-                                "object-contain",
-                                viewMode === 'list' ? "w-full h-full" : "w-full h-full"
-                              )}
-                            style={{ 
-                              minHeight: viewMode === 'list' ? '128px' : '192px',
-                              backgroundColor: '#f8f9fa'
-                            }}
-                          />
-                        </div>
-                              )}
+                                        className="w-full h-64 object-cover"
+                                        muted
+                                      />
+                                    ) : (
+                                      <div className="w-full h-64 bg-gray-100 flex items-center justify-center">
+                                        <ImageIcon className="w-12 h-12 text-gray-400" />
+                      </div>
+                    )}
                               
-                              <div className={cn(
-                                "p-4",
-                                viewMode === 'list' && "flex-1"
-                              )}>
-                                <div className="flex items-start justify-between">
-                                  <div className="flex-1">
-                                    <div className="flex items-center space-x-2 mb-2">
-                                      {editingConcept === concept.id ? (
-                                        <input
-                                          type="text"
-                                          defaultValue={concept.name}
-                                          className="font-medium text-gray-900 bg-transparent border-b border-gray-300 focus:border-indigo-500 focus:outline-none flex-1"
-                                          onBlur={(e) => {
-                                            if (e.target.value !== concept.name) {
-                                              handleUpdateConcept(concept.id, { name: e.target.value });
+                                    {/* Main Concept Badge */}
+                                    {isMainConcept && (
+                                      <div className="absolute top-2 left-2 bg-green-600 text-white px-2 py-1 rounded text-xs font-medium flex items-center space-x-1 shadow-lg z-10">
+                                        <Star className="w-3 h-3 fill-current" />
+                                        <span>Main Concept</span>
+                  </div>
+                                    )}
+
+                                    {/* Style Badge (for AI-generated) */}
+                                    {concept.isGenerated && styleLabel && (
+                                      <div className="absolute top-2 right-2 bg-indigo-600 text-white px-2 py-1 rounded text-xs font-medium shadow-lg z-10">
+                                        {styleLabel}
+                            </div>
+                                    )}
+                            
+                                    {/* Overlay Actions - Matching dialog */}
+                                    <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-50 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                      <div className="flex space-x-2">
+                              <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (concept.imageUrl) {
+                                              setMainImageUrl(concept.imageUrl);
+                                              const updatedCharacter: Character = {
+                                                ...character,
+                                                mainImage: concept.imageUrl,
+                                              };
+                                              onSave(updatedCharacter);
                                             }
                                           }}
-                                          onKeyDown={(e) => {
-                                            if (e.key === 'Enter') {
-                                              handleUpdateConcept(concept.id, { name: e.currentTarget.value });
-                                            }
-                                            if (e.key === 'Escape') {
-                                              setEditingConcept(null);
-                                            }
-                                          }}
-                                          autoFocus
-                                        />
-                                      ) : (
-                                        <h5 
-                                          className="font-medium text-gray-900 cursor-pointer hover:text-indigo-600"
-                                          onClick={() => setEditingConcept(concept.id)}
+                                          className="p-2 bg-white rounded-lg hover:bg-gray-100 transition-colors"
+                                          title={isMainConcept ? "Main Concept" : "Set as Main Concept"}
                                         >
-                                          {concept.name}
-                                        </h5>
-                                      )}
+                                          <Star className={`w-5 h-5 ${isMainConcept ? 'text-yellow-500 fill-current' : 'text-gray-700'}`} />
+                              </button>
+                              <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setSelectedImage({ url: concept.imageUrl || concept.videoUrl || '', alt: concept.name });
+                                          }}
+                                          className="p-2 bg-white rounded-lg hover:bg-gray-100 transition-colors"
+                                          title="Preview"
+                                        >
+                                          <ZoomIn className="w-5 h-5 text-gray-700" />
+                              </button>
+                                <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (concept.imageUrl) {
+                                              const link = document.createElement('a');
+                                              link.href = concept.imageUrl;
+                                              link.download = concept.name || 'concept';
+                                              link.click();
+                                            }
+                                          }}
+                                          className="p-2 bg-white rounded-lg hover:bg-gray-100 transition-colors"
+                                          title="Download"
+                                        >
+                                          <Download className="w-5 h-5 text-gray-700" />
+                                </button>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            onDeleteConcept(concept.id);
+                                          }}
+                                          className="p-2 bg-white rounded-lg hover:bg-gray-100 transition-colors"
+                                          title="Delete"
+                                        >
+                                          <Trash2 className="w-5 h-5 text-gray-700" />
+                                        </button>
+                          </div>
+                        </div>
+                        
+                                    {/* Concept Info Overlay - Matching dialog */}
+                                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/60 to-transparent p-3">
+                                      <div className="text-white">
+                                        <div className="font-medium text-sm truncate mb-1">{concept.name}</div>
+                                        <div className="flex items-center space-x-2 text-xs">
                                       {concept.conceptType && (
-                                        <span className={cn(
-                                          "px-2 py-1 text-xs font-medium rounded-full",
-                                          concept.conceptType === 'pose' && "bg-blue-100 text-blue-800",
-                                          concept.conceptType === 'clothing' && "bg-green-100 text-green-800",
-                                          concept.conceptType === 'general' && "bg-gray-100 text-gray-800",
-                                          concept.conceptType === 'expression' && "bg-yellow-100 text-yellow-800",
-                                          concept.conceptType === 'action' && "bg-purple-100 text-purple-800"
-                                        )}>
+                                            <span className="px-2 py-0.5 bg-white/20 rounded">
                                           {concept.conceptType}
                                         </span>
                                       )}
-                                    </div>
-                                    
-                                    {editingConcept === concept.id ? (
-                                      <textarea
-                                        defaultValue={concept.description || ''}
-                                        className="text-sm text-gray-600 mt-1 w-full bg-transparent border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                        placeholder="Add a description..."
-                                        rows={2}
-                                        onBlur={(e) => {
-                                          if (e.target.value !== (concept.description || '')) {
-                                            handleUpdateConcept(concept.id, { description: e.target.value });
-                                          }
-                                        }}
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Escape') {
-                                            setEditingConcept(null);
-                                          }
-                                        }}
-                                      />
-                                    ) : (
-                                      <p 
-                                        className="text-sm text-gray-600 mt-1 line-clamp-2 cursor-pointer hover:text-indigo-600 min-h-[1.5rem]"
-                                        onClick={() => setEditingConcept(concept.id)}
-                                      >
-                                        {concept.description || 'Click to add description...'}
-                                      </p>
-                                    )}
-                                    
-                                    {/* Metadata */}
-                                    <div className="flex items-center space-x-4 mt-2 text-xs text-gray-500">
-                                      <span>
-                                        {new Date(concept.createdAt).toLocaleDateString()}
-                                      </span>
-                                      <div className="flex items-center space-x-2">
-                                        <span>Relevance:</span>
-                                        {editingConcept === concept.id ? (
-                                          <select
-                                            value={concept.relevanceScale || 5}
-                                            onChange={(e) => handleUpdateConcept(concept.id, { relevanceScale: parseInt(e.target.value) })}
-                                            className="bg-transparent border border-gray-300 rounded px-1 py-0.5 text-xs"
-                                          >
-                                            {[1,2,3,4,5].map(num => (
-                                              <option key={num} value={num}>{num}</option>
-                                            ))}
-                                          </select>
-                                        ) : (
-                                          <span 
-                                            className="cursor-pointer hover:text-indigo-600"
-                                            onClick={() => setEditingConcept(concept.id)}
-                                          >
-                                            {concept.relevanceScale || 5}/5
+                                          {concept.isGenerated && (
+                                            <span className="flex items-center space-x-1 text-white/80">
+                                              <Sparkles className="w-3 h-3" />
+                                              <span>AI Generated</span>
                                           </span>
                                         )}
                                       </div>
+                                        {concept.description && (
+                                          <div className="text-xs text-white/70 mt-1 line-clamp-1">
+                                            {concept.description}
                                     </div>
+                                        )}
                                   </div>
-                                  
-                            <button
-                              onClick={() => onDeleteConcept(concept.id)}
-                                    className="p-1 text-gray-400 hover:text-red-600 transition-colors ml-2"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                                );
+                              })}
                         </div>
                       </div>
                     ) : (
-                      <div className="text-center py-12">
-                        <div className="mx-auto w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                          <span className="text-4xl">🎨</span>
-                        </div>
+                          <div className="flex flex-col items-center justify-center py-16 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50">
+                            <ImageIcon className="w-16 h-16 text-gray-400 mb-4" />
                         <h4 className="text-lg font-medium text-gray-900 mb-2">No concepts yet</h4>
-                        <p className="text-gray-600 mb-4">
-                          Upload your first concept image to get started
-                        </p>
+                            <p className="text-sm text-gray-600 mb-6 text-center max-w-md">
+                              Generate or upload your first concept art to get started. Concepts will appear here in a gallery matching the generation dialog.
+                            </p>
+                            <button
+                              onClick={() => setShowImageGenerationDialog(true)}
+                              className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                            >
+                              <Sparkles className="w-4 h-4" />
+                              <span>Generate Concept</span>
+                            </button>
                       </div>
                     )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -2815,6 +2536,149 @@ export function CharacterDetail({
           </div>
         </div>
       )}
+
+      {/* REF Assignment Modal */}
+      {refAssignmentModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Assign to AI Reference</h3>
+              <button
+                onClick={() => setRefAssignmentModal(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              Select which section to assign "{refAssignmentModal.conceptName}" to:
+            </p>
+            <div className="space-y-2">
+              <button
+                onClick={() => handleAssignToAIRef('fullBody')}
+                className="w-full px-4 py-3 text-left bg-gray-50 hover:bg-indigo-50 border border-gray-200 hover:border-indigo-300 rounded-lg transition-colors"
+              >
+                <div className="font-medium text-gray-900">Full Body</div>
+                <div className="text-sm text-gray-500">Add to Full Body section</div>
+              </button>
+              <button
+                onClick={() => handleAssignToAIRef('multipleAngles')}
+                className="w-full px-4 py-3 text-left bg-gray-50 hover:bg-indigo-50 border border-gray-200 hover:border-indigo-300 rounded-lg transition-colors"
+              >
+                <div className="font-medium text-gray-900">Multiple Angles</div>
+                <div className="text-sm text-gray-500">Add to Multiple Angles section</div>
+              </button>
+              <button
+                onClick={() => handleAssignToAIRef('head')}
+                className="w-full px-4 py-3 text-left bg-gray-50 hover:bg-indigo-50 border border-gray-200 hover:border-indigo-300 rounded-lg transition-colors"
+              >
+                <div className="font-medium text-gray-900">Head</div>
+                <div className="text-sm text-gray-500">Add to Head section</div>
+              </button>
+              <button
+                onClick={() => handleAssignToAIRef('expressions')}
+                className="w-full px-4 py-3 text-left bg-gray-50 hover:bg-indigo-50 border border-gray-200 hover:border-indigo-300 rounded-lg transition-colors"
+              >
+                <div className="font-medium text-gray-900">Expressions</div>
+                <div className="text-sm text-gray-500">Add to Expressions section</div>
+              </button>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                onClick={() => setRefAssignmentModal(null)}
+                className="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Backstory Generation Dialog */}
+      <BackstoryGenerationDialog
+        isOpen={showBackstoryDialog}
+        onClose={() => setShowBackstoryDialog(false)}
+        onBackstoryGenerated={handleBackstoryGenerated}
+        characterName={name}
+        characterAge={general.age}
+        showName={show?.name}
+        showDescription={show?.description}
+        currentBackstory={general.backstory}
+      />
+
+      {/* Asset Concept Generation Dialog */}
+      {showImageGenerationDialog && (() => {
+        // Build comprehensive character description for concept generation with ALL fields
+        const characterDescriptionParts: string[] = [];
+        
+        if (name) characterDescriptionParts.push(`Name: ${name}`);
+        if (general.nickname) characterDescriptionParts.push(`Nickname: ${general.nickname}`);
+        if (general.age) characterDescriptionParts.push(`Age: ${general.age}`);
+        if (general.visualDescription) {
+          characterDescriptionParts.push(`Visual Description: ${general.visualDescription}`);
+        } else if (character.description) {
+          characterDescriptionParts.push(`Description: ${character.description}`);
+        }
+        if (general.personality) characterDescriptionParts.push(`Personality: ${general.personality}`);
+        if (general.backstory) characterDescriptionParts.push(`Backstory: ${general.backstory}`);
+        if (general.relations || general.relationships) {
+          characterDescriptionParts.push(`Relations: ${general.relations || general.relationships}`);
+        }
+        if (general.specialAbilities) {
+          characterDescriptionParts.push(`Special Abilities: ${general.specialAbilities}`);
+        }
+        
+        const characterDescription = characterDescriptionParts.length > 0
+          ? characterDescriptionParts.join('\n')
+          : `Character: ${name}`;
+        
+        // Get selected concept images
+        const selectedConcepts = (character.concepts || []).filter(c => selectedConceptIds.has(c.id));
+        const selectedConceptImages = selectedConcepts
+          .map(c => c.imageUrl)
+          .filter((url): url is string => !!url);
+        
+        return (
+          <AssetConceptGenerationDialog
+            isOpen={showImageGenerationDialog}
+            onClose={() => {
+              setShowImageGenerationDialog(false);
+              // Optionally clear selection after closing
+              // setSelectedConceptIds(new Set());
+            }}
+            selectedReferenceImages={selectedConceptImages}
+            onImageGenerated={async (imageUrl, isMainConcept) => {
+              if (imageUrl) {
+                // If set as main concept, update main image
+                if (isMainConcept) {
+                  setMainImageUrl(imageUrl);
+                  // Save immediately to persist main concept
+                  const updatedCharacter: Character = {
+                    ...character,
+                    name: name.trim(),
+                    general,
+                    clothing,
+                    pose,
+                    voice,
+                    mainImage: imageUrl,
+                    characterGallery: characterGallery,
+                  };
+                  onSave(updatedCharacter);
+                }
+              }
+            }}
+            onConceptCreated={(conceptData) => {
+              // Save the generated image as a concept
+              onAddConcept(conceptData);
+            }}
+            asset={character}
+            assetDescription={characterDescription}
+            globalAssets={globalAssets}
+            showId={character.showId}
+          />
+        );
+      })()}
     </div>
   );
 }

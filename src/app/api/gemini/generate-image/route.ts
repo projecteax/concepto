@@ -61,10 +61,23 @@ export async function POST(request: NextRequest) {
       }
     }
     
+    // Handle art styles for concept generation
     if (style === 'storyboard') {
       fullPrompt += ' Use storyboard style with bold lines around main characters or main elements on the scene and thinner lines on background and environment.';
-    } else if (style === '3d-render') {
+    } else if (style === '3d-render' || style === '3d-pixar') {
       fullPrompt += ' Use 3D Pixar style rendering with smooth surfaces, vibrant colors, and cinematic lighting.';
+    } else if (style === '2d-disney') {
+      fullPrompt += ' Use classic 2D Disney animation style with bold lines, vibrant colors, and expressive character design.';
+    } else if (style === 'studio-ghibli') {
+      fullPrompt += ' Use Studio Ghibli style with soft, painterly 2D art, natural colors, and detailed backgrounds.';
+    } else if (style === '2d-cartoon') {
+      fullPrompt += ' Use modern 2D cartoon style with clean lines, flat colors, and contemporary animation aesthetics.';
+    } else if (style === '3d-realistic') {
+      fullPrompt += ' Use photorealistic 3D rendering with detailed textures, realistic lighting, and high-quality materials.';
+    } else if (style === 'watercolor') {
+      fullPrompt += ' Use watercolor painting style with soft, flowing colors, organic textures, and artistic brushwork.';
+    } else if (style === 'digital-painting') {
+      fullPrompt += ' Use hand-painted digital art style with artistic brushstrokes, rich textures, and painterly aesthetics.';
     }
 
     // If we have a reference image, instruct the model to preserve composition and only apply changes.
@@ -82,11 +95,13 @@ export async function POST(request: NextRequest) {
     // Add text prompt first
     parts.push({ text: fullPrompt });
 
-    // Add location images if provided (environment context first)
+    // Add location images if provided (for concept generation, allow multiple reference images)
     if (locations && Array.isArray(locations)) {
       for (const location of locations) {
         if (location.images && Array.isArray(location.images)) {
-          for (const imageUrl of location.images.slice(0, 1)) { // Only 1 image per location
+          // For concept generation, use all provided images (up to 4 for API limits)
+          const maxImages = 4;
+          for (const imageUrl of location.images.slice(0, maxImages)) {
             try {
               const imageResponse = await fetch(imageUrl);
               if (imageResponse.ok) {
@@ -109,11 +124,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Add character images if provided (only fullBody)
+    // Add character images if provided (for concept generation, allow multiple reference images)
     if (characters && Array.isArray(characters)) {
       for (const character of characters) {
         if (character.images && Array.isArray(character.images)) {
-          for (const imageUrl of character.images.slice(0, 1)) { // Only 1 fullBody image per character
+          // For concept generation, use all provided images (up to 4 for API limits)
+          const maxImages = 4;
+          for (const imageUrl of character.images.slice(0, maxImages)) {
             try {
               // Fetch the image and convert to base64
               const imageResponse = await fetch(imageUrl);
@@ -137,11 +154,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Add gadget images if provided
+    // Add gadget images if provided (for concept generation, allow multiple reference images)
     if (gadgets && Array.isArray(gadgets)) {
       for (const gadget of gadgets) {
         if (gadget.images && Array.isArray(gadget.images)) {
-          for (const imageUrl of gadget.images.slice(0, 1)) { // Only 1 image per gadget
+          // For concept generation, use all provided images (up to 4 for API limits)
+          const maxImages = 4;
+          for (const imageUrl of gadget.images.slice(0, maxImages)) {
             try {
               const imageResponse = await fetch(imageUrl);
               if (imageResponse.ok) {

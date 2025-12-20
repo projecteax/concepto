@@ -13,22 +13,26 @@ import {
   Image as ImageIcon,
   Settings,
   Sparkles,
-  RefreshCw
+  RefreshCw,
+  CheckCircle
 } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
+import { AssetConceptGenerationDialog } from './AssetConceptGenerationDialog';
 
 interface GadgetDetailProps {
   gadget: GlobalAsset;
   onBack: () => void;
   onSave: (gadget: GlobalAsset) => void;
   onDeleteConcept: (conceptId: string) => void;
+  globalAssets?: GlobalAsset[]; // For image generation context
 }
 
 export function GadgetDetail({
   gadget,
   onBack,
   onSave,
-  onDeleteConcept
+  onDeleteConcept,
+  globalAssets = []
 }: GadgetDetailProps) {
   const [activeTab, setActiveTab] = useState<'general' | 'concepts' | 'production' | 'ai-ref'>('general');
   const [isEditing, setIsEditing] = useState(false);
@@ -65,6 +69,13 @@ export function GadgetDetail({
   // Concept gallery states
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'relevance' | 'name'>('newest');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  
+  // Image generation state
+  const [showImageGenerationDialog, setShowImageGenerationDialog] = useState(false);
+  const [selectedConceptIds, setSelectedConceptIds] = useState<Set<string>>(new Set());
+  
+  // REF assignment modal state
+  const [refAssignmentModal, setRefAssignmentModal] = useState<{ conceptId: string; imageUrl: string; conceptName: string } | null>(null);
 
   // Handle ESC key to close image modal
   useEffect(() => {
@@ -318,10 +329,33 @@ export function GadgetDetail({
   };
 
   const handleRemoveAIRefImage = (category: 'fullGadget' | 'multipleAnglesGadget', index: number) => {
-    setAiRefImages(prev => ({
-      ...prev,
-      [category]: (prev[category] || []).filter((_, i) => i !== index)
-    }));
+    const updatedAiRefImages = {
+      ...aiRefImages,
+      [category]: (aiRefImages[category] || []).filter((_, i) => i !== index)
+    };
+    setAiRefImages(updatedAiRefImages);
+    
+    // Save to database
+    const updatedGadget = { ...gadget, aiRefImages: updatedAiRefImages };
+    onSave(updatedGadget);
+  };
+
+  const handleAssignToAIRef = (category: 'fullGadget' | 'multipleAnglesGadget') => {
+    if (!refAssignmentModal) return;
+    
+    const { imageUrl } = refAssignmentModal;
+    const updatedAiRefImages = {
+      ...aiRefImages,
+      [category]: [...(aiRefImages[category] || []), imageUrl]
+    };
+    setAiRefImages(updatedAiRefImages);
+    
+    // Save to database
+    const updatedGadget = { ...gadget, aiRefImages: updatedAiRefImages };
+    onSave(updatedGadget);
+    
+    // Close modal
+    setRefAssignmentModal(null);
   };
 
   const handleUpdateConcept = async (conceptId: string, updates: { name?: string; description?: string; relevanceScale?: number }) => {
@@ -540,7 +574,17 @@ export function GadgetDetail({
 
             {/* Gallery Section */}
             <div className="bg-white rounded-lg border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Gallery</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-900">Gallery</h2>
+                <button
+                  onClick={() => setShowImageGenerationDialog(true)}
+                  className="flex items-center space-x-1 px-3 py-1 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 cursor-pointer"
+                  title="Generate image based on gadget description"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>Generate Image</span>
+                </button>
+              </div>
               
               {/* Upload Section */}
               <div className="mb-6">
@@ -673,7 +717,17 @@ export function GadgetDetail({
           <div className="space-y-6">
             {/* Concept Generation */}
             <div className="bg-white rounded-lg border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Generate New Concept</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-900">Generate New Concept</h2>
+                <button
+                  onClick={() => setShowImageGenerationDialog(true)}
+                  className="flex items-center space-x-1 px-3 py-1 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 cursor-pointer"
+                  title="Generate image based on gadget description"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>Generate Image</span>
+                </button>
+              </div>
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -765,19 +819,70 @@ export function GadgetDetail({
               </div>
             </div>
 
+            {/* Selection Mode Toggle */}
+            <div className="flex items-center justify-between mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="select-mode-gadget"
+                  checked={selectedConceptIds.size > 0}
+                  onChange={(e) => {
+                    if (!e.target.checked) {
+                      setSelectedConceptIds(new Set());
+                    }
+                  }}
+                  className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                />
+                <label htmlFor="select-mode-gadget" className="text-sm font-medium text-gray-700 cursor-pointer">
+                  Select concepts for AI reference
+                </label>
+              </div>
+              {selectedConceptIds.size > 0 && (
+                <button
+                  onClick={() => setSelectedConceptIds(new Set())}
+                  className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
+                >
+                  Clear Selection ({selectedConceptIds.size})
+                </button>
+              )}
+            </div>
+
             {/* Concepts Gallery */}
             <div className={`grid gap-4 ${
               viewMode === 'grid' 
                 ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3' 
                 : 'grid-cols-1'
             }`}>
-              {sortedConcepts.map((concept) => (
-                <div
-                  key={concept.id}
-                  className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-shadow"
-                >
+              {sortedConcepts.map((concept) => {
+                return (
+                  <div
+                    key={concept.id}
+                    className={`bg-white rounded-lg border-2 overflow-hidden hover:shadow-md transition-shadow ${
+                      isSelected ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-gray-200'
+                    }`}
+                  >
                   {concept.imageUrl && (
                     <div className="relative group overflow-hidden">
+                      {/* REF Button */}
+                      <div 
+                        className="absolute top-2 left-2 z-20"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRefAssignmentModal({
+                            conceptId: concept.id,
+                            imageUrl: concept.imageUrl!,
+                            conceptName: concept.name
+                          });
+                        }}
+                      >
+                        <button
+                          className="px-2 py-1 bg-indigo-600 text-white text-xs font-medium rounded shadow-lg hover:bg-indigo-700 transition-colors"
+                          title="Assign to AI reference"
+                        >
+                          REF
+                        </button>
+                      </div>
+                      
                       <img
                         src={concept.imageUrl}
                         alt={concept.name}
@@ -894,8 +999,9 @@ export function GadgetDetail({
                       <span>{new Date(concept.createdAt).toLocaleDateString()}</span>
                     </div>
                   </div>
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </div>
 
             {sortedConcepts.length === 0 && (
@@ -1139,6 +1245,104 @@ export function GadgetDetail({
           </div>
         </div>
       )}
+
+      {/* REF Assignment Modal */}
+      {refAssignmentModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Assign to AI Reference</h3>
+              <button
+                onClick={() => setRefAssignmentModal(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              Select which section to assign "{refAssignmentModal.conceptName}" to:
+            </p>
+            <div className="space-y-2">
+              <button
+                onClick={() => handleAssignToAIRef('fullGadget')}
+                className="w-full px-4 py-3 text-left bg-gray-50 hover:bg-indigo-50 border border-gray-200 hover:border-indigo-300 rounded-lg transition-colors"
+              >
+                <div className="font-medium text-gray-900">Full Gadget</div>
+                <div className="text-sm text-gray-500">Add to Full Gadget section</div>
+              </button>
+              <button
+                onClick={() => handleAssignToAIRef('multipleAnglesGadget')}
+                className="w-full px-4 py-3 text-left bg-gray-50 hover:bg-indigo-50 border border-gray-200 hover:border-indigo-300 rounded-lg transition-colors"
+              >
+                <div className="font-medium text-gray-900">Multiple Angles</div>
+                <div className="text-sm text-gray-500">Add to Multiple Angles section</div>
+              </button>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                onClick={() => setRefAssignmentModal(null)}
+                className="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Asset Concept Generation Dialog */}
+      {showImageGenerationDialog && (() => {
+        // Build comprehensive gadget description for concept generation
+        const gadgetDescriptionParts: string[] = [];
+        
+        if (name) gadgetDescriptionParts.push(`Gadget name: ${name}`);
+        if (description) gadgetDescriptionParts.push(`Description: ${description}`);
+        if (gadgetType) gadgetDescriptionParts.push(`Type: ${gadgetType}`);
+        if (functionality) gadgetDescriptionParts.push(`Functionality: ${functionality}`);
+        if (powerSource) gadgetDescriptionParts.push(`Power source: ${powerSource}`);
+        
+        const gadgetDescription = gadgetDescriptionParts.length > 0
+          ? gadgetDescriptionParts.join('. ')
+          : `Gadget: ${name}`;
+        
+        // Get selected concept images
+        const selectedConcepts = (gadget.concepts || []).filter(c => selectedConceptIds.has(c.id));
+        const selectedConceptImages = selectedConcepts
+          .map(c => c.imageUrl)
+          .filter((url): url is string => !!url);
+        
+        return (
+          <AssetConceptGenerationDialog
+            isOpen={showImageGenerationDialog}
+            onClose={() => setShowImageGenerationDialog(false)}
+            selectedReferenceImages={selectedConceptImages}
+            onImageGenerated={async (imageUrl, isMainConcept) => {
+              if (imageUrl) {
+                setGalleryImages(prev => [...prev, imageUrl]);
+                
+                // If set as main concept, update main render
+                if (isMainConcept) {
+                  setMainRender(imageUrl);
+                  // Save immediately to persist main concept
+                  const updatedGadget: GlobalAsset = {
+                    ...gadget,
+                    name: name.trim(),
+                    description: description.trim() || undefined,
+                    galleryImages: [...galleryImages, imageUrl],
+                    mainRender: imageUrl,
+                    aiRefImages,
+                  };
+                  onSave(updatedGadget);
+                }
+              }
+            }}
+            asset={gadget}
+            assetDescription={gadgetDescription}
+            globalAssets={globalAssets}
+            showId={gadget.showId}
+          />
+        );
+      })()}
     </div>
   );
 }

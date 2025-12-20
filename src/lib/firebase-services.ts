@@ -166,10 +166,27 @@ export const globalAssetService = {
   },
 
   async update(id: string, updates: Partial<GlobalAsset>): Promise<void> {
-    // Filter out undefined values to prevent Firebase errors
-    const cleanUpdates = Object.fromEntries(
-      Object.entries(updates).filter(([, value]) => value !== undefined)
-    );
+    // Recursively remove undefined values to prevent Firebase errors
+    const removeUndefined = (obj: unknown): unknown => {
+      if (obj === null || obj === undefined) {
+        return null;
+      }
+      if (Array.isArray(obj)) {
+        return obj.map(item => removeUndefined(item));
+      }
+      if (typeof obj === 'object') {
+        const cleaned: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(obj)) {
+          if (value !== undefined) {
+            cleaned[key] = removeUndefined(value);
+          }
+        }
+        return cleaned;
+      }
+      return obj;
+    };
+    
+    const cleanUpdates = removeUndefined(updates) as Partial<GlobalAsset>;
     
     // Convert Date objects to Timestamps for uploadedModels
     if (cleanUpdates.uploadedModels && Array.isArray(cleanUpdates.uploadedModels)) {

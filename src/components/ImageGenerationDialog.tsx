@@ -23,7 +23,8 @@ import {
   Star,
   Copy,
   CheckCircle,
-  Info
+  Info,
+  Car
 } from 'lucide-react';
 import { GlobalAsset, Character, AVShotImageGenerationThread } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -527,6 +528,18 @@ export function ImageGenerationDialog({
       });
     }
     
+    // Vehicles section
+    const vehicles = selectedAssets.filter(a => a.type === 'vehicle');
+    if (vehicles.length > 0) {
+      prompt += `\nVEHICLES IN SCENE:\n`;
+      vehicles.forEach((vehicle, index) => {
+        prompt += `${index + 1}. ${vehicle.name} - `;
+        prompt += `The attached vehicle reference images show ${vehicle.name}'s design, exterior, interior, and key features. `;
+        prompt += `Use these reference images to accurately represent ${vehicle.name} in the generated image. `;
+        prompt += `Pay attention to the vehicle's shape, proportions, details, and distinctive characteristics.\n`;
+      });
+    }
+    
     // Sketch reference - explicit instructions
     if (sketchImage) {
       prompt += `\nCOMPOSITION REFERENCE:\n`;
@@ -539,6 +552,8 @@ export function ImageGenerationDialog({
     
     // Style instructions
     prompt += `\nSTYLE REQUIREMENTS:\n`;
+    // Always require 16:9 aspect ratio for AV script shots
+    prompt += `- CRITICAL: The image MUST be in 16:9 aspect ratio (widescreen format). This is required for video production compatibility.\n`;
     if (selectedStyle === 'storyboard') {
       prompt += `- Hand drawn pencil style storyboard\n`;
       prompt += `- Thin lines are used on environment and unnecessary objects\n`;
@@ -562,6 +577,9 @@ export function ImageGenerationDialog({
     }
     if (gadgets.length > 0) {
       prompt += `- Ensure gadgets match their reference images\n`;
+    }
+    if (vehicles.length > 0) {
+      prompt += `- Ensure vehicles match their reference images\n`;
     }
     prompt += `- Follow the visual description for action, composition, and camera work\n`;
     if (sketchImage) {
@@ -1046,17 +1064,21 @@ export function ImageGenerationDialog({
               ? (fullAsset.aiRefImages?.fullGadget?.[0] || fullAsset.mainRender || fullAsset.galleryImages?.[0] || '')
               : asset.type === 'location'
                 ? (fullAsset.aiRefImages?.ref01?.[0] || fullAsset.mainRender || fullAsset.galleryImages?.[0] || '')
-                : ((fullAsset as Character).aiRefImages?.head?.[0] || (fullAsset as Character).mainImage || (fullAsset as Character).characterGallery?.[0] || '');
+                : asset.type === 'vehicle'
+                  ? (fullAsset.aiRefImages?.exterior?.[0] || fullAsset.aiRefImages?.interior?.[0] || fullAsset.mainRender || fullAsset.galleryImages?.[0] || '')
+                  : ((fullAsset as Character).aiRefImages?.head?.[0] || (fullAsset as Character).mainImage || (fullAsset as Character).characterGallery?.[0] || '');
           
           const images = 
             asset.type === 'gadget'
               ? [...(fullAsset.aiRefImages?.fullGadget || []).slice(0, 1), ...(fullAsset.mainRender ? [fullAsset.mainRender] : [])].slice(0, 1)
               : asset.type === 'location'
                 ? [...(fullAsset.aiRefImages?.ref01 || []).slice(0, 1), ...(fullAsset.mainRender ? [fullAsset.mainRender] : [])].slice(0, 1)
-                : [
-                    // Only use fullBody for characters
-                    ...((fullAsset as Character).aiRefImages?.fullBody || []).slice(0, 1),
-                  ];
+                : asset.type === 'vehicle'
+                  ? [...(fullAsset.aiRefImages?.exterior || []).slice(0, 1), ...(fullAsset.aiRefImages?.interior || []).slice(0, 1), ...(fullAsset.mainRender ? [fullAsset.mainRender] : [])].filter(Boolean).slice(0, 2)
+                  : [
+                      // Only use fullBody for characters
+                      ...((fullAsset as Character).aiRefImages?.fullBody || []).slice(0, 1),
+                    ];
           
           return {
             id: asset.id,
@@ -1115,6 +1137,31 @@ export function ImageGenerationDialog({
                       ...(location.aiRefImages?.ref01 || []).slice(0, 1),
                       ...(location.mainRender ? [location.mainRender] : []),
                     ].filter(Boolean).slice(0, 1),
+                  });
+                }
+              }
+            });
+            
+            // Detect vehicles from visual description
+            const vehicleAssets = globalAssets.filter(a => a.category === 'vehicle');
+            vehicleAssets.forEach(vehicle => {
+              const nameRegex = new RegExp(`\\b${vehicle.name}\\b`, 'i');
+              if (nameRegex.test(visualDescription)) {
+                const thumbnailUrl = vehicle.aiRefImages?.exterior?.[0] || 
+                                     vehicle.aiRefImages?.interior?.[0] ||
+                                     vehicle.mainRender || 
+                                     vehicle.galleryImages?.[0] || '';
+                if (thumbnailUrl) {
+                  newAssets.push({
+                    id: vehicle.id,
+                    type: 'vehicle',
+                    name: vehicle.name,
+                    thumbnailUrl,
+                    images: [
+                      ...(vehicle.aiRefImages?.exterior || []).slice(0, 1),
+                      ...(vehicle.aiRefImages?.interior || []).slice(0, 1),
+                      ...(vehicle.mainRender ? [vehicle.mainRender] : []),
+                    ].filter(Boolean).slice(0, 2),
                   });
                 }
               }
@@ -1246,6 +1293,32 @@ export function ImageGenerationDialog({
               }
             });
             
+            // Detect vehicles from visual description
+            const vehicleAssets = globalAssets.filter(a => a.category === 'vehicle');
+            vehicleAssets.forEach(vehicle => {
+              // Check if vehicle name appears in visual description (case insensitive)
+              const nameRegex = new RegExp(`\\b${vehicle.name}\\b`, 'i');
+              if (nameRegex.test(visualDescription)) {
+                const thumbnailUrl = vehicle.aiRefImages?.exterior?.[0] || 
+                                     vehicle.aiRefImages?.interior?.[0] ||
+                                     vehicle.mainRender || 
+                                     vehicle.galleryImages?.[0] || '';
+                if (thumbnailUrl) {
+                  newAssets.push({
+                    id: vehicle.id,
+                    type: 'vehicle',
+                    name: vehicle.name,
+                    thumbnailUrl,
+                    images: [
+                      ...(vehicle.aiRefImages?.exterior || []).slice(0, 1),
+                      ...(vehicle.aiRefImages?.interior || []).slice(0, 1),
+                      ...(vehicle.mainRender ? [vehicle.mainRender] : []),
+                    ].filter(Boolean).slice(0, 2),
+                  });
+                }
+              }
+            });
+            
             // Add detected assets if they don't already exist
             if (newAssets.length > 0) {
               setSelectedAssets(prev => {
@@ -1308,7 +1381,7 @@ export function ImageGenerationDialog({
     }
   }, [isOpen, selectedAssets.length, sketchImage, selectedStyle]);
 
-  const [showAssetSelector, setShowAssetSelector] = useState<'gadget' | 'location' | 'character' | null>(null);
+  const [showAssetSelector, setShowAssetSelector] = useState<'gadget' | 'location' | 'character' | 'vehicle' | null>(null);
 
   const handleAddGadget = () => {
     const gadgetAssets = globalAssets.filter(asset => asset.category === 'gadget');
@@ -1335,6 +1408,15 @@ export function ImageGenerationDialog({
       return;
     }
     setShowAssetSelector('character');
+  };
+
+  const handleAddVehicle = () => {
+    const vehicleAssets = globalAssets.filter(asset => asset.category === 'vehicle');
+    if (vehicleAssets.length === 0) {
+      alert('No vehicles available. Please add vehicles in asset details first.');
+      return;
+    }
+    setShowAssetSelector('vehicle');
   };
 
   const handleSelectAsset = (asset: GlobalAsset) => {
@@ -3464,6 +3546,13 @@ export function ImageGenerationDialog({
                       <Box className="w-5 h-5" />
               </button>
               <button
+                onClick={handleAddVehicle}
+                className="p-2 bg-white border rounded hover:bg-gray-100"
+                title="Add Vehicle"
+              >
+                <Car className="w-5 h-5" />
+              </button>
+              <button
                       onClick={() => setShowDrawingCanvas(true)}
                 className="p-2 bg-white border rounded hover:bg-gray-100"
                       title="Draw Sketch"
@@ -3581,12 +3670,18 @@ export function ImageGenerationDialog({
               </Button>
                     <Button
                       onClick={() => {
-                        // Pre-populate prompt with audio text if available
+                        // Pre-populate prompt with audio text if available, enhanced with 16:9 aspect ratio
+                        let prompt = '';
                         if (audioText) {
-                          setVideoPrompt(audioText);
+                          prompt = audioText;
                         } else {
-                          setVideoPrompt(visualDescription || '');
+                          prompt = visualDescription || '';
                         }
+                        // Always add 16:9 aspect ratio requirement for AV script shots
+                        if (prompt && !prompt.toLowerCase().includes('16:9') && !prompt.toLowerCase().includes('aspect ratio')) {
+                          prompt += ' The video MUST be in 16:9 aspect ratio (widescreen format). This is required for video production compatibility.';
+                        }
+                        setVideoPrompt(prompt);
                         // Auto-select input type based on availability
                         if (getMainImageUrl()) {
                           setSelectedVideoInputType('main');
@@ -4432,9 +4527,14 @@ export function ImageGenerationDialog({
                       episodeId,
                     };
                     
-                    // Add prompt for non-Runway models
+                    // Add prompt for non-Runway models - enhance with 16:9 aspect ratio requirement
                     if (!videoModel.startsWith('runway')) {
-                      requestBody.prompt = videoPrompt;
+                      // Enhance prompt to always include 16:9 aspect ratio requirement for AV script shots
+                      let enhancedPrompt = videoPrompt.trim();
+                      if (enhancedPrompt && !enhancedPrompt.toLowerCase().includes('16:9') && !enhancedPrompt.toLowerCase().includes('aspect ratio')) {
+                        enhancedPrompt += ' The video MUST be in 16:9 aspect ratio (widescreen format). This is required for video production compatibility.';
+                      }
+                      requestBody.prompt = enhancedPrompt;
                     }
                     
                     // Kling AI models
@@ -4831,7 +4931,7 @@ export function ImageGenerationDialog({
           <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold">
-                Select {showAssetSelector === 'gadget' ? 'Gadget' : showAssetSelector === 'location' ? 'Location' : 'Character'}
+                Select {showAssetSelector === 'gadget' ? 'Gadget' : showAssetSelector === 'location' ? 'Location' : showAssetSelector === 'character' ? 'Character' : 'Vehicle'}
               </h3>
               <button
                 onClick={() => setShowAssetSelector(null)}
@@ -4849,7 +4949,9 @@ export function ImageGenerationDialog({
                       ? (asset.aiRefImages?.fullGadget?.[0] || asset.mainRender || asset.galleryImages?.[0] || '')
                       : showAssetSelector === 'location'
                         ? (asset.aiRefImages?.ref01?.[0] || asset.mainRender || asset.galleryImages?.[0] || '')
-                        : ((asset as Character).aiRefImages?.head?.[0] || (asset as Character).mainImage || (asset as Character).characterGallery?.[0] || '');
+                        : showAssetSelector === 'character'
+                          ? ((asset as Character).aiRefImages?.head?.[0] || (asset as Character).mainImage || (asset as Character).characterGallery?.[0] || '')
+                          : (asset.aiRefImages?.exterior?.[0] || asset.aiRefImages?.interior?.[0] || asset.mainRender || asset.galleryImages?.[0] || '');
                   
                   const isSelected = selectedAssets.some(a => a.id === asset.id);
                   
