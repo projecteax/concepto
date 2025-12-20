@@ -333,7 +333,7 @@ export interface AVShotImageGenerationThread {
   id: string;
   selectedAssets: Array<{
     id: string;
-    type: 'gadget' | 'location' | 'character';
+    type: 'gadget' | 'location' | 'character' | 'vehicle';
     name: string;
   }>;
   sketchImage?: string;
