@@ -18,7 +18,6 @@ import {
 } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { AssetConceptGenerationDialog } from './AssetConceptGenerationDialog';
-import { GlobalAsset } from '@/types';
 
 interface LocationDetailProps {
   location: GlobalAsset;
