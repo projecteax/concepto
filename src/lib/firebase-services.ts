@@ -165,7 +165,10 @@ export const globalAssetService = {
     return sortedAssets;
   },
 
-  async update(id: string, updates: Partial<GlobalAsset>): Promise<void> {
+  async update(
+    id: string,
+    updates: Partial<GlobalAsset> & { uploadedModels?: Array<Record<string, unknown>> },
+  ): Promise<void> {
     // Recursively remove undefined values to prevent Firebase errors
     const removeUndefined = (obj: unknown): unknown => {
       if (obj === null || obj === undefined) {
@@ -186,14 +189,19 @@ export const globalAssetService = {
       return obj;
     };
     
-    const cleanUpdates = removeUndefined(updates) as Partial<GlobalAsset>;
+    const cleanUpdates = removeUndefined(updates) as (Partial<GlobalAsset> & {
+      uploadedModels?: Array<Record<string, unknown>>;
+    });
     
     // Convert Date objects to Timestamps for uploadedModels
     if (cleanUpdates.uploadedModels && Array.isArray(cleanUpdates.uploadedModels)) {
-      (cleanUpdates as Record<string, unknown>).uploadedModels = (cleanUpdates.uploadedModels as unknown as Array<{uploadDate: Date}>).map((model) => ({
-        ...model,
-        uploadDate: model.uploadDate instanceof Date ? Timestamp.fromDate(model.uploadDate) : model.uploadDate
-      }));
+      cleanUpdates.uploadedModels = cleanUpdates.uploadedModels.map((model) => {
+        const uploadDate = model.uploadDate;
+        return {
+          ...model,
+          uploadDate: uploadDate instanceof Date ? Timestamp.fromDate(uploadDate) : uploadDate,
+        };
+      });
     }
     
     // Convert Date objects to Timestamps for concepts

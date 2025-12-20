@@ -45,13 +45,19 @@ export function ScreenplayGenerationDialog({
   const [localVersions, setLocalVersions] = useState<ScreenplayVersion[]>([]);
   const versions = externalVersions.length > 0 ? externalVersions : localVersions;
   
-  const setVersions = (newVersions: ScreenplayVersion[]) => {
+  function setVersions(newVersions: ScreenplayVersion[]): void;
+  function setVersions(updater: (prev: ScreenplayVersion[]) => ScreenplayVersion[]): void;
+  function setVersions(
+    arg: ScreenplayVersion[] | ((prev: ScreenplayVersion[]) => ScreenplayVersion[]),
+  ): void {
+    const nextVersions = typeof arg === 'function' ? arg(versions) : arg;
+
     if (onVersionsChange) {
-      onVersionsChange(newVersions);
+      onVersionsChange(nextVersions);
     } else {
-      setLocalVersions(newVersions);
+      setLocalVersions(nextVersions);
     }
-  };
+  }
 
   useEffect(() => {
     if (isOpen) {

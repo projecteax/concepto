@@ -183,7 +183,7 @@ export function VehicleDetail({
             id: `concept-${Date.now()}`,
             category: 'vehicle',
             assetId: vehicle.id,
-            name: newConceptName || file.name.split('.')[0],
+            name: file.name.split('.')[0],
             description: '',
             imageUrl: url,
             relevanceScale: 5,
@@ -196,7 +196,6 @@ export function VehicleDetail({
           // Add the concept directly to the vehicle's concepts
           const updatedConcepts = [...vehicle.concepts, newConcept];
           onSave({ ...vehicle, concepts: updatedConcepts });
-          setNewConceptName('');
         }
       }
     } catch (error) {
@@ -259,20 +258,6 @@ export function VehicleDetail({
       // Prevent saving data URLs in existing mainRender
       const safeMainRender = mainRender?.startsWith('data:') ? '' : mainRender;
       onSave({ ...vehicle, galleryImages: newGalleryImages, mainRender: safeMainRender });
-    }
-  };
-
-  const handleGenerateImage = async () => {
-    if (!generationPrompt.trim()) return;
-    
-    setIsGenerating(true);
-    try {
-      // This would integrate with your image generation service
-      console.log('Generating image with prompt:', generationPrompt);
-    } catch (error) {
-      console.error('Image generation failed:', error);
-    } finally {
-      setIsGenerating(false);
     }
   };
 
