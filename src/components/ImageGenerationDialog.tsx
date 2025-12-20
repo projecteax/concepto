@@ -58,7 +58,7 @@ interface ChatMessage {
 
 interface SelectedAsset {
   id: string;
-  type: 'gadget' | 'location' | 'character';
+  type: 'gadget' | 'location' | 'character' | 'vehicle';
   name: string;
   thumbnailUrl: string;
   images: string[];
