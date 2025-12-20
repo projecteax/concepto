@@ -570,7 +570,7 @@ export function AssetConceptGenerationDialog({
                   <ImageIcon className="w-16 h-16 text-gray-300 mb-4" />
                   <h3 className="text-lg font-medium text-gray-900 mb-2">No concepts generated yet</h3>
                   <p className="text-sm text-gray-500">
-                    Select a style and concept type, then click "Generate Concept" to create your first concept art.
+                    Select a style and concept type, then click &quot;Generate Concept&quot; to create your first concept art.
                   </p>
                 </div>
               ) : (

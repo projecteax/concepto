@@ -241,7 +241,7 @@ export function EpisodeDescriptionGenerationDialog({
                 <Sparkles className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No descriptions generated yet</h3>
                 <p className="text-sm text-gray-500">
-                  Click "Generate 3 Story Ideas" to create episode description options.
+                  Click &quot;Generate 3 Story Ideas&quot; to create episode description options.
                 </p>
               </div>
             )}

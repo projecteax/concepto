@@ -96,7 +96,7 @@ export function ScreenplayGenerationDialog({
       }
 
       // Add position to each element, ensuring content is preserved
-      const elementsWithPosition: ScreenplayElement[] = data.elements.map((el: any, index: number) => {
+      const elementsWithPosition: ScreenplayElement[] = data.elements.map((el: Partial<ScreenplayElement> & { type?: string; content?: string }, index: number) => {
         const element: ScreenplayElement = {
           id: `generated-${Date.now()}-${index}`,
           type: el.type || 'general',

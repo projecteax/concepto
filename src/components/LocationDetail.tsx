@@ -1408,7 +1408,7 @@ export function LocationDetail({
               </button>
             </div>
             <p className="text-sm text-gray-600 mb-4">
-              Select which section to assign "{refAssignmentModal.conceptName}" to:
+              Select which section to assign &quot;{refAssignmentModal.conceptName}&quot; to:
             </p>
             <div className="space-y-2">
               <button
