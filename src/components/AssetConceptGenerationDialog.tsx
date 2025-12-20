@@ -281,6 +281,8 @@ export function AssetConceptGenerationDialog({
           'action-pose': 'action',
           'environment': 'general',
           'detail-shot': 'general',
+          'interior': 'general',
+          'exterior': 'general',
         };
         
         // Map concept types based on asset category
