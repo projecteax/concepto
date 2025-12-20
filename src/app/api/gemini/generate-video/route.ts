@@ -33,6 +33,12 @@ export async function POST(request: NextRequest) {
       duration?: 4 | 6 | 8;
       runwayDuration?: number;
       klingDuration?: 5 | 10;
+      klingMode?: 'std' | 'pro';
+      kling26Audio?: boolean;
+      kling26Size?: '16:9' | '9:16' | '1:1';
+      omniVideoInput?: string;
+      omniAspectRatio?: '16:9' | '9:16' | '1:1';
+      omniType?: 'base' | 'feature';
       veoImages?: Array<{ url: string; filename: string; id?: string }>;
     };
 
@@ -676,8 +682,14 @@ async function handleKlingGeneration(body: {
   episodeId: string;
   resolution?: '720p' | '1080p';
   duration?: 4 | 6 | 8;
-  klingDuration?: 5 | 10;
+  // Omni-Video supports 3-10s (with scenario-specific constraints); Kling v2.x supports 5/10.
+  klingDuration?: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
   klingMode?: 'std' | 'pro';
+  kling26Audio?: boolean;
+  kling26Size?: '16:9' | '9:16' | '1:1';
+  omniVideoInput?: string;
+  omniAspectRatio?: '16:9' | '9:16' | '1:1';
+  omniType?: 'base' | 'feature';
 }) {
     const { 
     prompt = '', 
@@ -687,11 +699,15 @@ async function handleKlingGeneration(body: {
     endFrameUrl, 
     episodeId, 
     klingDuration = 5,
-    klingMode = 'std'
+    klingMode = 'std',
+    kling26Audio = false,
+    kling26Size = '16:9',
+    omniVideoInput
   } = body;
   
   // Use klingDuration if provided, otherwise default to 5
   const duration = klingDuration || 5;
+  const isOmniModel = body.model === 'kling-omni-video' || body.model === 'kling-o1';
   
   // Check if Kling AI credentials are configured
   // Kling AI uses JWT authentication: access key as issuer (iss), secret key for signing
@@ -771,8 +787,10 @@ async function handleKlingGeneration(body: {
     );
   }
 
-  // Validate duration - Kling AI only supports 5 or 10 seconds
-  if (duration !== 5 && duration !== 10) {
+  // Validate duration:
+  // - Kling v2.x supports only 5/10 seconds.
+  // - Omni supports 3-10 seconds with scenario-specific constraints (we enforce the stricter ones later).
+  if (!isOmniModel && duration !== 5 && duration !== 10) {
     return NextResponse.json(
       { error: 'Kling AI only supports 5 or 10 second durations' },
       { status: 400 }
@@ -780,37 +798,282 @@ async function handleKlingGeneration(body: {
   }
 
   try {
+    // Determine which model is being used
+    const isKling26 = body.model === 'kling-v2-6';
+    const isOmni = isOmniModel;
+    
     // Step 1: Submit generation task
-    // Kling AI image-to-video API endpoint: /v1/videos/image2video
-    // Documentation: https://app.klingai.com/global/dev/document-api/apiReference/model/imageToVideo
-    // Common info: https://app.klingai.com/global/dev/document-api/apiReference/commonInfo
-    const requestUrl = `${KLING_API_BASE}/v1/videos/image2video`;
+    // For O1 (Omni), use the Omni-Video endpoint
+    // For Kling 2.6 and v2.5, use the image2video endpoint
+    const requestUrl = isOmni 
+      ? `${KLING_API_BASE}/v1/videos/omni-video`
+      : `${KLING_API_BASE}/v1/videos/image2video`;
     
     // Kling AI expects specific field names and format
     // Using snake_case format for API compatibility
     // image: required - main/start frame
     // image_tail: optional - end frame (for frame interpolation)
+    // video: optional - video input for O1 (Omni)
     // NOTE: cfg_scale is NOT supported by Kling v2.x models (only v1.x)
-    const requestBody: {
+    // Build request body. NOTE:
+    // - Non-Omni: uses /v1/videos/image2video payload (image/image_tail)
+    // - Omni: uses /v1/videos/omni-video payload (image_list/video_list/etc) with model_name = kling-video-o1
+    const buildOmniPrompt = (rawPrompt: string, needsImage: boolean, needsVideo: boolean) => {
+      // Kling Omni requires input references in the prompt using placeholders like <<<image_1>>> / <<<video_1>>>.
+      // See docs: "Specify an element, image, or video in the format of <<<...>>> such as <<<image_1>>>."
+      let p = rawPrompt.trim();
+      const hasImagePlaceholder = /<<<\s*image_1\s*>>>/i.test(p);
+      const hasVideoPlaceholder = /<<<\s*video_1\s*>>>/i.test(p);
+
+      if (needsImage && !hasImagePlaceholder) p = `<<<image_1>>> ${p}`.trim();
+      if (needsVideo && !hasVideoPlaceholder) p = `<<<video_1>>> ${p}`.trim();
+      return p;
+    };
+
+    if (isOmni) {
+      // Kling Omni O1 schema (from the published OmniVideo docs bundle):
+      // - image_list items use image_url (+ optional type: first_frame/end_frame)
+      // - video_list items use video_url + refer_type (base|feature) + keep_original_sound (yes|no)
+      const hasVideoInput = !!body.omniVideoInput;
+      const hasImageInput = !!imageUrl;
+      const referType: 'base' | 'feature' =
+        body.omniType === 'feature' ? 'feature' : 'base';
+
+      // Ensure prompt contains required placeholders when inputs are provided (Omni is strict about this).
+      const omniPrompt = buildOmniPrompt(prompt, hasImageInput, hasVideoInput);
+
+      const isEditingBase = hasVideoInput && referType === 'base';
+      const isVideoReference = hasVideoInput && referType === 'feature';
+      const isTextToVideo = !hasVideoInput && !hasImageInput;
+
+      const omniPayload: Record<string, unknown> = {
+        model_name: 'kling-video-o1',
+        prompt: omniPrompt,
+      };
+      // Only send mode when Pro is selected.
+      if (klingMode === 'pro') omniPayload.mode = 'pro';
+
+      if (hasImageInput && imageUrl) {
+        // Standard image reference / image-to-video uses image_url
+        omniPayload.image_list = [{ image_url: imageUrl }];
+      }
+
+      if (hasVideoInput && body.omniVideoInput) {
+        omniPayload.video_list = [
+          {
+            video_url: body.omniVideoInput,
+            refer_type: referType,
+            keep_original_sound: 'yes',
+          },
+        ];
+      }
+
+      // duration:
+      // - Editing base: duration MUST NOT be provided (aligns with input video length)
+      // - Text-to-video: only 5/10 supported in our UI
+      // - Video reference (feature): duration is allowed (3-10), but our UI uses 5/10
+      if (!isEditingBase) {
+        omniPayload.duration = duration.toString();
+      }
+
+      // aspect_ratio:
+      // Docs FAQ says aspect ratio is NOT supported for instruction-based transformation (video editing base).
+      // It IS supported for text-to-video and video reference scenarios.
+      if (isTextToVideo || isVideoReference) {
+        omniPayload.aspect_ratio = body.omniAspectRatio || '16:9';
+      }
+
+      console.log('📡 Kling Omni create task payload keys:', Object.keys(omniPayload));
+
+      const generateResponse = await fetch(requestUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: authHeader,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify(omniPayload),
+      });
+
+      if (!generateResponse.ok) {
+        const errorText = await generateResponse.text();
+        throw new Error(`Kling Omni request failed: ${errorText || generateResponse.statusText}`);
+      }
+
+      const generateData = await generateResponse.json();
+      if (generateData.code !== 0) {
+        throw new Error(generateData.message || 'Failed to submit video generation task');
+      }
+
+      const taskId = generateData.data?.task_id;
+      if (!taskId) throw new Error('No task ID returned from Kling AI API');
+
+      console.log(`✅ Kling AI task submitted: ${taskId}`);
+
+      // Continue into shared polling + download by jumping to the polling section.
+      // We do this by storing taskId onto a local and skipping the generic submission below.
+      // eslint-disable-next-line no-inner-declarations
+      async function pollOmniTaskAndReturn(taskIdToPoll: string) {
+        // Step 2: Poll for task completion
+        let taskStatus = 'submitted';
+        let attempts = 0;
+        const maxAttempts = 120; // 20 minutes max (120 * 10 seconds)
+        let taskData: {
+          task_id?: string;
+          task_status?: string;
+          task_status_msg?: string;
+          task_result?: {
+            videos?: Array<{ url: string; duration?: number }>;
+          };
+        } | null = null;
+
+        while (taskStatus !== 'succeed' && taskStatus !== 'failed' && attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
+
+          const statusEndpoint = `${KLING_API_BASE}/v1/videos/omni-video/${taskIdToPoll}`;
+          const statusResponse = await fetch(statusEndpoint, {
+            method: 'GET',
+            headers: {
+              Authorization: authHeader,
+            },
+          });
+
+          if (!statusResponse.ok) {
+            const statusErrorText = await statusResponse.text();
+            console.error('Status check error:', statusErrorText);
+            throw new Error(`Failed to check task status: ${statusResponse.statusText}`);
+          }
+
+          const statusData = await statusResponse.json();
+          if (statusData.code !== 0) {
+            throw new Error(statusData.message || 'Failed to check task status');
+          }
+
+          taskData = statusData.data;
+          if (taskData) {
+            taskStatus = taskData.task_status || 'unknown';
+            attempts++;
+
+            console.log(`Kling AI task status: ${taskStatus} (attempt ${attempts}/${maxAttempts})`);
+
+            if (taskData.task_status_msg) {
+              console.log('Status message:', taskData.task_status_msg);
+            }
+          } else {
+            throw new Error('No task data received from status check');
+          }
+        }
+
+        if (!taskData) {
+          throw new Error('Video generation failed: No task data available');
+        }
+
+        if (taskStatus === 'failed') {
+          const errorMessage = taskData.task_status_msg || 'Video generation failed';
+          throw new Error(`Kling AI video generation failed: ${errorMessage}`);
+        }
+
+        if (taskStatus !== 'succeed') {
+          throw new Error(`Video generation timed out. Last status: ${taskStatus} after ${attempts} attempts (${attempts * 10} seconds)`);
+        }
+
+        const videos = taskData.task_result?.videos || [];
+        const videoUrl = videos[0]?.url;
+        if (!videoUrl) {
+          console.error('No video URL in response:', JSON.stringify(taskData, null, 2));
+          return NextResponse.json(
+            { error: 'No video generated. The API response did not contain a video URL.' },
+            { status: 500 }
+          );
+        }
+
+        console.log('✅ Kling AI video generation complete:', videoUrl);
+
+        const videoDownloadResponse = await fetch(videoUrl);
+        if (!videoDownloadResponse.ok) {
+          throw new Error(`Failed to download video: ${videoDownloadResponse.statusText}`);
+        }
+
+        const videoBuffer = await videoDownloadResponse.arrayBuffer();
+        const blob = new Blob([videoBuffer], { type: 'video/mp4' });
+        const timestamp = Date.now();
+        const file = new File([blob], `generated-${timestamp}.mp4`, {
+          type: 'video/mp4',
+        });
+
+        const fileKey = `episodes/${episodeId}/av-script/videos/generated-${timestamp}.mp4`;
+        const uploadResult = await uploadToS3(file, fileKey);
+
+        if (!uploadResult) {
+          return NextResponse.json(
+            { error: 'Failed to upload generated video' },
+            { status: 500 }
+          );
+        }
+
+        // Backup (non-critical)
+        try {
+          const backupKey = `concepto-app/AIbackups/videos/${timestamp}-${Math.random().toString(36).substring(7)}.mp4`;
+          await uploadToS3(file, backupKey);
+          console.log('✅ Video backup saved to:', backupKey);
+        } catch (backupError) {
+          console.warn('⚠️ Failed to save video backup (non-critical):', backupError);
+        }
+
+        return NextResponse.json({
+          videoUrl: uploadResult.url,
+          modelName: body.model,
+          generatedAt: new Date().toISOString(),
+          success: true,
+        });
+      }
+
+      return await pollOmniTaskAndReturn(taskId);
+    }
+
+    type KlingAspectRatio = '16:9' | '9:16' | '1:1';
+    type KlingMode = 'std' | 'pro';
+    type KlingProMode = 'pro';
+
+    type KlingImage2VideoRequest = {
       model_name: string;
       image: string;
       image_tail?: string;
       prompt: string;
       negative_prompt: string;
-      mode: 'std' | 'pro';
       duration: string;
-    } = {
-      model_name: 'kling-v2-5-turbo',
-      image: '', // Will be set below based on type
-      prompt: prompt,
-      negative_prompt: '', // Optional: what to avoid in generation (max 2500 chars)
-      mode: klingMode, // 'std' for Standard or 'pro' for Pro mode
-      duration: duration.toString(), // String: "5" or "10"
+      mode?: KlingProMode; // Only send "pro"; omit for standard to avoid "std" issues
+      aspect_ratio?: KlingAspectRatio;
+      sound?: 'on' | 'off'; // Kling v2.6+
     };
-    
-    // Set image and image_tail based on input type
-    // IMPORTANT: image_tail is only supported in Pro mode with 10s duration
-    if (type === 'frames-to-video' && startFrameUrl && endFrameUrl) {
+
+    const requestBody: KlingImage2VideoRequest = {
+      model_name: isKling26 ? 'kling-v2-6' : 'kling-v2-5-turbo',
+      image: '', // Set below based on input type
+      prompt,
+      negative_prompt: '',
+      duration: duration.toString(),
+    };
+
+    // Kling 2.6 specific parameters
+    if (isKling26) {
+      requestBody.sound = kling26Audio ? 'on' : 'off';
+      requestBody.aspect_ratio = kling26Size as KlingAspectRatio;
+
+      // IMPORTANT (observed with kling-v2-6 in prod):
+      // Even when `mode` is omitted, the service can default to "std" and reject it with:
+      //   {"code":1201,"message":"mode value 'std' is invalid", ...}
+      // Force "pro" so the request never falls back to "std".
+      requestBody.mode = 'pro';
+    } else if ((klingMode as KlingMode) === 'pro') {
+      // Only send mode when Pro is selected (never send "std").
+      requestBody.mode = 'pro';
+    }
+
+    // For non-Omni models, set image and optional image_tail based on input type.
+      // Set image and image_tail based on input type for non-Omni models
+      // IMPORTANT: image_tail is only supported in Pro mode with 10s duration
+      if (type === 'frames-to-video' && startFrameUrl && endFrameUrl) {
       // Multiple frames mode: start frame + end frame
       // Validate: image_tail requires Pro mode + 10s duration
       if (klingMode !== 'pro' || duration !== 10) {
@@ -823,34 +1086,41 @@ async function handleKlingGeneration(body: {
         );
       }
       
-      // image = start frame, image_tail = end frame
-      requestBody.image = startFrameUrl;
-      requestBody.image_tail = endFrameUrl;
-      console.log('Using frames-to-video mode with start and end frames (Pro mode, 10s)');
-    } else if (type === 'image-to-video' && imageUrl) {
-      // Single image mode: only main image
-      requestBody.image = imageUrl;
-      // image_tail is not set (undefined)
-      console.log('Using image-to-video mode with single image');
-    } else if (type === 'frames-to-video' && startFrameUrl) {
-      // Only start frame provided
-      requestBody.image = startFrameUrl;
-      console.log('Using image-to-video mode with start frame only');
-    } else {
-      return NextResponse.json(
-        { error: 'At least one image is required for Kling AI video generation' },
-        { status: 400 }
-      );
-    }
+        // image = start frame, image_tail = end frame
+        requestBody.image = startFrameUrl;
+        requestBody.image_tail = endFrameUrl;
+        console.log('Using frames-to-video mode with start and end frames (Pro mode, 10s)');
+      } else if (type === 'image-to-video' && imageUrl) {
+        // Single image mode: only main image
+        requestBody.image = imageUrl;
+        // image_tail is not set (undefined)
+        console.log('Using image-to-video mode with single image');
+      } else if (type === 'frames-to-video' && startFrameUrl) {
+        // Only start frame provided
+        requestBody.image = startFrameUrl;
+        console.log('Using image-to-video mode with start frame only');
+      } else if (!isOmni) {
+        // For non-Omni models, require at least one image
+        return NextResponse.json(
+          { error: 'At least one image is required for Kling AI video generation' },
+          { status: 400 }
+        );
+      }
 
     console.log('==== Kling AI API Request ====');
     console.log('URL:', requestUrl);
     console.log('Method: POST');
+    console.log('Model:', body.model);
+    console.log('Is Omni:', isOmni);
+    console.log('Is Kling 2.6:', isKling26);
     console.log('Auth Method:', klingApiKey ? 'API_KEY' : 'JWT');
     console.log('Mode:', requestBody.mode);
     console.log('Duration:', duration + 's');
     console.log('Has image:', !!requestBody.image);
     console.log('Has image_tail:', !!requestBody.image_tail);
+    console.log('Has video:', false);
+    console.log('Has omniVideoInput:', !!omniVideoInput);
+    console.log('Has imageUrl:', !!imageUrl);
     console.log('Prompt:', prompt.substring(0, 50) + '...');
     console.log('Request Body:', JSON.stringify(requestBody, null, 2));
     console.log('Authorization Header:', authHeader.substring(0, 20) + '...');
@@ -862,8 +1132,9 @@ async function handleKlingGeneration(body: {
       generateResponse = await fetch(requestUrl, {
         method: 'POST',
         headers: {
-          'Authorization': authHeader,
+          Authorization: authHeader,
           'Content-Type': 'application/json',
+          Accept: 'application/json',
         },
         body: JSON.stringify(requestBody),
       });
@@ -880,20 +1151,45 @@ async function handleKlingGeneration(body: {
 
     if (!generateResponse.ok) {
       const errorText = await generateResponse.text();
-      let errorData;
+      let errorData: unknown;
       try {
-        errorData = JSON.parse(errorText);
+        errorData = JSON.parse(errorText) as unknown;
       } catch {
-        errorData = { error: { message: errorText || generateResponse.statusText } };
+        errorData = { error: { message: errorText || generateResponse.statusText }, message: errorText || generateResponse.statusText };
       }
       
       console.error('Kling AI API Error:', {
         status: generateResponse.status,
         statusText: generateResponse.statusText,
+        errorText: errorText,
         error: errorData,
+        requestUrl: requestUrl,
+        requestBody: JSON.stringify(requestBody, null, 2),
       });
       
-      throw new Error(errorData.error?.message || errorData.message || `Kling AI API error: ${generateResponse.status} ${generateResponse.statusText}`);
+      const isRecord = (v: unknown): v is Record<string, unknown> =>
+        typeof v === 'object' && v !== null;
+
+      // Extract error message from various possible formats
+      let extractedMessage: string | undefined;
+      if (isRecord(errorData)) {
+        const maybeMessage = errorData['message'];
+        if (typeof maybeMessage === 'string') extractedMessage = maybeMessage;
+
+        const maybeError = errorData['error'];
+        if (!extractedMessage && typeof maybeError === 'string') extractedMessage = maybeError;
+        if (!extractedMessage && isRecord(maybeError)) {
+          const maybeInner = maybeError['message'];
+          if (typeof maybeInner === 'string') extractedMessage = maybeInner;
+        }
+      }
+
+      const errorMessage =
+        extractedMessage ||
+        (errorText || '').trim() ||
+        `Kling AI API error: ${generateResponse.status} ${generateResponse.statusText}`;
+      
+      throw new Error(errorMessage);
     }
 
     const generateData = await generateResponse.json();
@@ -912,7 +1208,7 @@ async function handleKlingGeneration(body: {
     console.log(`✅ Kling AI task submitted: ${taskId}`);
 
     // Step 2: Poll for task completion
-    // Kling AI endpoint for task status: /v1/videos/image2video/{taskId}
+    // Kling AI endpoint for task status: /v1/videos/image2video/{taskId} or /v1/videos/omniVideo/{taskId}
     let taskStatus = 'submitted';
     let attempts = 0;
     const maxAttempts = 120; // 20 minutes max (120 * 10 seconds)
@@ -928,7 +1224,11 @@ async function handleKlingGeneration(body: {
     while (taskStatus !== 'succeed' && taskStatus !== 'failed' && attempts < maxAttempts) {
       await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
 
-      const statusResponse = await fetch(`${KLING_API_BASE}/v1/videos/image2video/${taskId}`, {
+      // Use appropriate endpoint based on model
+      const statusEndpoint = (body.model === 'kling-omni-video' || body.model === 'kling-o1')
+        ? `${KLING_API_BASE}/v1/videos/omni-video/${taskId}`
+        : `${KLING_API_BASE}/v1/videos/image2video/${taskId}`;
+      const statusResponse = await fetch(statusEndpoint, {
         method: 'GET',
         headers: {
           'Authorization': authHeader,

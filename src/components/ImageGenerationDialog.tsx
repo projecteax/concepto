@@ -91,6 +91,8 @@ export function ImageGenerationDialog({
     if (modelName === 'runway-gen4-turbo') return 'Runway Gen-4 Turbo';
     if (modelName === 'runway-act-two') return 'Runway Act Two';
     if (modelName === 'kling-v2-5-turbo') return 'Kling v2.5 Turbo';
+    if (modelName === 'kling-v2-6') return 'Kling v2.6';
+    if (modelName === 'kling-omni-video' || modelName === 'kling-o1') return 'Kling O1 (Omni)';
     
     // Image models
     if (modelName === 'gemini-2.5-flash-image-preview') return 'Gemini 2.5 Flash Image Preview';
@@ -170,7 +172,9 @@ export function ImageGenerationDialog({
     modelName: string | undefined,
     duration: number | undefined,
     resolution?: '720p' | '1080p',
-    klingMode?: 'std' | 'pro'
+    klingMode?: 'std' | 'pro',
+    kling26Audio?: boolean,
+    omniVideoInput?: boolean
   ): number => {
     if (!modelName) return 0;
     
@@ -229,6 +233,48 @@ export function ImageGenerationDialog({
       return 0; // Unknown mode
     }
 
+    // Kling 2.6 pricing (based on duration and audio)
+    // Pricing from screenshot: std x 1s x without video input: 0.6 credits, with video input: 0.9 credits
+    // pro x 1s x without video input: 0.8 credits, with video input: 1.2 credits
+    // Standard pricing: $0.084/sec without audio, $0.168/sec with audio (doubles)
+    // Pro pricing: $0.112/sec without audio, $0.224/sec with audio (doubles)
+    // For 5s: std no audio = $0.42, std with audio = $0.84, pro no audio = $0.56, pro with audio = $1.12
+    // For 10s: std no audio = $0.84, std with audio = $1.68, pro no audio = $1.12, pro with audio = $2.24
+    if (modelName === 'kling-v2-6') {
+      const mode = klingMode || 'std';
+      const hasAudio = kling26Audio || false;
+      
+      if (mode === 'std') {
+        if (actualDuration === 5) return hasAudio ? 0.84 : 0.42;
+        if (actualDuration === 10) return hasAudio ? 1.68 : 0.84;
+        return 0.42; // Default 5s
+      } else if (mode === 'pro') {
+        if (actualDuration === 5) return hasAudio ? 1.12 : 0.56;
+        if (actualDuration === 10) return hasAudio ? 2.24 : 1.12;
+        return 0.56; // Default 5s
+      }
+      return 0;
+    }
+
+    // O1 (Omni) pricing
+    // Based on screenshot: std x 1s x without video input: 0.6 credits ($0.084), with video input: 0.9 credits ($0.126)
+    // pro x 1s x without video input: 0.8 credits ($0.112), with video input: 1.2 credits ($0.168)
+    if (modelName === 'kling-omni-video' || modelName === 'kling-o1') {
+      const mode = klingMode || 'std';
+      const hasVideoInput = omniVideoInput || false;
+      
+      if (mode === 'std') {
+        if (actualDuration === 5) return hasVideoInput ? 0.63 : 0.42; // 5 * (0.126 or 0.084)
+        if (actualDuration === 10) return hasVideoInput ? 1.26 : 0.84; // 10 * (0.126 or 0.084)
+        return 0.42; // Default 5s
+      } else if (mode === 'pro') {
+        if (actualDuration === 5) return hasVideoInput ? 0.84 : 0.56; // 5 * (0.168 or 0.112)
+        if (actualDuration === 10) return hasVideoInput ? 1.68 : 1.12; // 10 * (0.168 or 0.112)
+        return 0.56; // Default 5s
+      }
+      return 0;
+    }
+
     // Sora pricing
     if (modelName === 'sora-2') {
       return 0.10 * actualDuration; // $0.10/sec
@@ -260,7 +306,9 @@ export function ImageGenerationDialog({
           video.modelName,
           video.duration || videoDurations[video.videoUrl],
           video.resolution,
-          video.klingMode
+          video.klingMode,
+          video.kling26Audio,
+          !!video.omniVideoInput
         );
       }
       // If no modelName and no manualCost, cost is 0
@@ -292,7 +340,9 @@ export function ImageGenerationDialog({
           video.modelName,
           video.duration || videoDurations[video.videoUrl],
           video.resolution,
-          video.klingMode
+          video.klingMode,
+          video.kling26Audio,
+          !!video.omniVideoInput
         );
         modelDisplayName = formatModelName(video.modelName);
       } else {
@@ -354,7 +404,7 @@ export function ImageGenerationDialog({
   const [characterVideo, setCharacterVideo] = useState<string | null>(null);
   const [mainImageId, setMainImageId] = useState<string | null>(null); // Can be 'startFrame', 'endFrame', 'referenceImage', or generated image ID
   const [mainVideoId, setMainVideoId] = useState<string | null>(null); // Can be 'referenceVideo' or generated video ID
-  const [generatedVideos, setGeneratedVideos] = useState<Array<{ id: string; videoUrl: string; prompt: string; createdAt: Date; modelName?: string; generatedAt?: Date; duration?: number; resolution?: '720p' | '1080p'; klingMode?: 'std' | 'pro'; manualCost?: number }>>([]);
+  const [generatedVideos, setGeneratedVideos] = useState<Array<{ id: string; videoUrl: string; prompt: string; createdAt: Date; modelName?: string; generatedAt?: Date; duration?: number; resolution?: '720p' | '1080p'; klingMode?: 'std' | 'pro'; kling26Audio?: boolean; kling26Size?: '16:9' | '9:16' | '1:1'; omniVideoInput?: string; manualCost?: number }>>([]);
   const [videoDurations, setVideoDurations] = useState<{[url: string]: number}>({});
   const [editingGeneratedVideoCost, setEditingGeneratedVideoCost] = useState<{id: string; cost: number} | null>(null);
   
@@ -371,13 +421,20 @@ export function ImageGenerationDialog({
   } | null>(null);
   const [videoModel, setVideoModel] = useState<string>('veo-3-1-flash');
   const [videoPrompt, setVideoPrompt] = useState<string>('');
-  const [selectedVideoInputType, setSelectedVideoInputType] = useState<'main' | 'start-end' | 'reference-video' | null>(null);
+  const [selectedVideoInputType, setSelectedVideoInputType] = useState<'main' | 'start-end' | 'reference-video' | 'text-to-video' | 'video-to-video' | null>(null);
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [videoResolution, setVideoResolution] = useState<'720p' | '1080p'>('720p');
   const [videoDuration, setVideoDuration] = useState<4 | 6 | 8>(8);
   const [runwayDuration, setRunwayDuration] = useState<number>(5); // For Runway ML (2-10 seconds)
   const [klingDuration, setKlingDuration] = useState<5 | 10>(5); // For Kling AI (5 or 10 seconds only)
   const [klingMode, setKlingMode] = useState<'std' | 'pro'>('std'); // For Kling AI (Standard or Pro mode)
+  // Kling 2.6 specific options
+  const [kling26Audio, setKling26Audio] = useState<boolean>(false); // Include audio for Kling 2.6
+  const [kling26Size, setKling26Size] = useState<'16:9' | '9:16' | '1:1'>('16:9'); // Aspect ratio for Kling 2.6
+  // O1 (Omni) specific options
+  const [omniVideoInput, setOmniVideoInput] = useState<string | null>(null); // Video input URL for O1
+  const [omniAspectRatio, setOmniAspectRatio] = useState<'16:9' | '9:16' | '1:1'>('16:9');
+  const [omniType, setOmniType] = useState<'base' | 'feature'>('base'); // base=editing, feature=video reference
   const [enlargedContent, setEnlargedContent] = useState<{ type: 'image' | 'video'; url: string } | null>(null);
   const [uploadedImages, setUploadedImages] = useState<Array<{ id: string; imageUrl: string; createdAt: Date }>>([]);
   const [uploadedVideos, setUploadedVideos] = useState<Array<{ id: string; videoUrl: string; createdAt: Date; manualCost?: number }>>([]);
@@ -3397,7 +3454,7 @@ export function ImageGenerationDialog({
                           )}
                           {(() => {
                             const calculatedCost = vid.modelName 
-                              ? calculateVideoCost(vid.modelName, vid.duration || videoDurations[vid.videoUrl], vid.resolution, vid.klingMode)
+                              ? calculateVideoCost(vid.modelName, vid.duration || videoDurations[vid.videoUrl], vid.resolution, vid.klingMode, vid.kling26Audio, !!vid.omniVideoInput)
                               : 0;
                             const displayCost = (vid.manualCost !== undefined && vid.manualCost > 0) 
                               ? vid.manualCost 
@@ -3959,6 +4016,15 @@ export function ImageGenerationDialog({
                   // Reset duration based on model
                   if (e.target.value.startsWith('kling')) {
                     setKlingDuration(5);
+                    // Reset Kling 2.6 specific options
+                    if (e.target.value === 'kling-v2-6') {
+                      setKling26Audio(false);
+                      setKling26Size('16:9');
+                    }
+                    // Reset O1 specific options
+                    if (e.target.value === 'kling-omni-video') {
+                      setOmniVideoInput(null);
+                    }
                   } else if (e.target.value.startsWith('runway')) {
                     setRunwayDuration(5);
                   } else {
@@ -3981,6 +4047,8 @@ export function ImageGenerationDialog({
                 </optgroup>
                 <optgroup label="Kling AI">
                   <option value="kling-v2-5-turbo">Kling v2.5 Turbo</option>
+                  <option value="kling-v2-6">Kling v2.6</option>
+                  <option value="kling-omni-video">Kling O1 (Omni)</option>
                 </optgroup>
               </select>
               <p className="text-xs text-gray-500 mt-1">
@@ -3991,7 +4059,11 @@ export function ImageGenerationDialog({
                     ? 'Using Runway ML Gen-4 Turbo for image-to-video generation. Supports flexible duration (2-10 seconds) and 1280x720 resolution.'
                     : 'Using Runway ML Act Two for character performance. Requires a main image (character) and reference video. Supports flexible duration (2-10 seconds) and 1280:720 ratio.'
                   : videoModel.startsWith('kling')
-                  ? 'Using Kling AI v2.5 Turbo for image-to-video generation. Supports single frame or multiple frames input. Duration options: 5 or 10 seconds only.'
+                  ? videoModel === 'kling-v2-6'
+                    ? 'Using Kling AI v2.6 for image-to-video generation. Supports audio generation, multiple aspect ratios (16:9, 9:16, 1:1), and duration options: 5 or 10 seconds.'
+                    : videoModel === 'kling-omni-video'
+                    ? 'Using Kling AI O1 (Omni) for video generation. Supports image-to-video and video-to-video generation with advanced capabilities.'
+                    : 'Using Kling AI v2.5 Turbo for image-to-video generation. Supports single frame or multiple frames input. Duration options: 5 or 10 seconds only.'
                   : 'Using OpenAI SORA 2 for video generation. Supports text-to-video and image-to-video generation.'}
               </p>
             </div>
@@ -4028,7 +4100,7 @@ export function ImageGenerationDialog({
                 </p>
               </div>
             )}
-            {videoModel.startsWith('kling') && (
+            {videoModel.startsWith('kling') && videoModel !== 'kling-v2-6' && (
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Video Resolution
@@ -4074,6 +4146,282 @@ export function ImageGenerationDialog({
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
                   Standard: Faster, single image only. Pro: Higher quality, supports start+end frames (10s only).
+                </p>
+              </div>
+            )}
+
+            {/* Kling 2.6 Specific Options */}
+            {videoModel === 'kling-v2-6' && (
+              <>
+                {/* Audio Toggle */}
+                <div className="mb-4">
+                  <label className="flex items-center justify-between cursor-pointer">
+                    <div>
+                      <span className="block text-sm font-medium text-gray-700">Include Audio</span>
+                      <span className="text-xs text-gray-500">Audio generation doubles the cost</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={kling26Audio}
+                      onChange={(e) => setKling26Audio(e.target.checked)}
+                      className="w-5 h-5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                    />
+                  </label>
+                  <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+                    <strong>Pricing:</strong> {kling26Audio 
+                      ? `$${(klingDuration === 5 ? (klingMode === 'std' ? 0.84 : 1.12) : (klingMode === 'std' ? 1.68 : 2.24)).toFixed(2)} for ${klingDuration}s (with audio)`
+                      : `$${(klingDuration === 5 ? (klingMode === 'std' ? 0.42 : 0.56) : (klingMode === 'std' ? 0.84 : 1.12)).toFixed(2)} for ${klingDuration}s (no audio)`
+                    }
+                  </div>
+                </div>
+
+                {/* Size/Aspect Ratio Selection */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Aspect Ratio
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['16:9', '9:16', '1:1'] as const).map((ratio) => (
+                      <button
+                        key={ratio}
+                        type="button"
+                        onClick={() => setKling26Size(ratio)}
+                        className={`px-3 py-2 border-2 rounded-lg font-medium text-sm transition-colors ${
+                          kling26Size === ratio
+                            ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                            : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                        }`}
+                      >
+                        {ratio}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Select the aspect ratio for the generated video.
+                  </p>
+                </div>
+              </>
+            )}
+
+            {/* O1 (Omni) Specific Input Type Selection */}
+            {videoModel === 'kling-omni-video' && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Input Type *
+                </label>
+                <div className="grid grid-cols-3 gap-4">
+                  {/* Text-to-Video */}
+                  <div
+                    onClick={() => setSelectedVideoInputType('text-to-video')}
+                    className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video ${
+                      selectedVideoInputType === 'text-to-video' ? 'border-indigo-500' : 'border-gray-300'
+                    }`}
+                  >
+                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-100 to-indigo-100">
+                      <div className="text-center p-4">
+                        <div className="text-2xl mb-2">📝</div>
+                        <div className="text-sm font-medium text-gray-900">Text to Video</div>
+                      </div>
+                    </div>
+                    {selectedVideoInputType === 'text-to-video' && (
+                      <div className="absolute inset-0 bg-indigo-500 bg-opacity-30 flex items-center justify-center pointer-events-none">
+                        <Check className="w-8 h-8 text-white" />
+                      </div>
+                    )}
+                    <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-xs font-medium p-2 text-center pointer-events-none">
+                      TEXT TO VIDEO
+                    </div>
+                  </div>
+
+                  {/* Image-to-Video */}
+                  <div
+                    onClick={() => {
+                      if (getMainImageUrl()) {
+                        setSelectedVideoInputType('main');
+                        setOmniVideoInput(null); // Clear video input
+                      } else {
+                        alert('No main image available. Please set a main image first.');
+                      }
+                    }}
+                    className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video ${
+                      selectedVideoInputType === 'main' ? 'border-indigo-500' : 'border-gray-300'
+                    } ${!getMainImageUrl() ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    {getMainImageUrl() ? (
+                      <>
+                        <img
+                          src={getMainImageUrl()!}
+                          alt="Main Image"
+                          className="w-full h-full object-cover"
+                        />
+                        {selectedVideoInputType === 'main' && (
+                          <div className="absolute inset-0 bg-indigo-500 bg-opacity-30 flex items-center justify-center pointer-events-none">
+                            <Check className="w-8 h-8 text-white" />
+                          </div>
+                        )}
+                        <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-xs font-medium p-2 text-center pointer-events-none">
+                          IMAGE TO VIDEO
+                        </div>
+                      </>
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400 text-xs">
+                        No Main Image
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Video-to-Video */}
+                  <div
+                    onClick={() => {
+                      if (generatedVideos.length > 0 || mainVideoId) {
+                        setSelectedVideoInputType('video-to-video');
+                      } else {
+                        alert('No videos available. Please generate a video first or use text-to-video or image-to-video.');
+                      }
+                    }}
+                    className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video ${
+                      selectedVideoInputType === 'video-to-video' ? 'border-indigo-500' : 'border-gray-300'
+                    } ${generatedVideos.length === 0 && !mainVideoId ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    {mainVideoId && generatedVideos.find(v => v.id === mainVideoId) ? (
+                      <>
+                        <video
+                          src={generatedVideos.find(v => v.id === mainVideoId)!.videoUrl}
+                          className="w-full h-full object-cover"
+                          muted
+                        />
+                        {selectedVideoInputType === 'video-to-video' && (
+                          <div className="absolute inset-0 bg-indigo-500 bg-opacity-30 flex items-center justify-center pointer-events-none">
+                            <Check className="w-8 h-8 text-white" />
+                          </div>
+                        )}
+                        <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-xs font-medium p-2 text-center pointer-events-none">
+                          VIDEO TO VIDEO
+                        </div>
+                      </>
+                    ) : generatedVideos.length > 0 ? (
+                      <>
+                        <video
+                          src={generatedVideos[0].videoUrl}
+                          className="w-full h-full object-cover"
+                          muted
+                        />
+                        {selectedVideoInputType === 'video-to-video' && (
+                          <div className="absolute inset-0 bg-indigo-500 bg-opacity-30 flex items-center justify-center pointer-events-none">
+                            <Check className="w-8 h-8 text-white" />
+                          </div>
+                        )}
+                        <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-xs font-medium p-2 text-center pointer-events-none">
+                          VIDEO TO VIDEO
+                        </div>
+                      </>
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400 text-xs">
+                        No Videos Available
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Video Input Selection for Video-to-Video */}
+                {selectedVideoInputType === 'video-to-video' && (
+                  <div className="mt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Video Input Mode
+                    </label>
+                    <div className="grid grid-cols-2 gap-2 mb-3">
+                      <button
+                        type="button"
+                        onClick={() => setOmniType('base')}
+                        className={`px-3 py-2 border-2 rounded-lg font-medium text-sm transition-colors ${
+                          omniType === 'base'
+                            ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                            : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                        }`}
+                      >
+                        Edit (base)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setOmniType('feature')}
+                        className={`px-3 py-2 border-2 rounded-lg font-medium text-sm transition-colors ${
+                          omniType === 'feature'
+                            ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                            : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                        }`}
+                      >
+                        Reference (feature)
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mb-3">
+                      Base: edits the input video (duration follows input). Feature: references the input video (duration can be set).
+                    </p>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Select Video Input *
+                    </label>
+                    <select
+                      value={omniVideoInput || ''}
+                      onChange={(e) => setOmniVideoInput(e.target.value || null)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    >
+                      <option value="">Select a video...</option>
+                      {mainVideoId && generatedVideos.find(v => v.id === mainVideoId) && (
+                        <option value={generatedVideos.find(v => v.id === mainVideoId)!.videoUrl}>
+                          Main Video (Current Selection) - {generatedVideos.find(v => v.id === mainVideoId)!.modelName ? formatModelName(generatedVideos.find(v => v.id === mainVideoId)!.modelName!) : 'Unknown'}
+                        </option>
+                      )}
+                      {generatedVideos
+                        .filter(v => !mainVideoId || v.id !== mainVideoId)
+                        .map((video) => (
+                          <option key={video.id} value={video.videoUrl}>
+                            {video.modelName ? formatModelName(video.modelName) : 'Generated Video'} - {video.id.substring(0, 8)}...
+                          </option>
+                        ))}
+                    </select>
+                    {omniVideoInput && (
+                      <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
+                        <strong>Note:</strong> Using video input increases cost. Pricing: {klingMode === 'std' 
+                          ? `$${(klingDuration * 0.126).toFixed(2)} for ${klingDuration}s (with video input)`
+                          : `$${(klingDuration * 0.168).toFixed(2)} for ${klingDuration}s (with video input)`
+                        }
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {!selectedVideoInputType && (
+                  <p className="text-xs text-red-500 mt-1">Please select an input type</p>
+                )}
+                {selectedVideoInputType === 'video-to-video' && !omniVideoInput && (
+                  <p className="text-xs text-amber-500 mt-1">Please select a video input</p>
+                )}
+              </div>
+            )}
+
+            {/* O1 (Omni) Aspect Ratio */}
+            {videoModel === 'kling-omni-video' && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Aspect Ratio
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['16:9', '9:16', '1:1'] as const).map((ratio) => (
+                    <button
+                      key={ratio}
+                      type="button"
+                      onClick={() => setOmniAspectRatio(ratio)}
+                      className={`px-3 py-2 border-2 rounded-lg font-medium text-sm transition-colors ${
+                        omniAspectRatio === ratio
+                          ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                          : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                      }`}
+                    >
+                      {ratio}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Omni-Video requires an aspect ratio in many scenarios (e.g. pure text-to-video).
                 </p>
               </div>
             )}
@@ -4153,6 +4501,7 @@ export function ImageGenerationDialog({
             )}
 
             {/* Select Input Type - VEO models support both start-end frames and multi-image selection */}
+            {/* O1 (Omni) has its own input selection above, so skip it here */}
             {videoModel.startsWith('veo') ? (
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -4265,7 +4614,7 @@ export function ImageGenerationDialog({
                   <p className="text-xs text-blue-500 mt-1">Note: Frames-to-video (interpolation) requires 8 seconds duration</p>
                 )}
               </div>
-            ) : (
+            ) : videoModel !== 'kling-omni-video' ? (
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Select Input Type *
@@ -4411,20 +4760,23 @@ export function ImageGenerationDialog({
                 <p className="text-xs text-blue-500 mt-1">Note: Frames-to-video (interpolation) requires 8 seconds duration</p>
               )}
             </div>
-            )}
+            ) : null}
 
-            {/* Prompt - NOT shown for ACT Two character performance */}
+            {/* Prompt - NOT shown for ACT Two character performance, but always shown for O1 */}
             {!(videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video') && (
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Prompt (editable)
+                  Prompt {videoModel === 'kling-omni-video' && selectedVideoInputType === 'text-to-video' ? '(Required for text-to-video)' : '(editable)'}
                 </label>
                 <textarea
                   value={videoPrompt}
                   onChange={(e) => setVideoPrompt(e.target.value)}
                   rows={4}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none"
-                  placeholder="Enter video generation prompt (pre-populated with audio text)..."
+                  placeholder={videoModel === 'kling-omni-video' && selectedVideoInputType === 'text-to-video' 
+                    ? "Enter your video generation prompt (required for text-to-video)..." 
+                    : "Enter video generation prompt (pre-populated with audio text)..."
+                  }
                 />
               </div>
             )}
@@ -4469,37 +4821,65 @@ export function ImageGenerationDialog({
                         return;
                       }
                     } else {
-                    // Other models use the old input type selection
-                    if (!selectedVideoInputType) {
-                      alert('Please select an input type');
-                      return;
-                    }
-                    
-                    if (selectedVideoInputType === 'main' && !getMainImageUrl()) {
-                      alert('Main image is required for image-to-video generation');
-                      return;
-                    }
-                    
-                    if (selectedVideoInputType === 'start-end' && (!startFrame || !endFrame)) {
-                      alert('Both start and end frames are required for frames-to-video generation');
-                      return;
-                    }
-                    
-                    if (selectedVideoInputType === 'reference-video' && videoModel !== 'runway-act-two') {
-                      alert('Reference video generation is not yet implemented for this model');
-                      return;
-                    }
-                    
-                    if (videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video') {
-                      if (!referenceVideo || !getMainImageUrl()) {
-                        alert('Act Two requires a reference video and a character image (main image or generated image)');
+                    // O1 (Omni) specific validation
+                    if (videoModel === 'kling-omni-video') {
+                      if (!selectedVideoInputType) {
+                        alert('Please select an input type (Text-to-Video, Image-to-Video, or Video-to-Video)');
                         return;
                       }
-                    }
-                    
-                    if (!videoPrompt.trim() && !videoModel.startsWith('runway')) {
-                      alert('Please enter a prompt');
-                      return;
+                      
+                      if (selectedVideoInputType === 'text-to-video') {
+                        // Text-to-video only needs prompt
+                        if (!videoPrompt.trim()) {
+                          alert('Prompt is required for text-to-video generation');
+                          return;
+                        }
+                      } else if (selectedVideoInputType === 'main') {
+                        // Image-to-video needs image
+                        if (!getMainImageUrl()) {
+                          alert('Main image is required for image-to-video generation');
+                          return;
+                        }
+                      } else if (selectedVideoInputType === 'video-to-video') {
+                        // Video-to-video needs video input
+                        if (!omniVideoInput) {
+                          alert('Please select a video input for video-to-video generation');
+                          return;
+                        }
+                      }
+                    } else {
+                      // Other models use the old input type selection
+                      if (!selectedVideoInputType) {
+                        alert('Please select an input type');
+                        return;
+                      }
+                      
+                      if (selectedVideoInputType === 'main' && !getMainImageUrl()) {
+                        alert('Main image is required for image-to-video generation');
+                        return;
+                      }
+                      
+                      if (selectedVideoInputType === 'start-end' && (!startFrame || !endFrame)) {
+                        alert('Both start and end frames are required for frames-to-video generation');
+                        return;
+                      }
+                      
+                      if (selectedVideoInputType === 'reference-video' && videoModel !== 'runway-act-two') {
+                        alert('Reference video generation is not yet implemented for this model');
+                        return;
+                      }
+                      
+                      if (videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video') {
+                        if (!referenceVideo || !getMainImageUrl()) {
+                          alert('Act Two requires a reference video and a character image (main image or generated image)');
+                          return;
+                        }
+                      }
+                      
+                      if (!videoPrompt.trim() && !videoModel.startsWith('runway')) {
+                        alert('Please enter a prompt');
+                        return;
+                      }
                     }
                   }
                   
@@ -4520,8 +4900,16 @@ export function ImageGenerationDialog({
                       resolution?: '720p' | '1080p';
                       duration?: 4 | 6 | 8;
                       runwayDuration?: number;
-                      klingDuration?: 5 | 10;
+                      // Omni supports 3-10s (scenario-specific); Kling v2.x supports 5/10s.
+                      klingDuration?: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
                       klingMode?: 'std' | 'pro';
+                      // Kling 2.6 specific
+                      kling26Audio?: boolean;
+                      kling26Size?: '16:9' | '9:16' | '1:1';
+                      // O1 (Omni) specific
+                      omniVideoInput?: string;
+                      omniAspectRatio?: '16:9' | '9:16' | '1:1';
+                      omniType?: 'base' | 'feature';
                       // VEO multi-image support
                       veoImages?: Array<{ url: string; filename: string }>;
                     }
@@ -4545,21 +4933,54 @@ export function ImageGenerationDialog({
                       requestBody.klingDuration = klingDuration;
                       requestBody.klingMode = klingMode;
                       
-                      if (selectedVideoInputType === 'main') {
-                        // Image to video - single image
-                        requestBody.type = 'image-to-video';
-                        const mainImageUrl = getMainImageUrl();
-                        if (mainImageUrl) {
-                          requestBody.imageUrl = mainImageUrl;
+                      // Kling 2.6 specific parameters
+                      if (videoModel === 'kling-v2-6') {
+                        requestBody.kling26Audio = kling26Audio;
+                        requestBody.kling26Size = kling26Size;
+                      }
+                      
+                      // O1 (Omni) specific handling
+                      if (videoModel === 'kling-omni-video') {
+                        if (selectedVideoInputType === 'text-to-video') {
+                          // Text-to-video: no image or video needed, just prompt
+                          requestBody.type = 'image-to-video'; // API uses same endpoint
+                          // Don't set imageUrl or video - let API handle text-to-video
+                          requestBody.omniAspectRatio = omniAspectRatio;
+                        } else if (selectedVideoInputType === 'main') {
+                          // Image-to-video: use image
+                          requestBody.type = 'image-to-video';
+                          const mainImageUrl = getMainImageUrl();
+                          if (mainImageUrl) {
+                            requestBody.imageUrl = mainImageUrl;
+                          }
+                          requestBody.omniAspectRatio = omniAspectRatio;
+                        } else if (selectedVideoInputType === 'video-to-video') {
+                          // Video-to-video: use video input
+                          requestBody.type = 'image-to-video'; // API uses same endpoint
+                          if (omniVideoInput) {
+                            requestBody.omniVideoInput = omniVideoInput;
+                          }
+                          requestBody.omniAspectRatio = omniAspectRatio;
+                          requestBody.omniType = omniType;
                         }
-                      } else if (selectedVideoInputType === 'start-end') {
-                        // Frames to video - start + end frames
-                        requestBody.type = 'frames-to-video';
-                        if (startFrame) {
-                          requestBody.startFrameUrl = startFrame;
-                        }
-                        if (endFrame) {
-                          requestBody.endFrameUrl = endFrame;
+                      } else {
+                        // Other Kling models (v2.5, v2.6)
+                        if (selectedVideoInputType === 'main') {
+                          // Image to video - single image
+                          requestBody.type = 'image-to-video';
+                          const mainImageUrl = getMainImageUrl();
+                          if (mainImageUrl) {
+                            requestBody.imageUrl = mainImageUrl;
+                          }
+                        } else if (selectedVideoInputType === 'start-end') {
+                          // Frames to video - start + end frames
+                          requestBody.type = 'frames-to-video';
+                          if (startFrame) {
+                            requestBody.startFrameUrl = startFrame;
+                          }
+                          if (endFrame) {
+                            requestBody.endFrameUrl = endFrame;
+                          }
                         }
                       }
                     } else if (videoModel.startsWith('veo')) {
@@ -4674,6 +5095,9 @@ export function ImageGenerationDialog({
                         duration: actualDuration,
                         resolution: videoResolution,
                         klingMode: videoModel.startsWith('kling') ? klingMode : undefined,
+                        kling26Audio: videoModel === 'kling-v2-6' ? kling26Audio : undefined,
+                        kling26Size: videoModel === 'kling-v2-6' ? kling26Size : undefined,
+                        omniVideoInput: videoModel === 'kling-omni-video' ? omniVideoInput || undefined : undefined,
                       };
                       
                       // Update state immediately

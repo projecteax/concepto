@@ -185,5 +185,3 @@ export function BackstoryGenerationDialog({
     </div>
   );
 }
-
-

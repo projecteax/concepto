@@ -646,6 +646,42 @@ export function AVScriptEditor({
       return 0; // Unknown mode
     }
 
+    // Kling 2.6 pricing (based on duration, mode, and audio)
+    // Default to no audio for cost calculation (actual cost will be calculated correctly when generated)
+    if (modelName === 'kling-v2-6') {
+      const mode = klingMode || 'std';
+      const hasAudio = false; // Default to no audio for cost estimation
+      
+      if (mode === 'std') {
+        if (actualDuration === 5) return hasAudio ? 0.84 : 0.42;
+        if (actualDuration === 10) return hasAudio ? 1.68 : 0.84;
+        return 0.42; // Default 5s
+      } else if (mode === 'pro') {
+        if (actualDuration === 5) return hasAudio ? 1.12 : 0.56;
+        if (actualDuration === 10) return hasAudio ? 2.24 : 1.12;
+        return 0.56; // Default 5s
+      }
+      return 0;
+    }
+
+    // O1 (Omni) pricing
+    // Default to no video input for cost calculation (actual cost will be calculated correctly when generated)
+    if (modelName === 'kling-omni-video' || modelName === 'kling-o1') {
+      const mode = klingMode || 'std';
+      const hasVideoInput = false; // Default to no video input for cost estimation
+      
+      if (mode === 'std') {
+        if (actualDuration === 5) return hasVideoInput ? 0.63 : 0.42;
+        if (actualDuration === 10) return hasVideoInput ? 1.26 : 0.84;
+        return 0.42; // Default 5s
+      } else if (mode === 'pro') {
+        if (actualDuration === 5) return hasVideoInput ? 0.84 : 0.56;
+        if (actualDuration === 10) return hasVideoInput ? 1.68 : 1.12;
+        return 0.56; // Default 5s
+      }
+      return 0;
+    }
+
     // Sora pricing
     if (modelName === 'sora-2') {
       return 0.10 * actualDuration; // $0.10/sec
