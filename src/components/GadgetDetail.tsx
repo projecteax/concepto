@@ -857,9 +857,7 @@ export function GadgetDetail({
                 return (
                   <div
                     key={concept.id}
-                    className={`bg-white rounded-lg border-2 overflow-hidden hover:shadow-md transition-shadow ${
-                      isSelected ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-gray-200'
-                    }`}
+                    className="bg-white rounded-lg border-2 border-gray-200 overflow-hidden hover:shadow-md transition-shadow"
                   >
                   {concept.imageUrl && (
                     <div className="relative group overflow-hidden">
