@@ -162,12 +162,37 @@ export interface CharacterModelFiles {
 }
 
 // Episodes
+export interface NarrativeStoryVersion {
+  id: string;
+  title: string;
+  text: string;
+  wordCount: number;
+  createdAt: Date;
+  /** Source screenplay version id (from ScreenplayGenerationDialog), if applicable. */
+  sourceVersionId?: string;
+}
+
 export interface Episode {
   id: string;
   showId: string;
   title: string;
   episodeNumber: number;
   description?: string;
+  /** Optional show-level plot theme selected for this episode (links to PlotTheme.id). */
+  plotThemeId?: string;
+  /** Narrative story versions (prose) derived from screenplay (PL). */
+  narrativeStories?: NarrativeStoryVersion[];
+  /** Narrative story versions (prose) derived from screenplay (EN). */
+  narrativeStoriesEN?: NarrativeStoryVersion[];
+  /** Selected narrative story id to display in Overview (PL). */
+  selectedNarrativeStoryId?: string;
+  /** Selected narrative story id to display in Overview (EN). */
+  selectedNarrativeStoryIdEN?: string;
+  narrativeUpdatedAt?: Date;
+  /** Legacy single narrative story (prose) derived from screenplay (PL). */
+  narrativeStory?: string;
+  /** Legacy single narrative story (prose) derived from screenplay (EN). */
+  narrativeStoryEN?: string;
   script?: string;
   avScript?: AVScript;
   avPreviewData?: AVPreviewData;
@@ -297,6 +322,18 @@ export interface GeneralIdea {
   name: string;
   description: string;
   images: string[]; // Array of image URLs
+  tags: string[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Plot Themes
+export interface PlotTheme {
+  id: string;
+  showId: string;
+  name: string;
+  description: string;
+  keyElements: string[]; // Key story elements, character arcs, plot points, etc.
   tags: string[];
   createdAt: Date;
   updatedAt: Date;

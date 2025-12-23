@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { X, Sparkles, Loader2, CheckCircle } from 'lucide-react';
+import type { PlotTheme } from '@/types';
 
 interface EpisodeDescriptionGenerationDialogProps {
   isOpen: boolean;
@@ -11,6 +12,7 @@ interface EpisodeDescriptionGenerationDialogProps {
   showDescription: string;
   episodeTitle: string;
   currentDescription?: string;
+  plotTheme?: PlotTheme | null;
 }
 
 interface GeneratedDescription {
@@ -28,6 +30,7 @@ export function EpisodeDescriptionGenerationDialog({
   showDescription,
   episodeTitle,
   currentDescription,
+  plotTheme = null,
 }: EpisodeDescriptionGenerationDialogProps) {
   const [prompt, setPrompt] = useState('');
   const [generatedDescriptions, setGeneratedDescriptions] = useState<GeneratedDescription[]>([]);
@@ -38,13 +41,21 @@ export function EpisodeDescriptionGenerationDialog({
   // Pre-populate prompt when dialog opens
   useEffect(() => {
     if (isOpen) {
-      const defaultPrompt = `You are professional storyteller. You will create three different stories for the show "${showName}" with general idea of "${showDescription}". The episode title is "${episodeTitle}".`;
+      const themeLine = plotTheme
+        ? ` Plot theme: "${plotTheme.name}" (${plotTheme.description || 'no description'}). Key elements: ${(
+            plotTheme.keyElements || []
+          )
+            .slice(0, 8)
+            .join(', ')}.`
+        : '';
+
+      const defaultPrompt = `You are a professional storyteller and story editor. Create three different episode descriptions for the show "${showName}" (show premise: "${showDescription}"). Episode title: "${episodeTitle}".${themeLine}`;
       setPrompt(defaultPrompt);
       // Don't clear generated descriptions - keep them when dialog reopens
       setSelectedDescriptionId(null);
       setError(null);
     }
-  }, [isOpen, showName, showDescription, episodeTitle]);
+  }, [isOpen, showName, showDescription, episodeTitle, plotTheme?.id]);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) {
@@ -64,6 +75,7 @@ export function EpisodeDescriptionGenerationDialog({
           showName,
           showDescription,
           episodeTitle,
+          plotTheme,
         }),
       });
 

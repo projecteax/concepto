@@ -16,11 +16,12 @@ import EpisodeDetail from './EpisodeDetail';
 import { EpisodeIdeas } from './EpisodeIdeas';
 import { GeneralIdeas } from './GeneralIdeas';
 import { GeneralIdeaDetail } from './GeneralIdeaDetail';
+import { PlotThemes } from './PlotThemes';
 import { LoadingPreloader } from './LoadingPreloader';
-import { Show, GlobalAsset, Episode, Character, AssetConcept, EpisodeIdea, GeneralIdea } from '@/types';
+import { Show, GlobalAsset, Episode, Character, AssetConcept, EpisodeIdea, GeneralIdea, PlotTheme } from '@/types';
 import { useFirebaseData } from '@/hooks/useFirebaseData';
 
-type AppView = 'shows' | 'dashboard' | 'global-assets' | 'asset-detail' | 'character-detail' | 'location-detail' | 'gadget-detail' | 'texture-detail' | 'background-detail' | 'vehicle-detail' | 'episodes' | 'episode-detail' | 'episode-ideas' | 'general-ideas' | 'general-idea-detail';
+type AppView = 'shows' | 'dashboard' | 'global-assets' | 'asset-detail' | 'character-detail' | 'location-detail' | 'gadget-detail' | 'texture-detail' | 'background-detail' | 'vehicle-detail' | 'episodes' | 'episode-detail' | 'episode-ideas' | 'general-ideas' | 'general-idea-detail' | 'plot-themes';
 
 interface ConceptoAppProps {
   isPublicMode?: boolean;
@@ -55,6 +56,7 @@ export function ConceptoApp({
     episodes,
     episodeIdeas,
     generalIdeas,
+    plotThemes,
     loading,
     error,
     createShow,
@@ -72,6 +74,9 @@ export function ConceptoApp({
     createGeneralIdea,
     updateGeneralIdea,
     deleteGeneralIdea,
+    createPlotTheme,
+    updatePlotTheme,
+    deletePlotTheme,
     createAssetConcept,
     deleteAssetConcept,
     loadShowData,
@@ -283,6 +288,7 @@ export function ConceptoApp({
   };
 
   const handleBackToDashboard = () => {
+    setCurrentView('dashboard');
     const basePath = isPublicMode ? '/public' : '/app';
     router.push(`${basePath}/shows/${selectedShow?.id}`);
   };
@@ -342,6 +348,36 @@ export function ConceptoApp({
       setSelectedGeneralIdea(idea);
     } catch (error) {
       console.error('Failed to save general idea:', error);
+    }
+  };
+
+  const handleSelectPlotThemes = () => {
+    if (selectedShow) {
+      setCurrentView('plot-themes');
+    }
+  };
+
+  const handleAddPlotTheme = async (themeData: Omit<PlotTheme, 'id' | 'createdAt' | 'updatedAt'>) => {
+    try {
+      await createPlotTheme(themeData);
+    } catch (error) {
+      console.error('Failed to create plot theme:', error);
+    }
+  };
+
+  const handleEditPlotTheme = async (theme: PlotTheme) => {
+    try {
+      await updatePlotTheme(theme.id, theme);
+    } catch (error) {
+      console.error('Failed to update plot theme:', error);
+    }
+  };
+
+  const handleDeletePlotTheme = async (themeId: string) => {
+    try {
+      await deletePlotTheme(themeId);
+    } catch (error) {
+      console.error('Failed to delete plot theme:', error);
     }
   };
 
@@ -588,14 +624,17 @@ export function ConceptoApp({
           episodes={episodes}
           episodeIdeas={episodeIdeas}
           generalIdeas={generalIdeas}
+          plotThemes={plotThemes}
           onBack={handleBackToShows}
           onSelectGlobalAssets={handleSelectGlobalAssets}
           onSelectEpisodes={handleSelectEpisodes}
           onSelectEpisode={handleSelectEpisode}
           onSelectEpisodeIdeas={handleSelectEpisodeIdeas}
           onSelectGeneralIdeas={handleSelectGeneralIdeas}
+          onSelectPlotThemes={handleSelectPlotThemes}
           onAddGlobalAsset={isPublicMode ? () => {} : handleAddGlobalAsset}
           onAddEpisode={isPublicMode ? () => {} : handleAddEpisode}
+          onSaveShow={isPublicMode ? undefined : handleEditShow}
           isPublicMode={isPublicMode}
         />
       ) : null;
@@ -711,6 +750,7 @@ export function ConceptoApp({
           show={selectedShow}
           episode={selectedEpisode}
           globalAssets={globalAssets}
+          plotThemes={plotThemes}
           onBack={handleBackToEpisodes}
           onSave={isPublicMode ? () => {} : handleSaveEpisode}
         />
@@ -738,6 +778,18 @@ export function ConceptoApp({
           onAddIdea={isPublicMode ? () => {} : handleAddGeneralIdea}
           onEditIdea={isPublicMode ? () => {} : handleEditGeneralIdea}
           onDeleteIdea={isPublicMode ? () => {} : handleDeleteGeneralIdea}
+        />
+      ) : null;
+
+    case 'plot-themes':
+      return selectedShow ? (
+        <PlotThemes
+          show={selectedShow}
+          themes={plotThemes}
+          onBack={handleBackToDashboard}
+          onAddTheme={isPublicMode ? () => {} : handleAddPlotTheme}
+          onEditTheme={isPublicMode ? () => {} : handleEditPlotTheme}
+          onDeleteTheme={isPublicMode ? () => {} : handleDeletePlotTheme}
         />
       ) : null;
 

@@ -25,6 +25,21 @@ type WizardQuestion = {
   placeholder?: string;
 };
 
+type SelectedCharacter = {
+  id: string;
+  name: string;
+  description: string;
+  general: Record<string, unknown>;
+};
+
+type PlotThemeData = {
+  id: string;
+  name: string;
+  description: string;
+  keyElements: string[];
+  tags: string[];
+};
+
 type WizardRequest =
   | {
       action: 'next';
@@ -35,6 +50,8 @@ type WizardRequest =
       episodeDescription?: string;
       targetAge?: string;
       answers: WizardAnswer[];
+      plotTheme?: PlotThemeData;
+      selectedCharacters?: SelectedCharacter[];
     }
   | {
       action: 'final';
@@ -45,9 +62,14 @@ type WizardRequest =
       episodeDescription?: string;
       targetAge?: string;
       answers: WizardAnswer[];
+      plotTheme?: PlotThemeData;
+      selectedCharacters?: SelectedCharacter[];
     };
 
 const TOTAL_STEPS = 8;
+const MIN_DIALOGUE_WORDS = 1000;
+// Ask for a buffer so we reliably clear the minimum after parsing/normalization.
+const TARGET_DIALOGUE_WORDS = MIN_DIALOGUE_WORDS + 250;
 
 const STEP_DEFS: Array<{
   id: string;
@@ -77,6 +99,71 @@ function safeJsonParse<T>(text: string): T | null {
       return null;
     }
   }
+}
+
+function countWords(text: string): number {
+  return text
+    .replace(/[^\p{L}\p{N}\s']/gu, ' ')
+    .split(/\s+/)
+    .filter(Boolean).length;
+}
+
+function parseScreenplayElements(rawText: string): {
+  elements: Array<Pick<ScreenplayElement, 'type' | 'content'>>;
+  dialogueWordCount: number;
+} {
+  const typePattern = /\[(SCENE-SETTING|ACTION|CHARACTER|PARENTHETICAL|DIALOGUE|GENERAL)\]([\s\S]*?)\[\/\1\]/gi;
+  const elements: Array<Pick<ScreenplayElement, 'type' | 'content'>> = [];
+
+  let lastEnd = 0;
+  let match: RegExpExecArray | null;
+  while ((match = typePattern.exec(rawText)) !== null) {
+    const start = match.index ?? 0;
+    const end = typePattern.lastIndex;
+
+    // Capture any stray text between blocks and treat as ACTION (salvage)
+    const gap = rawText.slice(lastEnd, start).trim();
+    if (gap) {
+      elements.push({ type: 'action', content: gap });
+    }
+
+    const normalizedType = match[1].toLowerCase() as ScreenplayElement['type'];
+    let content = (match[2] || '').trim();
+    content = content
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0)
+      .join('\n');
+
+    // If a dialogue block starts with a parenthetical line, split it out
+    if (normalizedType === 'dialogue') {
+      const lines = content.split('\n');
+      if (lines.length >= 2 && /^\(.*\)$/.test(lines[0].trim())) {
+        const parenthetical = lines[0].trim();
+        const rest = lines.slice(1).join('\n').trim();
+        if (parenthetical) elements.push({ type: 'parenthetical', content: parenthetical });
+        if (rest) elements.push({ type: 'dialogue', content: rest });
+      } else if (content) {
+        elements.push({ type: 'dialogue', content });
+      }
+    } else {
+      if (content) elements.push({ type: normalizedType, content });
+    }
+
+    lastEnd = end;
+  }
+
+  // Capture trailing stray text
+  const tail = rawText.slice(lastEnd).trim();
+  if (tail) {
+    elements.push({ type: 'action', content: tail });
+  }
+
+  const dialogueWordCount = elements
+    .filter((e) => e.type === 'dialogue')
+    .reduce((acc, e) => acc + countWords(e.content), 0);
+
+  return { elements, dialogueWordCount };
 }
 
 function stringifyAnswers(answers: WizardAnswer[], language: WizardLanguage): string {
@@ -110,6 +197,8 @@ function buildQuestionUserPrompt(params: {
   targetAge?: string;
   stepIndex: number;
   answers: WizardAnswer[];
+  plotTheme?: PlotThemeData;
+  selectedCharacters?: SelectedCharacter[];
 }): string {
   const def = STEP_DEFS[params.stepIndex];
   const age = params.targetAge || '6-8';
@@ -118,12 +207,25 @@ function buildQuestionUserPrompt(params: {
       ? 'Ask the question in English.'
       : 'Zadaj pytanie po polsku (PL).';
 
+  const plotThemeContext =
+    params.plotTheme && params.plotTheme.name
+      ? `\nPLOT THEME (MANDATORY):\n- Name: ${params.plotTheme.name}\n- Description: ${params.plotTheme.description || '(none)'}\n- Key elements: ${(params.plotTheme.keyElements || []).join(', ') || '(none)'}\n\nIMPORTANT: Themes often follow a three‑act framework (setup / confrontation / resolution), but that does NOT mean only three scenes. Treat it as a story progression framework.\n`
+      : '';
+
+  const charactersContext =
+    params.selectedCharacters && params.selectedCharacters.length > 0
+      ? `\nCHARACTERS (MANDATORY - must appear in this episode):\n${params.selectedCharacters
+          .map((c) => `- ${c.name}: ${c.description || '(no description)'}`)
+          .join('\n')}\n`
+      : '';
+
   return `CONTEXT:
 Show: ${params.showName}
 Show description: ${params.showDescription || '(none)'}
 Episode title: ${params.episodeTitle}
 Episode description: ${params.episodeDescription || '(none)'}
 Target age: ${age}
+${plotThemeContext}${charactersContext}
 
 STEP ${params.stepIndex + 1} OF ${TOTAL_STEPS}
 Step id: ${def.id}
@@ -138,6 +240,11 @@ INSTRUCTIONS:
 - If kind is "yes_no_suggestion": include a single, concrete suggestion we can accept with yes/no.
 - If kind is "single_choice": include 3-5 distinct choices, each a short phrase.
 - Avoid vague questions. Tie choices to the show/episode context.
+${params.plotTheme ? '- Ensure the question/choices respect the selected plot theme and its key elements.\n' : ''}${
+    params.selectedCharacters && params.selectedCharacters.length > 0
+      ? '- Ensure the question/choices can involve the selected characters.\n'
+      : ''
+  }
 
 OUTPUT JSON SCHEMA (exact keys):
 {
@@ -197,6 +304,41 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'answers must be an array' }, { status: 400 });
     }
 
+    // Parse plotTheme and selectedCharacters from request (used in both 'next' and 'final' actions)
+    const plotThemeRaw = raw['plotTheme'];
+    const plotTheme: PlotThemeData | undefined = isRecord(plotThemeRaw) && 
+      typeof plotThemeRaw['id'] === 'string' &&
+      typeof plotThemeRaw['name'] === 'string' &&
+      typeof plotThemeRaw['description'] === 'string'
+      ? {
+          id: plotThemeRaw['id'],
+          name: plotThemeRaw['name'],
+          description: plotThemeRaw['description'],
+          keyElements: Array.isArray(plotThemeRaw['keyElements']) ? plotThemeRaw['keyElements'].filter((e: unknown) => typeof e === 'string') : [],
+          tags: Array.isArray(plotThemeRaw['tags']) ? plotThemeRaw['tags'].filter((t: unknown) => typeof t === 'string') : [],
+        }
+      : undefined;
+
+    const selectedCharactersRaw = raw['selectedCharacters'];
+    const selectedCharacters: SelectedCharacter[] = [];
+    if (Array.isArray(selectedCharactersRaw)) {
+      for (const char of selectedCharactersRaw) {
+        if (!isRecord(char)) continue;
+        const id = char['id'];
+        const name = char['name'];
+        const description = char['description'];
+        const general = char['general'];
+        if (typeof id === 'string' && typeof name === 'string') {
+          selectedCharacters.push({
+            id,
+            name,
+            description: typeof description === 'string' ? description : '',
+            general: isRecord(general) ? general : {},
+          });
+        }
+      }
+    }
+
     if (action === 'next') {
       const stepIndex = Math.min(answers.length, TOTAL_STEPS - 1);
       const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
@@ -212,6 +354,8 @@ export async function POST(request: NextRequest) {
           targetAge,
           stepIndex,
           answers,
+          plotTheme,
+          selectedCharacters,
         });
 
       const result = await model.generateContent(prompt);
@@ -246,6 +390,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // plotTheme and selectedCharacters are already parsed above
+
     const creativeBrief = answers.map((a, i) => `Q${i + 1} (${a.id}): ${a.question}\nA: ${a.answer}`).join('\n\n');
 
     // Reuse the existing screenplay generator prompt by calling the internal route logic:
@@ -255,7 +401,33 @@ export async function POST(request: NextRequest) {
         ? 'Write ALL screenplay content in English. Keep the [TYPE] markers exactly as specified.'
         : 'Write ALL screenplay content in Polish (PL). Keep the [TYPE] markers exactly as specified.';
 
-    const finalPrompt = `You are a professional screenwriter specializing in children's animated television content, following industry-standard formats for 11-minute episodes (half-hour TV slots).
+    let plotThemeSection = '';
+    if (plotTheme) {
+      plotThemeSection = `
+PLOT THEME (MANDATORY - use this as the structural framework):
+Name: ${plotTheme.name}
+Description: ${plotTheme.description}
+Key Elements: ${plotTheme.keyElements.join(', ')}
+Tags: ${plotTheme.tags.join(', ')}
+
+CRITICAL: The plot theme provides the narrative structure. Themes often follow a three-act structure (Setup, Confrontation, Resolution), but this does NOT mean only three scenes. Each act should contain multiple scenes (typically 3-5 scenes per act) that progressively develop the theme's key elements. The three-act structure is a framework for story progression, not a scene count limitation.`;
+    }
+
+    let charactersSection = '';
+    if (selectedCharacters && selectedCharacters.length > 0) {
+      charactersSection = `
+CHARACTERS (MANDATORY - these characters MUST appear and speak in the episode):
+${selectedCharacters.map(char => {
+  const personality = isRecord(char.general) && typeof char.general.personality === 'string' 
+    ? ` (Personality: ${char.general.personality})` 
+    : '';
+  return `- ${char.name}: ${char.description || 'No description provided'}${personality}`;
+}).join('\n')}
+
+These characters must be actively involved in the story and have dialogue.`;
+    }
+
+    const finalPrompt = `You are a professional screenwriter specializing in children's animated television content, following industry-standard formats for 10-minute episodes.
 
 OUTPUT LANGUAGE (MANDATORY):
 ${outputLanguageInstruction}
@@ -266,12 +438,16 @@ CONTEXT:
 - Episode Title: "${episodeTitle}"
 - Episode Description: "${episodeDescription || 'An episode of the show'}"
 - Target Audience: Children aged ${targetAge} years old
+${plotThemeSection}
+${charactersSection}
 
 USER DECISIONS (MANDATORY - obey these):
 ${creativeBrief}
 
 FORMATTING INSTRUCTIONS:
-You MUST format your response using the following markers. Each element type must be clearly marked:
+You MUST format your response using the following markers. Each element type must be clearly marked.
+CRITICAL: Do NOT output any text outside of these blocks. Every line must be inside exactly one block.
+CRITICAL: Parentheticals MUST be in [PARENTHETICAL] blocks, not inside [DIALOGUE].
 
 [SCENE-SETTING]
 SCENE XX
@@ -298,45 +474,63 @@ SCENE XX
 [Transition or narrative element]
 [/GENERAL]
 
-QUALITY REQUIREMENTS (best practices):
-- 3-act structure for an 10-minute episode: Setup (0-2:30), Struggle (2:30-7:30), Climax (7:30-9:00), Resolution (9:00-10:00)
-- 8-12 scenes, numbered sequentially starting at SCENE 01
-- 2-4 speaking characters max
+QUALITY REQUIREMENTS (industry standards):
+- ${plotTheme ? 'Follow the three-act structure framework provided by the plot theme. ' : 'Use a three-act structure: '}Setup (0-2:30), Confrontation/Struggle (2:30-7:30), Climax (7:30-9:00), Resolution (9:00-10:00)
+- IMPORTANT: The three-act structure is a narrative framework, NOT a scene count limit. Each act should contain multiple scenes (typically 3-5 scenes per act) that progress the story. Total: 8-15 scenes, numbered sequentially starting at SCENE 01
+- ${selectedCharacters && selectedCharacters.length > 0 ? `Use these characters: ${selectedCharacters.map(c => c.name).join(', ')}. ` : ''}Limit to 2-4 speaking characters per scene
 - Strong visual action blocks ("show, don't tell"), frequent parentheticals
-- End on a comedic "button"
+- End on a comedic "button" (final joke/punchline)
 - Keep language age-appropriate and clear
+- ${plotTheme ? `Weave the plot theme's key elements (${plotTheme.keyElements.join(', ')}) naturally throughout the acts and scenes.` : ''}
+- Dialogue requirement: MINIMUM ${MIN_DIALOGUE_WORDS} words total across all [DIALOGUE] blocks. Aim for at least ${TARGET_DIALOGUE_WORDS} words.
+- Self-check requirement (MANDATORY): Before you finish, verify the total words across all [DIALOGUE] blocks is >= ${MIN_DIALOGUE_WORDS}. If not, expand dialogue until it is.
+- Cold open allowed: You may begin with [SCENE-SETTING] and [ACTION] before the first speaking character to set up atmosphere/stakes.
 
-Now write the full screenplay.`;
+Now write the full screenplay following industry-standard formatting.`;
 
     const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
-    const result = await model.generateContent(finalPrompt);
-    const rawText = result.response.text();
+
+    let rawText = '';
+    let elements: Array<Pick<ScreenplayElement, 'type' | 'content'>> = [];
+    let dialogueWordCount = 0;
+
+    // Multiple passes: generate then (if needed) expand dialogue to meet the minimum words.
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const promptToUse =
+        attempt === 0
+          ? finalPrompt
+          : `You are revising an existing screenplay draft.\n\nCURRENT METRIC:\n- Current dialogue word count: ${dialogueWordCount}\n- Minimum required: ${MIN_DIALOGUE_WORDS}\n- Target: ${TARGET_DIALOGUE_WORDS}\n\nGOAL:\n- Keep the same plot, beats, and structure.\n- Expand dialogue significantly until the total dialogue words >= ${MIN_DIALOGUE_WORDS} (aim for ${TARGET_DIALOGUE_WORDS}).\n- Add natural banter, reactions, clarifying lines, and short comedic beats.\n- Increase dialogue density especially in the middle act and during complications.\n- Do NOT add new characters beyond those already present.\n- Do NOT add new major plotlines.\n\nFORMAT RULES (STRICT):\n- Do NOT output any text outside of the required blocks.\n- Parentheticals MUST be in [PARENTHETICAL] blocks, never inside [DIALOGUE].\n\nHere is the current draft (revise it):\n\n${rawText}`;
+
+      const result = await model.generateContent(promptToUse);
+      rawText = result.response.text();
+
+      if (!rawText) break;
+
+      const parsed = parseScreenplayElements(rawText);
+      elements = parsed.elements;
+      dialogueWordCount = parsed.dialogueWordCount;
+
+      if (elements.length > 0 && dialogueWordCount >= MIN_DIALOGUE_WORDS) {
+        break;
+      }
+    }
 
     if (!rawText) {
       return NextResponse.json({ error: 'No screenplay generated' }, { status: 500 });
     }
 
-    // Parse using the same strategy as generate-screenplay route (copied minimal parser)
-    const typePattern = /\[(SCENE-SETTING|ACTION|CHARACTER|PARENTHETICAL|DIALOGUE|GENERAL)\]([\s\S]*?)\[\/\1\]/gi;
-    const elements: Array<Pick<ScreenplayElement, 'type' | 'content'>> = [];
-    let match: RegExpExecArray | null;
-
-    while ((match = typePattern.exec(rawText)) !== null) {
-      const normalizedType = match[1].toLowerCase() as ScreenplayElement['type'];
-      let content = match[2].trim();
-      content = content
-        .split('\n')
-        .map((l) => l.trim())
-        .filter((l) => l.length > 0)
-        .join('\n');
-      if (content) elements.push({ type: normalizedType, content });
+    // Parse with a resilient parser (also salvages stray text and splits parentheticals in dialogue).
+    if (elements.length === 0) {
+      const parsed = parseScreenplayElements(rawText);
+      elements = parsed.elements;
+      dialogueWordCount = parsed.dialogueWordCount;
     }
 
     if (elements.length === 0) {
       return NextResponse.json({ error: 'Failed to parse screenplay elements', rawText }, { status: 500 });
     }
 
-    return NextResponse.json({ elements, rawText });
+    return NextResponse.json({ elements, rawText, dialogueWordCount, minDialogueWords: MIN_DIALOGUE_WORDS });
   } catch (error: unknown) {
     console.error('Error in screenplay wizard:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';

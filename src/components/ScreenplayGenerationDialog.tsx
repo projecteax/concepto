@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { X, Sparkles, Loader2, AlertCircle, Clock, CheckCircle } from 'lucide-react';
-import { ScreenplayElement } from '@/types';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Sparkles, Loader2, AlertCircle, Clock, CheckCircle, BookOpen, Users, Check, Download, Upload } from 'lucide-react';
+import { ScreenplayElement, PlotTheme, GlobalAsset, Character } from '@/types';
 
 export interface ScreenplayVersion {
   id: string;
@@ -38,6 +38,10 @@ interface ScreenplayGenerationDialogProps {
   targetAge?: string;
   versions?: ScreenplayVersion[]; // Pass versions from parent
   onVersionsChange?: (versions: ScreenplayVersion[]) => void; // Callback to update parent
+  plotThemes?: PlotTheme[]; // Available plot themes
+  globalAssets?: GlobalAsset[]; // Available global assets (for character selection)
+  initialPlotThemeId?: string;
+  initialCharacterIds?: string[];
 }
 
 export function ScreenplayGenerationDialog({
@@ -51,12 +55,22 @@ export function ScreenplayGenerationDialog({
   targetAge = '6-8',
   versions: externalVersions = [],
   onVersionsChange,
+  plotThemes = [],
+  globalAssets = [],
+  initialPlotThemeId,
+  initialCharacterIds,
 }: ScreenplayGenerationDialogProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
   const [language, setLanguage] = useState<'PL' | 'EN'>('PL');
   const [generationMode, setGenerationMode] = useState<'guided' | 'quick'>('guided');
+  const importFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Initial selection state (before wizard starts)
+  const [selectedPlotTheme, setSelectedPlotTheme] = useState<PlotTheme | null>(null);
+  const [selectedCharacterIds, setSelectedCharacterIds] = useState<Set<string>>(new Set());
+  const [showInitialSelection, setShowInitialSelection] = useState(true);
 
   // Guided wizard state
   const [wizardQuestion, setWizardQuestion] = useState<WizardQuestion | null>(null);
@@ -87,12 +101,34 @@ export function ScreenplayGenerationDialog({
       setWizardQuestion(null);
       setWizardAnswers([]);
       setWizardTextAnswer('');
+      // If we already have versions, default to showing versions list.
+      // User can start a fresh guided run any time via "New Guided Run".
+      setShowInitialSelection(versions.length === 0);
+      // Preselect plot theme + characters if provided by the episode
+      const preselectedTheme =
+        initialPlotThemeId ? plotThemes.find((t) => t.id === initialPlotThemeId) || null : null;
+      setSelectedPlotTheme(preselectedTheme);
+
+      const preselectedChars = new Set<string>();
+      for (const id of initialCharacterIds || []) {
+        preselectedChars.add(id);
+      }
+      setSelectedCharacterIds(preselectedChars);
       // Select the last version if available
       if (versions.length > 0 && !selectedVersionId) {
         setSelectedVersionId(versions[versions.length - 1].id);
       }
     }
-  }, [isOpen, versions.length, selectedVersionId]);
+  }, [isOpen, versions.length, selectedVersionId, initialPlotThemeId, initialCharacterIds, plotThemes]);
+
+  const startNewGuidedRun = () => {
+    setError(null);
+    setWizardQuestion(null);
+    setWizardAnswers([]);
+    setWizardTextAnswer('');
+    setShowInitialSelection(true);
+    // Keep currently selected theme/characters as defaults (user can change them in Step 1/2)
+  };
 
   const getSelectedVersion = () => {
     return versions.find(v => v.id === selectedVersionId) || versions[versions.length - 1];
@@ -167,10 +203,30 @@ export function ScreenplayGenerationDialog({
     }
   };
 
+  const handleStartWizard = () => {
+    // Hard gate: these are required inputs for the screenwriting workflow
+    if (!selectedPlotTheme) {
+      setError(language === 'EN' ? 'Please select a plot theme.' : 'Proszę wybrać motyw fabularny.');
+      return;
+    }
+
+    if (selectedCharacterIds.size === 0) {
+      setError(language === 'EN' ? 'Please select at least one character.' : 'Proszę wybrać przynajmniej jedną postać.');
+      return;
+    }
+
+    setShowInitialSelection(false);
+    void startGuided();
+  };
+
   const startGuided = async () => {
     setIsGenerating(true);
     setError(null);
     try {
+      const selectedCharacters = globalAssets
+        .filter((asset) => asset.category === 'character' && selectedCharacterIds.has(asset.id))
+        .map((asset) => asset as Character);
+
       const res = await fetch('/api/gemini/screenplay-wizard', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -183,6 +239,13 @@ export function ScreenplayGenerationDialog({
           episodeDescription,
           targetAge,
           answers: wizardAnswers,
+          plotTheme: selectedPlotTheme,
+          selectedCharacters: selectedCharacters.map((char) => ({
+            id: char.id,
+            name: char.name,
+            description: char.description || '',
+            general: char.general || {},
+          })),
         }),
       });
       if (!res.ok) {
@@ -212,6 +275,10 @@ export function ScreenplayGenerationDialog({
       setIsGenerating(true);
       setError(null);
       try {
+        const selectedCharacters = globalAssets
+          .filter(asset => asset.category === 'character' && selectedCharacterIds.has(asset.id))
+          .map(asset => asset as Character);
+
         const res = await fetch('/api/gemini/screenplay-wizard', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -224,6 +291,13 @@ export function ScreenplayGenerationDialog({
             episodeDescription,
             targetAge,
             answers: nextAnswers,
+            plotTheme: selectedPlotTheme,
+            selectedCharacters: selectedCharacters.map(char => ({
+              id: char.id,
+              name: char.name,
+              description: char.description || '',
+              general: char.general || {},
+            })),
           }),
         });
         if (!res.ok) {
@@ -271,6 +345,10 @@ export function ScreenplayGenerationDialog({
     setIsGenerating(true);
     setError(null);
     try {
+      const selectedCharacters = globalAssets
+        .filter(asset => asset.category === 'character' && selectedCharacterIds.has(asset.id))
+        .map(asset => asset as Character);
+
       const res = await fetch('/api/gemini/screenplay-wizard', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -283,6 +361,13 @@ export function ScreenplayGenerationDialog({
           episodeDescription,
           targetAge,
           answers: nextAnswers,
+          plotTheme: selectedPlotTheme,
+          selectedCharacters: selectedCharacters.map(char => ({
+            id: char.id,
+            name: char.name,
+            description: char.description || '',
+            general: char.general || {},
+          })),
         }),
       });
       if (!res.ok) {
@@ -301,6 +386,136 @@ export function ScreenplayGenerationDialog({
   const handleSelectVersion = (versionId: string) => {
     setSelectedVersionId(versionId);
     setVersions(prev => prev.map(v => ({ ...v, isSelected: v.id === versionId })));
+  };
+
+  type ScreenplayJsonType = ScreenplayElement['type'];
+  const normalizeElementType = (raw: unknown): ScreenplayJsonType | null => {
+    if (typeof raw !== 'string') return null;
+    const t = raw.trim().toLowerCase();
+    const map: Record<string, ScreenplayJsonType> = {
+      'scene-setting': 'scene-setting',
+      'scene_setting': 'scene-setting',
+      'scene setting': 'scene-setting',
+      'scenesetting': 'scene-setting',
+      'scene': 'scene-setting',
+      'action': 'action',
+      'character': 'character',
+      'parenthetical': 'parenthetical',
+      'dialogue': 'dialogue',
+      'general': 'general',
+    };
+    return map[t] || null;
+  };
+
+  const buildTemplateJson = () => {
+    return {
+      schemaVersion: 1,
+      language,
+      elements: [
+        {
+          type: 'scene-setting',
+          content: 'SCENE 01\nEXT. CITY STREET - DAY',
+        },
+        {
+          type: 'action',
+          content:
+            'Cold open: Establish the world and the problem before any character speaks. Wind howls between buildings; a bus rocks on a bridge.',
+        },
+        { type: 'character', content: 'TANGO' },
+        { type: 'parenthetical', content: '(squinting into the wind)' },
+        {
+          type: 'dialogue',
+          content:
+            'This bridge is not a fan of my heroic entrance. Everyone stay calm—',
+        },
+        { type: 'general', content: 'CUT TO:' },
+      ],
+      notes: {
+        rules: [
+          'Upload JSON must contain either an array of elements or an object with { "elements": [...] }.',
+          'Each element requires: { "type": "...", "content": "..." }',
+          'Valid types: scene-setting, action, character, parenthetical, dialogue, general',
+          'Do not embed parentheticals inside dialogue—use a parenthetical element.',
+          'The system will assign ids and positions automatically.',
+        ],
+      },
+    };
+  };
+
+  const handleDownloadJsonTemplate = () => {
+    const payload = buildTemplateJson();
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `screenplay-template-${episodeTitle.replace(/\s+/g, '-').toLowerCase()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const importJsonAsNewVersion = async (file: File) => {
+    setError(null);
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as unknown;
+
+      const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+      const rawElements: unknown =
+        Array.isArray(parsed) ? parsed : isRecord(parsed) ? parsed.elements : null;
+
+      if (!Array.isArray(rawElements)) {
+        throw new Error('Invalid JSON: expected an array or an object with an "elements" array.');
+      }
+
+      const elements: ScreenplayElement[] = [];
+      for (let i = 0; i < rawElements.length; i++) {
+        const el = rawElements[i];
+        if (!isRecord(el)) continue;
+        const type = normalizeElementType(el.type);
+        const content = typeof el.content === 'string' ? el.content : '';
+        if (!type || !content.trim()) continue;
+        elements.push({
+          id: `imported-${Date.now()}-${i}`,
+          type,
+          content: content.trim(),
+          position: elements.length,
+        });
+      }
+
+      if (elements.length === 0) {
+        throw new Error('No valid elements found in JSON. Ensure each item has { type, content }.');
+      }
+
+      const importedLanguage =
+        isRecord(parsed) && (parsed.language === 'PL' || parsed.language === 'EN')
+          ? (parsed.language as 'PL' | 'EN')
+          : language;
+
+      const newVersion: ScreenplayVersion = {
+        id: `version-${Date.now()}`,
+        version: versions.length + 1,
+        elements,
+        createdAt: new Date(),
+        isSelected: true,
+        language: importedLanguage,
+      };
+
+      setVersions((prev) => {
+        const updated = prev.map((v) => ({ ...v, isSelected: false }));
+        return [...updated, newVersion];
+      });
+      setSelectedVersionId(newVersion.id);
+      // After importing, keep UI on versions list.
+      setWizardQuestion(null);
+      setShowInitialSelection(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to import JSON.');
+    } finally {
+      // allow re-uploading same file
+      if (importFileInputRef.current) importFileInputRef.current.value = '';
+    }
   };
 
   const handleAccept = () => {
@@ -332,13 +547,46 @@ export function ScreenplayGenerationDialog({
               <p className="text-sm text-gray-500">{episodeTitle}</p>
             </div>
           </div>
-          <button
-            onClick={handleCancel}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-            disabled={isGenerating}
-          >
-            <X className="w-6 h-6" />
-          </button>
+          <div className="flex items-center gap-2">
+            <input
+              ref={importFileInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void importJsonAsNewVersion(file);
+              }}
+            />
+            <button
+              type="button"
+              onClick={handleDownloadJsonTemplate}
+              disabled={isGenerating}
+              className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              title="Download a JSON template you can fill in and re-upload"
+            >
+              <Download className="w-4 h-4" />
+              <span>Download JSON Template</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => importFileInputRef.current?.click()}
+              disabled={isGenerating}
+              className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              title="Upload a screenplay JSON file to import as a new version"
+            >
+              <Upload className="w-4 h-4" />
+              <span>Upload JSON</span>
+            </button>
+            <button
+              onClick={handleCancel}
+              className="text-gray-400 hover:text-gray-600 transition-colors"
+              disabled={isGenerating}
+              title="Close"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
         </div>
 
         {/* Content */}
@@ -406,8 +654,165 @@ export function ScreenplayGenerationDialog({
               </div>
             </div>
 
+            {/* Initial Selection (Plot Theme & Characters) */}
+            {generationMode === 'guided' && showInitialSelection && (
+              <div className="space-y-6">
+                {/* Plot Theme Selection */}
+                <div className="border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <BookOpen className="w-5 h-5 text-purple-600" />
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      {language === 'EN' ? 'Step 1: Select Plot Theme' : 'Krok 1: Wybierz motyw fabularny'}
+                    </h3>
+                  </div>
+                  <p className="text-sm text-gray-600 mb-4">
+                    {language === 'EN' 
+                      ? 'Choose a plot theme to guide the story structure. Themes often follow a three-act structure, but can contain multiple scenes within each act.'
+                      : 'Wybierz motyw fabularny, który poprowadzi strukturę opowieści. Motywy często mają strukturę trzech aktów, ale mogą zawierać wiele scen w każdym akcie.'}
+                  </p>
+                  {plotThemes.length === 0 ? (
+                    <div className="text-center py-6 text-gray-500">
+                      <p className="text-sm">
+                        {language === 'EN' 
+                          ? 'No plot themes available. Create themes in the Show Dashboard first.'
+                          : 'Brak dostępnych motywów fabularnych. Najpierw utwórz motywy w Panelu Serialu.'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {plotThemes.map((theme) => (
+                        <button
+                          key={theme.id}
+                          type="button"
+                          onClick={() => setSelectedPlotTheme(theme)}
+                          className={`text-left p-3 rounded-lg border-2 transition-all ${
+                            selectedPlotTheme?.id === theme.id
+                              ? 'border-purple-600 bg-purple-50'
+                              : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1">
+                              <div className="font-semibold text-gray-900 mb-1">{theme.name}</div>
+                              {theme.description && (
+                                <div className="text-sm text-gray-600 line-clamp-2">{theme.description}</div>
+                              )}
+                              {theme.keyElements && theme.keyElements.length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-1">
+                                  {theme.keyElements.slice(0, 3).map((element, idx) => (
+                                    <span
+                                      key={idx}
+                                      className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs"
+                                    >
+                                      {element}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            {selectedPlotTheme?.id === theme.id && (
+                              <Check className="w-5 h-5 text-purple-600 flex-shrink-0" />
+                            )}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Character Selection */}
+                <div className="border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Users className="w-5 h-5 text-indigo-600" />
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      {language === 'EN' ? 'Step 2: Select Characters' : 'Krok 2: Wybierz postacie'}
+                    </h3>
+                  </div>
+                  <p className="text-sm text-gray-600 mb-4">
+                    {language === 'EN' 
+                      ? 'Select the characters that must appear in this episode. These characters will be included in the screenplay.'
+                      : 'Wybierz postacie, które muszą pojawić się w tym odcinku. Te postacie będą uwzględnione w scenariuszu.'}
+                  </p>
+                  {globalAssets.filter(asset => asset.category === 'character').length === 0 ? (
+                    <div className="text-center py-6 text-gray-500">
+                      <p className="text-sm">
+                        {language === 'EN' 
+                          ? 'No characters available. Create characters in Global Assets first.'
+                          : 'Brak dostępnych postaci. Najpierw utwórz postacie w Zasobach Globalnych.'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {globalAssets
+                        .filter(asset => asset.category === 'character')
+                        .map((asset) => {
+                          const char = asset as Character;
+                          const isSelected = selectedCharacterIds.has(char.id);
+                          return (
+                            <button
+                              key={char.id}
+                              type="button"
+                              onClick={() => {
+                                const newSet = new Set(selectedCharacterIds);
+                                if (isSelected) {
+                                  newSet.delete(char.id);
+                                } else {
+                                  newSet.add(char.id);
+                                }
+                                setSelectedCharacterIds(newSet);
+                              }}
+                              className={`text-left p-3 rounded-lg border-2 transition-all ${
+                                isSelected
+                                  ? 'border-indigo-600 bg-indigo-50'
+                                  : 'border-gray-200 hover:border-indigo-300 hover:bg-indigo-50'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex-1">
+                                  <div className="font-semibold text-gray-900 mb-1">{char.name}</div>
+                                  {char.description && (
+                                    <div className="text-sm text-gray-600 line-clamp-2">{char.description}</div>
+                                  )}
+                                  {char.general?.personality && (
+                                    <div className="mt-1 text-xs text-gray-500">
+                                      {char.general.personality}
+                                    </div>
+                                  )}
+                                </div>
+                                {isSelected && (
+                                  <Check className="w-5 h-5 text-indigo-600 flex-shrink-0" />
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Start Button */}
+                <div className="text-center pt-4">
+                  <button
+                    onClick={handleStartWizard}
+                    disabled={!selectedPlotTheme || selectedCharacterIds.size === 0 || isGenerating}
+                    className="flex items-center space-x-2 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mx-auto"
+                  >
+                    <Sparkles className="w-5 h-5" />
+                    <span className="font-medium">
+                      {language === 'EN' ? 'Start Guided Screenwriting' : 'Rozpocznij prowadzone pisanie scenariusza'}
+                    </span>
+                  </button>
+                  <p className="mt-4 text-sm text-gray-500">
+                    {language === 'EN' 
+                  ? "You'll answer 8 quick questions; Gemini will suggest options and build the screenplay from your choices."
+                      : 'Odpowiesz na 8 szybkich pytań; Gemini zaproponuje opcje i zbuduje scenariusz na podstawie Twoich wyborów.'}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Guided Wizard */}
-            {versions.length === 0 && generationMode === 'guided' && !isGenerating && !wizardQuestion && (
+            {generationMode === 'guided' && !showInitialSelection && !isGenerating && !wizardQuestion && (
               <div className="text-center py-8">
                 <button
                   onClick={startGuided}
@@ -415,11 +820,8 @@ export function ScreenplayGenerationDialog({
                   className="flex items-center space-x-2 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mx-auto"
                 >
                   <Sparkles className="w-5 h-5" />
-                  <span className="font-medium">Start Guided Screenwriting</span>
+                  <span className="font-medium">Continue with Questions</span>
                 </button>
-                <p className="mt-4 text-sm text-gray-500">
-                  You’ll answer 8 quick questions; Gemini will suggest options and build the screenplay from your choices.
-                </p>
               </div>
             )}
 
@@ -563,13 +965,30 @@ export function ScreenplayGenerationDialog({
                     Generated Versions ({versions.length})
                   </h3>
                   <div className="flex items-center space-x-2">
+                    {generationMode === 'guided' && (
+                      <button
+                        onClick={startNewGuidedRun}
+                        disabled={isGenerating}
+                        className="px-4 py-2 text-sm bg-white border border-indigo-200 text-indigo-700 rounded-lg hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1"
+                        title="Start the guided Q&A again to create a new version"
+                      >
+                        <Sparkles className="w-4 h-4" />
+                        <span>New Guided Run</span>
+                      </button>
+                    )}
                     <button
-                      onClick={handleGenerate}
+                      onClick={() => {
+                        if (generationMode === 'guided') {
+                          startNewGuidedRun();
+                          return;
+                        }
+                        handleGenerate();
+                      }}
                       disabled={isGenerating}
                       className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1"
                     >
                       <Sparkles className="w-4 h-4" />
-                      <span>Generate New Version</span>
+                      <span>{generationMode === 'guided' ? 'Start New Version' : 'Generate New Version'}</span>
                     </button>
                     {selectedVersion && (
                       <button

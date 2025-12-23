@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Show, GlobalAsset, Episode, EpisodeIdea, GeneralIdea } from '@/types';
+import { useState, useEffect } from 'react';
+import { Show, GlobalAsset, Episode, EpisodeIdea, GeneralIdea, PlotTheme } from '@/types';
 import { 
   ArrowLeft, 
   Users, 
@@ -13,7 +13,11 @@ import {
   Play,
   Plus,
   FolderOpen,
-  Lightbulb
+  Lightbulb,
+  Edit3,
+  Save,
+  X,
+  BookOpen
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { PublicLinkGenerator } from './PublicLinkGenerator';
@@ -25,14 +29,17 @@ interface ShowDashboardProps {
   episodes: Episode[];
   episodeIdeas?: EpisodeIdea[];
   generalIdeas?: GeneralIdea[];
+  plotThemes?: PlotTheme[];
   onBack: () => void;
   onSelectGlobalAssets: (category?: 'character' | 'location' | 'gadget' | 'texture' | 'background' | 'vehicle' | 'all') => void;
   onSelectEpisodes: () => void;
   onSelectEpisode: (episode: Episode) => void;
   onSelectEpisodeIdeas: () => void;
   onSelectGeneralIdeas: () => void;
+  onSelectPlotThemes: () => void;
   onAddGlobalAsset?: (asset: Omit<GlobalAsset, 'id' | 'createdAt' | 'updatedAt'>) => void;
   onAddEpisode?: (episode: Omit<Episode, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  onSaveShow?: (show: Show) => void;
   isPublicMode?: boolean;
 }
 
@@ -60,14 +67,17 @@ export function ShowDashboard({
   episodes,
   episodeIdeas = [],
   generalIdeas = [],
+  plotThemes = [],
   onBack,
   onSelectGlobalAssets,
   onSelectEpisodes,
   onSelectEpisode,
   onSelectEpisodeIdeas,
   onSelectGeneralIdeas,
+  onSelectPlotThemes,
   onAddGlobalAsset,
   onAddEpisode,
+  onSaveShow,
   isPublicMode = false,
 }: ShowDashboardProps) {
   const [showAddAsset, setShowAddAsset] = useState(false);
@@ -76,6 +86,17 @@ export function ShowDashboard({
   const [newAssetCategory, setNewAssetCategory] = useState<'character' | 'location' | 'gadget' | 'texture' | 'background'>('character');
   const [newEpisodeTitle, setNewEpisodeTitle] = useState('');
   const [newEpisodeNumber, setNewEpisodeNumber] = useState(1);
+  
+  // Edit show state
+  const [isEditingShow, setIsEditingShow] = useState(false);
+  const [showName, setShowName] = useState(show.name);
+  const [showDescription, setShowDescription] = useState(show.description || '');
+
+  // Sync local state when show prop changes
+  useEffect(() => {
+    setShowName(show.name);
+    setShowDescription(show.description || '');
+  }, [show.name, show.description]);
 
   const getAssetCount = (category: keyof typeof assetLabels) => {
     return globalAssets.filter(asset => asset.category === category).length;
@@ -110,6 +131,24 @@ export function ShowDashboard({
     }
   };
 
+  const handleSaveShow = () => {
+    if (onSaveShow) {
+      const updatedShow: Show = {
+        ...show,
+        name: showName.trim(),
+        description: showDescription.trim() || undefined,
+      };
+      onSaveShow(updatedShow);
+    }
+    setIsEditingShow(false);
+  };
+
+  const handleCancelEditShow = () => {
+    setShowName(show.name);
+    setShowDescription(show.description || '');
+    setIsEditingShow(false);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -123,8 +162,47 @@ export function ShowDashboard({
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">{show.name}</h1>
+              <div className="flex-1">
+                {isEditingShow && !isPublicMode ? (
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={showName}
+                      onChange={(e) => setShowName(e.target.value)}
+                      className="text-2xl font-bold text-gray-900 bg-white border border-gray-300 rounded-lg px-3 py-1 w-full focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      placeholder="Show name..."
+                    />
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={handleSaveShow}
+                        className="p-1.5 text-green-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-colors"
+                        title="Save changes"
+                      >
+                        <Save className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={handleCancelEditShow}
+                        className="p-1.5 text-gray-600 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                        title="Cancel"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-2 group">
+                    <h1 className="text-2xl font-bold text-gray-900">{show.name}</h1>
+                    {!isPublicMode && onSaveShow && (
+                      <button
+                        onClick={() => setIsEditingShow(true)}
+                        className="p-1 text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg hover:bg-gray-100"
+                        title="Edit show name"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                )}
                 <p className="text-sm text-gray-600">Show Dashboard</p>
               </div>
             </div>
@@ -148,12 +226,49 @@ export function ShowDashboard({
 
       <div className="container mx-auto px-6 py-8">
         {/* Show Description */}
-        {show.description && (
-          <div className="mb-8 p-6 bg-white rounded-lg border border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900 mb-2">Description</h2>
-            <p className="text-gray-600">{show.description}</p>
+        <div className="mb-8 p-6 bg-white rounded-lg border border-gray-200">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-lg font-semibold text-gray-900">Description</h2>
+            {!isEditingShow && !isPublicMode && onSaveShow && (
+              <button
+                onClick={() => setIsEditingShow(true)}
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Edit description"
+              >
+                <Edit3 className="w-4 h-4" />
+              </button>
+            )}
           </div>
-        )}
+          {isEditingShow && !isPublicMode ? (
+            <div className="space-y-3">
+              <textarea
+                value={showDescription}
+                onChange={(e) => setShowDescription(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                rows={4}
+                placeholder="Enter show description..."
+              />
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={handleSaveShow}
+                  className="flex items-center space-x-2 px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>Save</span>
+                </button>
+                <button
+                  onClick={handleCancelEditShow}
+                  className="flex items-center space-x-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
+                >
+                  <X className="w-4 h-4" />
+                  <span>Cancel</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-gray-600 whitespace-pre-wrap">{show.description || <span className="text-gray-400 italic">No description</span>}</p>
+          )}
+        </div>
 
         {/* Main Navigation */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
@@ -293,6 +408,32 @@ export function ShowDashboard({
             >
               <Lightbulb className="w-5 h-5" />
               <span>Manage Ideas</span>
+            </button>
+          </div>
+
+          {/* Plot Themes Card */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center space-x-3">
+                <BookOpen className="w-6 h-6 text-purple-600" />
+                <h3 className="text-lg font-semibold text-gray-900">Plot Themes</h3>
+              </div>
+            </div>
+
+            <p className="text-gray-600 mb-6">
+              Create and manage plot themes that can be used across episodes to guide screenplay generation.
+            </p>
+
+            <div className="mb-4 text-sm text-gray-500">
+              {plotThemes.length} {plotThemes.length === 1 ? 'theme' : 'themes'} available
+            </div>
+
+            <button
+              onClick={onSelectPlotThemes}
+              className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+            >
+              <BookOpen className="w-5 h-5" />
+              <span>Manage Plot Themes</span>
             </button>
           </div>
         </div>

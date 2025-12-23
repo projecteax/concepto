@@ -5,14 +5,36 @@ const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GEMINI_API_KEY || '
 
 export async function POST(request: NextRequest) {
   try {
-    const { prompt, showName, showDescription, episodeTitle } = await request.json();
+    const { prompt, showName, showDescription, episodeTitle, plotTheme } = (await request.json()) as {
+      prompt?: string;
+      showName?: string;
+      showDescription?: string;
+      episodeTitle?: string;
+      plotTheme?: {
+        id?: string;
+        name?: string;
+        description?: string;
+        keyElements?: string[];
+        tags?: string[];
+      } | null;
+    };
 
     if (!prompt) {
       return NextResponse.json({ error: 'Prompt is required' }, { status: 400 });
     }
 
-    // Build the full prompt for generating 3 different story ideas
-    const fullPrompt = `${prompt}\n\nPlease generate three different and unique story ideas for this episode. Each story should be creative, engaging, and suitable for the target audience. Format your response as three separate story descriptions, each clearly labeled as "Story 1:", "Story 2:", and "Story 3:". Each story should be 2-4 sentences long.`;
+    const themeSection =
+      plotTheme && typeof plotTheme.name === 'string' && plotTheme.name.trim()
+        ? `\n\nPLOT THEME (MANDATORY):\n- Name: ${plotTheme.name}\n- Description: ${plotTheme.description || '(none)'}\n- Key elements: ${(Array.isArray(plotTheme.keyElements) ? plotTheme.keyElements : [])
+            .filter((x) => typeof x === 'string' && x.trim())
+            .slice(0, 10)
+            .join(', ') || '(none)'}\n\nIMPORTANT: The plot theme can follow a three‑act framework (setup / confrontation / resolution), but that does NOT imply only three scenes. Treat it as a storytelling structure.`
+        : '';
+
+    const contextHeader = `CONTEXT:\n- Show: "${showName || '(unknown)'}"\n- Show description: "${showDescription || '(none)'}"\n- Episode title: "${episodeTitle || '(untitled)'}"${themeSection}`;
+
+    // Build the full prompt for generating 3 different episode descriptions (2-4 sentences each)
+    const fullPrompt = `${contextHeader}\n\nUSER REQUEST / STYLE GUIDANCE:\n${prompt}\n\nTASK:\nGenerate three different and unique EPISODE DESCRIPTIONS for this episode.\n- Each option should reflect the selected plot theme (if provided) and include at least 1-2 of the theme's key elements naturally.\n- Keep each description 2-4 sentences.\n- Use a professional, broadcaster-friendly tone (logline-ish but readable).\n- Do NOT list scenes. Do NOT mention \"Act I/II/III\" explicitly.\n\nFORMAT:\nReturn three separate options labeled exactly:\nStory 1:\n...\nStory 2:\n...\nStory 3:\n...`;
 
     const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
 

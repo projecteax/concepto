@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { showService, globalAssetService, episodeService, assetConceptService, episodeIdeaService, generalIdeaService } from '@/lib/firebase-services';
-import { Show, GlobalAsset, Episode, AssetConcept, EpisodeIdea, GeneralIdea } from '@/types';
+import { showService, globalAssetService, episodeService, assetConceptService, episodeIdeaService, generalIdeaService, plotThemeService } from '@/lib/firebase-services';
+import { Show, GlobalAsset, Episode, AssetConcept, EpisodeIdea, GeneralIdea, PlotTheme } from '@/types';
 import { setupDemoData } from '@/lib/demo-data-setup';
 
 export function useFirebaseData() {
@@ -9,6 +9,7 @@ export function useFirebaseData() {
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [episodeIdeas, setEpisodeIdeas] = useState<EpisodeIdea[]>([]);
   const [generalIdeas, setGeneralIdeas] = useState<GeneralIdea[]>([]);
+  const [plotThemes, setPlotThemes] = useState<PlotTheme[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const isLoadingRef = useRef(false);
@@ -303,6 +304,40 @@ export function useFirebaseData() {
     }
   };
 
+  // Plot Theme operations
+  const createPlotTheme = async (theme: Omit<PlotTheme, 'id' | 'createdAt' | 'updatedAt'>) => {
+    try {
+      const newTheme = await plotThemeService.create(theme);
+      setPlotThemes(prev => [...prev, newTheme]);
+      return newTheme;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create plot theme');
+      throw err;
+    }
+  };
+
+  const updatePlotTheme = async (id: string, updates: Partial<PlotTheme>) => {
+    try {
+      await plotThemeService.update(id, updates);
+      setPlotThemes(prev => prev.map(theme => 
+        theme.id === id ? { ...theme, ...updates, updatedAt: new Date() } : theme
+      ));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update plot theme');
+      throw err;
+    }
+  };
+
+  const deletePlotTheme = async (id: string) => {
+    try {
+      await plotThemeService.delete(id);
+      setPlotThemes(prev => prev.filter(theme => theme.id !== id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete plot theme');
+      throw err;
+    }
+  };
+
   // Track which show's data has been loaded to prevent redundant loads
   const loadedShowIdRef = useRef<string | null>(null);
   const isLoadingShowDataRef = useRef(false);
@@ -367,11 +402,12 @@ export function useFirebaseData() {
           setLoading(true);
         }
         
-        const [assetsData, episodesData, ideasData, generalIdeasData] = await Promise.all([
+        const [assetsData, episodesData, ideasData, generalIdeasData, plotThemesData] = await Promise.all([
           globalAssetService.getByShow(showId),
           episodeService.getByShow(showId),
           episodeIdeaService.getByShow(showId),
           generalIdeaService.getByShow(showId),
+          plotThemeService.getByShow(showId),
         ]);
         
         // Update state - we've already checked that we should load this showId
@@ -379,6 +415,7 @@ export function useFirebaseData() {
         setEpisodes(episodesData);
         setEpisodeIdeas(ideasData);
         setGeneralIdeas(generalIdeasData);
+        setPlotThemes(plotThemesData);
         loadedShowIdRef.current = showId;
         console.log('✅ Loaded show data for:', showId);
       } catch (err) {
@@ -411,6 +448,7 @@ export function useFirebaseData() {
     episodes,
     episodeIdeas,
     generalIdeas,
+    plotThemes,
     loading,
     error,
     
@@ -438,6 +476,11 @@ export function useFirebaseData() {
     createGeneralIdea,
     updateGeneralIdea,
     deleteGeneralIdea,
+    
+    // Plot Theme operations
+    createPlotTheme,
+    updatePlotTheme,
+    deletePlotTheme,
     
     // Asset Concept operations
     createAssetConcept,

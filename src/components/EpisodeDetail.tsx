@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Show, Episode, EpisodeScene, SceneShot, Character, GlobalAsset } from '@/types';
+import { Show, Episode, EpisodeScene, SceneShot, Character, GlobalAsset, PlotTheme } from '@/types';
 import { 
   Plus, 
   Camera, 
@@ -15,7 +15,8 @@ import {
   Download,
   Eye,
   Users,
-  Wand2
+  Wand2,
+  BookOpen
 } from 'lucide-react';
 import StoryboardDrawer from './StoryboardDrawer';
 import CommentThread from './CommentThread';
@@ -27,11 +28,14 @@ import { useS3Upload } from '@/hooks/useS3Upload';
 import { useRealtimeEpisode } from '@/hooks/useRealtimeEpisode';
 import { EpisodeDescriptionGenerationDialog } from './EpisodeDescriptionGenerationDialog';
 import { ScreenplayGenerationDialog, ScreenplayVersion } from './ScreenplayGenerationDialog';
+import { NarrativeGenerationDialog } from './NarrativeGenerationDialog';
+import { NarrativeReaderDialog } from './NarrativeReaderDialog';
 
 interface EpisodeDetailProps {
   episode: Episode;
   show: Show;
   globalAssets: GlobalAsset[];
+  plotThemes?: PlotTheme[];
   onBack: () => void;
   onSave?: (episode: Episode) => void;
   isPublicMode?: boolean;
@@ -41,6 +45,7 @@ export default function EpisodeDetail({
   episode,
   show,
   globalAssets,
+  plotThemes = [],
   onBack,
   onSave,
   isPublicMode = false,
@@ -155,8 +160,31 @@ export default function EpisodeDetail({
   const [editingDescription, setEditingDescription] = useState(false);
   const [tempTitle, setTempTitle] = useState(episode.title);
   const [tempDescription, setTempDescription] = useState(episode.description || '');
+  const selectedEpisodePlotTheme = plotThemes.find((t) => t.id === localEpisode.plotThemeId) || null;
+  const narrativeStoriesPL = localEpisode.narrativeStories || [];
+  const narrativeStoriesEN = localEpisode.narrativeStoriesEN || [];
+
+  const selectedNarrativePL =
+    (localEpisode.selectedNarrativeStoryId
+      ? narrativeStoriesPL.find((s) => s.id === localEpisode.selectedNarrativeStoryId)
+      : undefined) || narrativeStoriesPL[0];
+  const selectedNarrativeEN =
+    (localEpisode.selectedNarrativeStoryIdEN
+      ? narrativeStoriesEN.find((s) => s.id === localEpisode.selectedNarrativeStoryIdEN)
+      : undefined) || narrativeStoriesEN[0];
+
+  // Back-compat: if legacy narrative exists but no versions array, display it.
+  const narrativeText = selectedNarrativePL?.text || localEpisode.narrativeStory || '';
+  const narrativeTextEN = selectedNarrativeEN?.text || localEpisode.narrativeStoryEN || '';
   const [showDescriptionDialog, setShowDescriptionDialog] = useState(false);
   const [showScreenplayDialog, setShowScreenplayDialog] = useState(false);
+  const [showNarrativeDialog, setShowNarrativeDialog] = useState(false);
+  const [showNarrativeReader, setShowNarrativeReader] = useState(false);
+  const [narrativeReaderPayload, setNarrativeReaderPayload] = useState<{
+    title: string;
+    text: string;
+    meta?: { wordCount?: number; createdAt?: Date; language?: 'PL' | 'EN'; sourceLabel?: string };
+  } | null>(null);
   
   // Store screenplay versions in parent to persist across dialog opens/closes
   const [screenplayVersions, setScreenplayVersions] = useState<ScreenplayVersion[]>([]);
@@ -1228,7 +1256,7 @@ export default function EpisodeDetail({
 
       {/* Tabs */}
       <div className="bg-white border-b border-gray-200">
-        <div className="px-4 sm:px-6 flex items-center justify-between">
+        <div className="px-4 sm:px-6">
           <nav className="flex space-x-4 sm:space-x-8 overflow-x-auto no-scrollbar">
             {tabs.map((tab) => (
               <button
@@ -1244,54 +1272,66 @@ export default function EpisodeDetail({
               </button>
             ))}
           </nav>
-          {activeTab === 'screenwriting' && (
-            <div className="hidden md:flex items-center gap-3">
-              <button
-                onClick={() => setShowScreenplayDialog(true)}
-                className="px-3 py-1.5 rounded-md text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 flex items-center gap-2"
-                title="Auto-Create Screenplay with AI"
-              >
-                <Wand2 className="w-4 h-4" />
-                <span>Auto-Create</span>
-              </button>
-              <button
-                onClick={() => screenplayEditorRef.current?.togglePreview()}
-                className="px-3 py-1.5 rounded-md text-sm font-medium border bg-white hover:bg-gray-100 text-gray-800 flex items-center gap-2"
-                title="Preview"
-              >
-                <Eye className="w-4 h-4" />
-                <span>Preview</span>
-              </button>
-              <button
-                onClick={() => screenplayEditorRef.current?.exportPDF()}
-                className="px-3 py-1.5 rounded-md text-sm font-medium border bg-white hover:bg-gray-100 text-gray-800 flex items-center gap-2"
-                title="Export PDF"
-              >
-                <Download className="w-4 h-4" />
-                <span>Export</span>
-              </button>
-              <button
-                onClick={() => screenplayEditorRef.current?.exportVO()}
-                className="px-3 py-1.5 rounded-md text-sm font-medium border bg-white hover:bg-gray-100 text-gray-800 flex items-center gap-2"
-                title="Export VO"
-              >
-                <Download className="w-4 h-4" />
-                <span>Export VO</span>
-              </button>
-              <button
-                onClick={() => screenplayEditorRef.current?.save()}
-                className="px-3 py-1.5 rounded-md text-sm font-medium border bg-green-600 text-white hover:bg-green-700"
-                title="Save"
-              >
-                Save
-              </button>
-              <span className="text-xs text-gray-500 whitespace-nowrap">
-                {screenplayLastSavedAt ? `Last saved: ${new Date(screenplayLastSavedAt).toLocaleString()}` : 'Not saved yet'}
-              </span>
-            </div>
-          )}
         </div>
       </div>
+
+      {/* Screenwriting action row (separate row under tabs, like AV Script) */}
+      {activeTab === 'screenwriting' && (
+        <div className="bg-white border-b border-gray-200">
+          <div className="px-4 sm:px-6 py-3 hidden md:flex items-center gap-3 flex-wrap">
+            <button
+              onClick={() => setShowScreenplayDialog(true)}
+              className="px-3 py-1.5 rounded-md text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 flex items-center gap-2"
+              title="Auto-Create Screenplay with AI"
+            >
+              <Wand2 className="w-4 h-4" />
+              <span>Auto-Create</span>
+            </button>
+            <button
+              onClick={() => setShowNarrativeDialog(true)}
+              className="px-3 py-1.5 rounded-md text-sm font-medium border bg-white hover:bg-gray-100 text-gray-800 flex items-center gap-2"
+              title="Generate a narrative bedtime-story version from the screenplay"
+            >
+              <BookOpen className="w-4 h-4" />
+              <span>Narrative descriptions</span>
+            </button>
+            <button
+              onClick={() => screenplayEditorRef.current?.togglePreview()}
+              className="px-3 py-1.5 rounded-md text-sm font-medium border bg-white hover:bg-gray-100 text-gray-800 flex items-center gap-2"
+              title="Preview"
+            >
+              <Eye className="w-4 h-4" />
+              <span>Preview</span>
+            </button>
+            <button
+              onClick={() => screenplayEditorRef.current?.exportPDF()}
+              className="px-3 py-1.5 rounded-md text-sm font-medium border bg-white hover:bg-gray-100 text-gray-800 flex items-center gap-2"
+              title="Export PDF"
+            >
+              <Download className="w-4 h-4" />
+              <span>Export</span>
+            </button>
+            <button
+              onClick={() => screenplayEditorRef.current?.exportVO()}
+              className="px-3 py-1.5 rounded-md text-sm font-medium border bg-white hover:bg-gray-100 text-gray-800 flex items-center gap-2"
+              title="Export VO"
+            >
+              <Download className="w-4 h-4" />
+              <span>Export VO</span>
+            </button>
+            <button
+              onClick={() => screenplayEditorRef.current?.save()}
+              className="px-3 py-1.5 rounded-md text-sm font-medium border bg-green-600 text-white hover:bg-green-700"
+              title="Save"
+            >
+              Save
+            </button>
+            <span className="text-xs text-gray-500 whitespace-nowrap">
+              {screenplayLastSavedAt ? `Last saved: ${new Date(screenplayLastSavedAt).toLocaleString()}` : 'Not saved yet'}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Content */}
       <div className="p-4 sm:p-6">
@@ -1311,6 +1351,40 @@ export default function EpisodeDetail({
                   </button>
                 )}
               </div>
+
+              {/* Plot Theme selector (used by AI description + screenwriting) */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Plot Theme (optional)
+                </label>
+                <select
+                  value={localEpisode.plotThemeId || ''}
+                  onChange={(e) => {
+                    const nextId = e.target.value || undefined;
+                    const updatedEpisode: Episode = {
+                      ...localEpisode,
+                      plotThemeId: nextId,
+                    };
+                    updateEpisodeAndSave(updatedEpisode);
+                  }}
+                  disabled={isPublicMode}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-100"
+                >
+                  <option value="">No theme selected</option>
+                  {plotThemes.map((theme) => (
+                    <option key={theme.id} value={theme.id}>
+                      {theme.name}
+                    </option>
+                  ))}
+                </select>
+                {selectedEpisodePlotTheme && (
+                  <div className="mt-2 text-xs text-gray-500">
+                    <span className="font-medium text-gray-700">Selected:</span>{' '}
+                    {selectedEpisodePlotTheme.description || 'No description'}
+                  </div>
+                )}
+              </div>
+
               {editingDescription ? (
                 <div className="space-y-3">
                   <textarea
@@ -1355,6 +1429,88 @@ export default function EpisodeDetail({
                     )}
                   </div>
                 </div>
+              )}
+            </div>
+
+            {/* Narrative Story (prose) */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-medium text-gray-900">Narrative story</h2>
+                <div className="flex items-center gap-2">
+                  {(narrativeText || narrativeTextEN) && (
+                    <button
+                      onClick={() => {
+                        const chosen = selectedNarrativePL || selectedNarrativeEN;
+                        const lang = selectedNarrativePL ? 'PL' : 'EN';
+                        const wc = chosen?.wordCount;
+                        const createdAt = chosen?.createdAt ? new Date(chosen.createdAt) : undefined;
+                        setNarrativeReaderPayload({
+                          title: chosen?.title || localEpisode.title,
+                          text: chosen?.text || (lang === 'PL' ? narrativeText : narrativeTextEN),
+                          meta: { wordCount: wc, createdAt, language: lang },
+                        });
+                        setShowNarrativeReader(true);
+                      }}
+                      className="flex items-center space-x-1 px-3 py-1 text-xs bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                      title="Read narrative story"
+                    >
+                      <BookOpen className="w-3 h-3" />
+                      <span>Read</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setShowNarrativeDialog(true)}
+                    className="flex items-center space-x-1 px-3 py-1 text-xs bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition-colors"
+                    title="Generate/manage narrative stories with AI"
+                  >
+                    <BookOpen className="w-3 h-3" />
+                    <span>{narrativeText || narrativeTextEN ? 'Manage' : 'Generate'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {narrativeText || narrativeTextEN ? (
+                <div className="space-y-2">
+                  <p
+                    className="text-gray-600 whitespace-pre-wrap line-clamp-6 cursor-pointer hover:bg-gray-50 rounded p-2 transition-colors"
+                    title="Click to read"
+                    onClick={() => {
+                      const chosen = selectedNarrativePL || selectedNarrativeEN;
+                      const lang = selectedNarrativePL ? 'PL' : 'EN';
+                      const wc = chosen?.wordCount;
+                      const createdAt = chosen?.createdAt ? new Date(chosen.createdAt) : undefined;
+                      setNarrativeReaderPayload({
+                        title: chosen?.title || localEpisode.title,
+                        text: chosen?.text || (lang === 'PL' ? narrativeText : narrativeTextEN),
+                        meta: { wordCount: wc, createdAt, language: lang },
+                      });
+                      setShowNarrativeReader(true);
+                    }}
+                  >
+                    {narrativeText || narrativeTextEN}
+                  </p>
+                  <button
+                    onClick={() => {
+                      const chosen = selectedNarrativePL || selectedNarrativeEN;
+                      const lang = selectedNarrativePL ? 'PL' : 'EN';
+                      const wc = chosen?.wordCount;
+                      const createdAt = chosen?.createdAt ? new Date(chosen.createdAt) : undefined;
+                      setNarrativeReaderPayload({
+                        title: chosen?.title || localEpisode.title,
+                        text: chosen?.text || (lang === 'PL' ? narrativeText : narrativeTextEN),
+                        meta: { wordCount: wc, createdAt, language: lang },
+                      });
+                      setShowNarrativeReader(true);
+                    }}
+                    className="text-sm text-purple-700 hover:text-purple-800 font-medium"
+                  >
+                    Read story →
+                  </button>
+                </div>
+              ) : (
+                <p className="text-gray-500">
+                  No narrative story yet. Generate a bedtime-story style prose adaptation from the screenplay.
+                </p>
               )}
             </div>
 
@@ -1539,9 +1695,11 @@ export default function EpisodeDetail({
                   elements: []
                 }}
                 onSave={(screenplayData) => {
-                  setLocalEpisode(prev => ({ ...prev, screenplayData }));
+                  const updatedEpisode: Episode = { ...localEpisode, screenplayData };
+                  setLocalEpisode(updatedEpisode);
                   setScreenplayLastSavedAt(Date.now());
-                  onSave?.({ ...localEpisode, screenplayData });
+                  // Save immediately to avoid losing changes when navigating/switching views.
+                  updateEpisodeAndSave(updatedEpisode, true);
                 }}
               />
             </div>
@@ -1554,6 +1712,10 @@ export default function EpisodeDetail({
           onClose={() => setShowScreenplayDialog(false)}
           versions={screenplayVersions}
           onVersionsChange={setScreenplayVersions}
+          plotThemes={plotThemes}
+          globalAssets={globalAssets}
+          initialPlotThemeId={localEpisode.plotThemeId}
+          initialCharacterIds={localEpisode.characters?.map((c) => c.characterId) || []}
           onScreenplayGenerated={(elements, language) => {
             console.log('📝 onScreenplayGenerated called with elements:', elements);
             console.log('📝 Elements length:', elements.length);
@@ -2351,6 +2513,63 @@ export default function EpisodeDetail({
         showDescription={show.description || ''}
         episodeTitle={localEpisode.title}
         currentDescription={localEpisode.description}
+        plotTheme={selectedEpisodePlotTheme}
+      />
+
+      {/* Narrative Generation Dialog */}
+      <NarrativeGenerationDialog
+        isOpen={showNarrativeDialog}
+        onClose={() => setShowNarrativeDialog(false)}
+        showName={show.name}
+        showDescription={show.description || ''}
+        episodeTitle={localEpisode.title}
+        targetAge="6-8"
+        screenplayData={localEpisode.screenplayData}
+        screenplayVersions={screenplayVersions}
+        preferredLanguage={localEpisode.screenplayData?.elementsEN?.some((e) => e.content?.trim()) ? 'EN' : 'PL'}
+        savedNarrativesPL={localEpisode.narrativeStories || []}
+        savedNarrativesEN={localEpisode.narrativeStoriesEN || []}
+        selectedNarrativeIdPL={localEpisode.selectedNarrativeStoryId}
+        selectedNarrativeIdEN={localEpisode.selectedNarrativeStoryIdEN}
+        onNarrativeSelected={({ language, story }) => {
+          const now = new Date();
+
+          const upsert = (arr: import('@/types').NarrativeStoryVersion[]) => {
+            const idx = arr.findIndex((s) => s.id === story.id);
+            if (idx >= 0) {
+              const copy = [...arr];
+              copy[idx] = story;
+              return copy;
+            }
+            return [story, ...arr];
+          };
+
+          const plArr = upsert(localEpisode.narrativeStories || []);
+          const enArr = upsert(localEpisode.narrativeStoriesEN || []);
+
+          const updatedEpisode: Episode = {
+            ...localEpisode,
+            narrativeStories: language === 'PL' ? plArr : localEpisode.narrativeStories || [],
+            narrativeStoriesEN: language === 'EN' ? enArr : localEpisode.narrativeStoriesEN || [],
+            selectedNarrativeStoryId: language === 'PL' ? story.id : localEpisode.selectedNarrativeStoryId,
+            selectedNarrativeStoryIdEN: language === 'EN' ? story.id : localEpisode.selectedNarrativeStoryIdEN,
+            narrativeUpdatedAt: now,
+            // Keep legacy fields in sync for older UI paths / back-compat.
+            narrativeStory: language === 'PL' ? story.text : localEpisode.narrativeStory,
+            narrativeStoryEN: language === 'EN' ? story.text : localEpisode.narrativeStoryEN,
+          };
+          updateEpisodeAndSave(updatedEpisode, true);
+          setShowNarrativeDialog(false);
+        }}
+      />
+
+      {/* Narrative Reader Dialog */}
+      <NarrativeReaderDialog
+        isOpen={showNarrativeReader && !!narrativeReaderPayload}
+        onClose={() => setShowNarrativeReader(false)}
+        title={narrativeReaderPayload?.title || localEpisode.title}
+        text={narrativeReaderPayload?.text || ''}
+        meta={narrativeReaderPayload?.meta}
       />
     </div>
   );
