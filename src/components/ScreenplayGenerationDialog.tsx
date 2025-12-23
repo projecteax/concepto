@@ -10,12 +10,27 @@ export interface ScreenplayVersion {
   elements: ScreenplayElement[];
   createdAt: Date;
   isSelected?: boolean;
+  language?: 'PL' | 'EN';
 }
+
+type WizardQuestionKind = 'yes_no_suggestion' | 'single_choice' | 'free_text';
+type WizardQuestion = {
+  step: number;
+  totalSteps: number;
+  id: string;
+  kind: WizardQuestionKind;
+  question: string;
+  suggestion?: string;
+  choices?: string[];
+  placeholder?: string;
+};
+
+type WizardAnswer = { id: string; question: string; answer: string };
 
 interface ScreenplayGenerationDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onScreenplayGenerated: (elements: ScreenplayElement[]) => void;
+  onScreenplayGenerated: (elements: ScreenplayElement[], language: 'PL' | 'EN') => void;
   showName: string;
   showDescription: string;
   episodeTitle: string;
@@ -40,6 +55,13 @@ export function ScreenplayGenerationDialog({
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
+  const [language, setLanguage] = useState<'PL' | 'EN'>('PL');
+  const [generationMode, setGenerationMode] = useState<'guided' | 'quick'>('guided');
+
+  // Guided wizard state
+  const [wizardQuestion, setWizardQuestion] = useState<WizardQuestion | null>(null);
+  const [wizardAnswers, setWizardAnswers] = useState<WizardAnswer[]>([]);
+  const [wizardTextAnswer, setWizardTextAnswer] = useState('');
   
   // Use external versions if provided, otherwise use local state
   const [localVersions, setLocalVersions] = useState<ScreenplayVersion[]>([]);
@@ -62,6 +84,9 @@ export function ScreenplayGenerationDialog({
   useEffect(() => {
     if (isOpen) {
       setError(null);
+      setWizardQuestion(null);
+      setWizardAnswers([]);
+      setWizardTextAnswer('');
       // Select the last version if available
       if (versions.length > 0 && !selectedVersionId) {
         setSelectedVersionId(versions[versions.length - 1].id);
@@ -87,6 +112,7 @@ export function ScreenplayGenerationDialog({
           episodeTitle,
           episodeDescription,
           targetAge,
+          language,
         }),
       });
 
@@ -123,6 +149,7 @@ export function ScreenplayGenerationDialog({
         elements: elementsWithPosition,
         createdAt: new Date(),
         isSelected: false,
+        language,
       };
 
       // Add new version to the list (don't remove existing ones)
@@ -140,6 +167,137 @@ export function ScreenplayGenerationDialog({
     }
   };
 
+  const startGuided = async () => {
+    setIsGenerating(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/gemini/screenplay-wizard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'next',
+          language,
+          showName,
+          showDescription,
+          episodeTitle,
+          episodeDescription,
+          targetAge,
+          answers: wizardAnswers,
+        }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(e.error || `Server error: ${res.status}`);
+      }
+      const data = await res.json();
+      setWizardQuestion(data.question as WizardQuestion);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start guided flow');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const submitWizardAnswer = async (answer: string) => {
+    if (!wizardQuestion) return;
+    const nextAnswers: WizardAnswer[] = [
+      ...wizardAnswers,
+      { id: wizardQuestion.id, question: wizardQuestion.question, answer },
+    ];
+    setWizardAnswers(nextAnswers);
+    setWizardTextAnswer('');
+
+    // If we have enough answers, finalize
+    if (nextAnswers.length >= (wizardQuestion.totalSteps || 8)) {
+      setIsGenerating(true);
+      setError(null);
+      try {
+        const res = await fetch('/api/gemini/screenplay-wizard', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'final',
+            language,
+            showName,
+            showDescription,
+            episodeTitle,
+            episodeDescription,
+            targetAge,
+            answers: nextAnswers,
+          }),
+        });
+        if (!res.ok) {
+          const e = await res.json().catch(() => ({ error: 'Unknown error' }));
+          throw new Error(e.error || `Server error: ${res.status}`);
+        }
+        const data = await res.json();
+        if (!data.elements || !Array.isArray(data.elements) || data.elements.length === 0) {
+          throw new Error('No screenplay elements generated');
+        }
+
+        const elementsWithPosition: ScreenplayElement[] = data.elements.map(
+          (el: Partial<ScreenplayElement> & { type?: string; content?: string }, index: number) => ({
+            id: `generated-${Date.now()}-${index}`,
+            type: (el.type as ScreenplayElement['type']) || 'general',
+            content: el.content || '',
+            position: index,
+          }),
+        );
+
+        const newVersion: ScreenplayVersion = {
+          id: `version-${Date.now()}`,
+          version: versions.length + 1,
+          elements: elementsWithPosition,
+          createdAt: new Date(),
+          isSelected: true,
+          language,
+        };
+
+        setVersions((prev) => {
+          const updated = prev.map((v) => ({ ...v, isSelected: false }));
+          return [...updated, newVersion];
+        });
+        setSelectedVersionId(newVersion.id);
+        setWizardQuestion(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to generate screenplay');
+      } finally {
+        setIsGenerating(false);
+      }
+      return;
+    }
+
+    // Otherwise fetch next question
+    setIsGenerating(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/gemini/screenplay-wizard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'next',
+          language,
+          showName,
+          showDescription,
+          episodeTitle,
+          episodeDescription,
+          targetAge,
+          answers: nextAnswers,
+        }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(e.error || `Server error: ${res.status}`);
+      }
+      const data = await res.json();
+      setWizardQuestion(data.question as WizardQuestion);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch next question');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   const handleSelectVersion = (versionId: string) => {
     setSelectedVersionId(versionId);
     setVersions(prev => prev.map(v => ({ ...v, isSelected: v.id === versionId })));
@@ -148,7 +306,7 @@ export function ScreenplayGenerationDialog({
   const handleAccept = () => {
     const selectedVersion = getSelectedVersion();
     if (selectedVersion && selectedVersion.elements.length > 0) {
-      onScreenplayGenerated(selectedVersion.elements);
+      onScreenplayGenerated(selectedVersion.elements, selectedVersion.language || 'PL');
       onClose();
     }
   };
@@ -201,8 +359,165 @@ export function ScreenplayGenerationDialog({
               </div>
             </div>
 
+            {/* Language + Mode */}
+            <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-700">Language:</span>
+                <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setLanguage('PL')}
+                    className={`px-3 py-1.5 text-sm ${language === 'PL' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700'}`}
+                    disabled={isGenerating}
+                  >
+                    PL
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLanguage('EN')}
+                    className={`px-3 py-1.5 text-sm ${language === 'EN' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700'}`}
+                    disabled={isGenerating}
+                  >
+                    EN
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-700">Mode:</span>
+                <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setGenerationMode('guided')}
+                    className={`px-3 py-1.5 text-sm ${generationMode === 'guided' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700'}`}
+                    disabled={isGenerating}
+                  >
+                    Guided (8 steps)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGenerationMode('quick')}
+                    className={`px-3 py-1.5 text-sm ${generationMode === 'quick' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700'}`}
+                    disabled={isGenerating}
+                  >
+                    Quick
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Guided Wizard */}
+            {versions.length === 0 && generationMode === 'guided' && !isGenerating && !wizardQuestion && (
+              <div className="text-center py-8">
+                <button
+                  onClick={startGuided}
+                  disabled={isGenerating}
+                  className="flex items-center space-x-2 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mx-auto"
+                >
+                  <Sparkles className="w-5 h-5" />
+                  <span className="font-medium">Start Guided Screenwriting</span>
+                </button>
+                <p className="mt-4 text-sm text-gray-500">
+                  You’ll answer 8 quick questions; Gemini will suggest options and build the screenplay from your choices.
+                </p>
+              </div>
+            )}
+
+            {generationMode === 'guided' && wizardQuestion && (
+              <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-sm font-medium text-gray-900">
+                    Step {wizardQuestion.step + 1} / {wizardQuestion.totalSteps}
+                  </div>
+                  <div className="text-xs text-gray-500">ID: {wizardQuestion.id}</div>
+                </div>
+                <div className="text-base font-semibold text-gray-900 mb-3">{wizardQuestion.question}</div>
+
+                {wizardQuestion.kind === 'yes_no_suggestion' && wizardQuestion.suggestion && (
+                  <div className="space-y-3">
+                    <div className="p-3 rounded-lg bg-indigo-50 border border-indigo-200 text-sm text-indigo-900 whitespace-pre-wrap">
+                      <span className="font-medium">Suggestion:</span> {wizardQuestion.suggestion}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
+                        onClick={() => submitWizardAnswer(wizardQuestion.suggestion || 'Yes')}
+                      >
+                        Yes, use this
+                      </button>
+                      <button
+                        type="button"
+                        className="px-4 py-2 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200 text-sm"
+                        onClick={() => submitWizardAnswer('No')}
+                      >
+                        No
+                      </button>
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      If you choose “No”, the next step will adapt — you can also refine later in the editor.
+                    </div>
+                  </div>
+                )}
+
+                {wizardQuestion.kind === 'single_choice' && wizardQuestion.choices && wizardQuestion.choices.length > 0 && (
+                  <div className="space-y-2">
+                    {wizardQuestion.choices.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        className="w-full text-left px-3 py-2 rounded-lg border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50"
+                        onClick={() => submitWizardAnswer(c)}
+                      >
+                        <div className="text-sm text-gray-900">{c}</div>
+                      </button>
+                    ))}
+                    <div className="mt-3">
+                      <label className="text-xs text-gray-600">Or type your own:</label>
+                      <div className="flex gap-2 mt-1">
+                        <input
+                          value={wizardTextAnswer}
+                          onChange={(e) => setWizardTextAnswer(e.target.value)}
+                          placeholder={wizardQuestion.placeholder || (language === 'EN' ? 'Your option…' : 'Twoja opcja…')}
+                          className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                        />
+                        <button
+                          type="button"
+                          disabled={!wizardTextAnswer.trim()}
+                          className="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50"
+                          onClick={() => submitWizardAnswer(wizardTextAnswer.trim())}
+                        >
+                          Submit
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {wizardQuestion.kind === 'free_text' && (
+                  <div className="space-y-2">
+                    <textarea
+                      value={wizardTextAnswer}
+                      onChange={(e) => setWizardTextAnswer(e.target.value)}
+                      placeholder={wizardQuestion.placeholder || (language === 'EN' ? 'Your answer…' : 'Twoja odpowiedź…')}
+                      rows={4}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                    />
+                    <button
+                      type="button"
+                      disabled={!wizardTextAnswer.trim()}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50"
+                      onClick={() => submitWizardAnswer(wizardTextAnswer.trim())}
+                    >
+                      Next
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Generate Button */}
-            {versions.length === 0 && !isGenerating && (
+            {versions.length === 0 && !isGenerating && generationMode === 'quick' && (
               <div className="text-center py-8">
                 <button
                   onClick={handleGenerate}
@@ -286,7 +601,7 @@ export function ScreenplayGenerationDialog({
                         >
                           <div className="flex items-center justify-between mb-1">
                             <span className="text-sm font-semibold text-gray-900">
-                              Version {version.version}
+                              Version {version.version}{version.language ? ` • ${version.language}` : ''}
                             </span>
                             {version.id === selectedVersionId && (
                               <CheckCircle className="w-4 h-4 text-indigo-600" />

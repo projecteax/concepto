@@ -10,14 +10,30 @@ interface ScreenplayElement {
 
 export async function POST(request: NextRequest) {
   try {
-    const { showName, showDescription, episodeTitle, episodeDescription, targetAge = '6-8' } = await request.json();
+    const {
+      showName,
+      showDescription,
+      episodeTitle,
+      episodeDescription,
+      targetAge = '6-8',
+      language = 'PL',
+      creativeBrief,
+    } = await request.json();
 
     if (!showName || !episodeTitle) {
       return NextResponse.json({ error: 'Show name and episode title are required' }, { status: 400 });
     }
 
+    const outputLanguageInstruction =
+      language === 'EN'
+        ? 'Write ALL screenplay content in English. Keep the [TYPE] markers exactly as specified.'
+        : 'Write ALL screenplay content in Polish (PL). Keep the [TYPE] markers exactly as specified.';
+
     // Build comprehensive prompt following industry standards for 10-minute animation
     const prompt = `You are a professional screenwriter specializing in children's animated television content, following industry-standard formats for 11-minute episodes (half-hour TV slots).
+
+OUTPUT LANGUAGE (MANDATORY):
+${outputLanguageInstruction}
 
 CONTEXT:
 - Show Name: "${showName}"
@@ -25,6 +41,7 @@ CONTEXT:
 - Episode Title: "${episodeTitle}"
 - Episode Description: "${episodeDescription || 'An episode of the show'}"
 - Target Audience: Children aged ${targetAge} years old
+${creativeBrief ? `\nCREATIVE BRIEF (user decisions - follow these):\n${creativeBrief}\n` : ''}
 
 INDUSTRY STANDARDS - YOU MUST FOLLOW THESE EXACTLY:
 

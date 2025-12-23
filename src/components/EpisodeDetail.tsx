@@ -1554,12 +1554,13 @@ export default function EpisodeDetail({
           onClose={() => setShowScreenplayDialog(false)}
           versions={screenplayVersions}
           onVersionsChange={setScreenplayVersions}
-          onScreenplayGenerated={(elements) => {
+          onScreenplayGenerated={(elements, language) => {
             console.log('📝 onScreenplayGenerated called with elements:', elements);
             console.log('📝 Elements length:', elements.length);
             console.log('📝 First element sample:', elements[0]);
             console.log('📝 First element content:', elements[0]?.content);
             console.log('📝 First element type:', elements[0]?.type);
+            console.log('📝 Selected language:', language);
             
             if (!elements || elements.length === 0) {
               console.error('❌ No elements provided!');
@@ -1568,9 +1569,7 @@ export default function EpisodeDetail({
             
             // Create new screenplay data with generated elements
             const timestamp = Date.now();
-            const newScreenplayData = {
-              title: localEpisode.title || 'Untitled Screenplay',
-              elements: elements.map((el, index) => {
+            const plElements = elements.map((el, index) => {
                 // Ensure content is a string and not empty
                 const content = (el.content && typeof el.content === 'string' && el.content.trim()) 
                   ? el.content.trim() 
@@ -1579,7 +1578,7 @@ export default function EpisodeDetail({
                 const newElement = {
                   id: `pl-element-${timestamp}-${index}`,
                   type: el.type || 'general',
-                  content: content,
+                  content: language === 'PL' ? content : '',
                   position: index,
                 };
                 
@@ -1593,14 +1592,23 @@ export default function EpisodeDetail({
                 }
                 
                 return newElement;
-              }),
-              // Also create EN version (empty for now, can be translated later)
-              elementsEN: elements.map((el, index) => ({
+              });
+
+            const enElements = elements.map((el, index) => ({
                 id: `en-element-${timestamp}-${index}`,
                 type: el.type || 'general',
-                content: '', // Empty for now, will be translated later if needed
+                content:
+                  language === 'EN' && el.content && typeof el.content === 'string'
+                    ? el.content.trim()
+                    : '',
                 position: index,
-              })),
+              }));
+
+            const newScreenplayData = {
+              title: localEpisode.title || 'Untitled Screenplay',
+              titleEN: language === 'EN' ? (localEpisode.title || 'Untitled Screenplay') : undefined,
+              elements: plElements,
+              elementsEN: enElements,
             };
             
             console.log('📝 New screenplay data created:', {
