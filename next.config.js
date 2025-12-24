@@ -6,7 +6,9 @@ const nextConfig = {
   },
   
   // Output configuration for deployment
-  output: 'standalone',
+  // Standalone output is great for deployments, but it can cause flaky dev chunk resolution
+  // (e.g. missing vendor-chunks) in some environments. Keep standalone for production only.
+  ...(process.env.NODE_ENV === 'production' ? { output: 'standalone' } : {}),
   
   // Webpack configuration for better stability
   webpack: (config, { dev, isServer }) => {

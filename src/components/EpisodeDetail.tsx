@@ -16,7 +16,9 @@ import {
   Eye,
   Users,
   Wand2,
-  BookOpen
+  BookOpen,
+  Menu,
+  Loader2
 } from 'lucide-react';
 import StoryboardDrawer from './StoryboardDrawer';
 import CommentThread from './CommentThread';
@@ -30,6 +32,16 @@ import { EpisodeDescriptionGenerationDialog } from './EpisodeDescriptionGenerati
 import { ScreenplayGenerationDialog, ScreenplayVersion } from './ScreenplayGenerationDialog';
 import { NarrativeGenerationDialog } from './NarrativeGenerationDialog';
 import { NarrativeReaderDialog } from './NarrativeReaderDialog';
+import { AppBreadcrumbHeader } from './AppBreadcrumbHeader';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 interface EpisodeDetailProps {
   episode: Episode;
@@ -50,10 +62,13 @@ export default function EpisodeDetail({
   onSave,
   isPublicMode = false,
 }: EpisodeDetailProps) {
+  
+  const headerIsDark = Boolean(show.coverImageUrl);
   const [activeTab, setActiveTab] = useState<'overview' | 'av-script' | 'av-preview' | 'av-editing' | 'screenwriting' | 'characters' | 'locations' | 'gadgets'>('overview');
   const [localEpisode, setLocalEpisode] = useState<Episode>(episode);
   const screenplayEditorRef = useRef<ScreenplayEditorHandle | null>(null);
   const [screenplayLastSavedAt, setScreenplayLastSavedAt] = useState<number | null>(null);
+  const [screenplayIsSaving, setScreenplayIsSaving] = useState(false);
   const [isTabVisible, setIsTabVisible] = useState(true);
   
   // Track tab visibility to enable/disable real-time sync (saves resources)
@@ -1197,62 +1212,64 @@ export default function EpisodeDetail({
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center space-x-3 sm:space-x-4">
-            <button
-              onClick={onBack}
-              className="flex items-center space-x-2 text-sm sm:text-base text-gray-600 hover:text-gray-900"
-            >
-              <ArrowLeft className="w-5 h-5" />
-              <span>Back to Episodes</span>
-            </button>
-            <div className="hidden sm:block h-6 w-px bg-gray-300" />
-            <div className="flex-1">
-              {editingTitle ? (
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="text"
-                    value={tempTitle}
-                    onChange={(e) => setTempTitle(e.target.value)}
-                    className="text-xl sm:text-2xl font-bold text-gray-900 bg-transparent border-b-2 border-indigo-500 focus:outline-none flex-1 min-w-0"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSaveTitle();
-                      if (e.key === 'Escape') handleCancelTitle();
-                    }}
-                    onBlur={handleSaveTitle}
-                    autoFocus
-                  />
-                  <button
-                    onClick={handleSaveTitle}
-                    className="p-1 text-green-600 hover:text-green-700"
-                  >
-                    <Save className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={handleCancelTitle}
-                    className="p-1 text-gray-400 hover:text-gray-600"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              ) : (
-                <h1 
-                  className="text-xl sm:text-2xl font-bold text-gray-900 cursor-pointer hover:text-indigo-600 transition-colors line-clamp-2"
-                  onClick={() => setEditingTitle(true)}
-                  title="Click to edit title"
+      <AppBreadcrumbHeader
+        coverImageUrl={show.coverImageUrl}
+        logoUrl={show.logoUrl}
+        backHref={`${isPublicMode ? '/public' : '/app'}/shows/${show.id}/episodes`}
+        items={[
+          { label: show.name, href: `${isPublicMode ? '/public' : '/app'}/shows/${show.id}` },
+          { label: 'Episodes', href: `${isPublicMode ? '/public' : '/app'}/shows/${show.id}/episodes` },
+          { label: localEpisode.title || 'Episode' },
+        ]}
+        subtitle={`Episode ${localEpisode.episodeNumber}`}
+        title={
+          <div className="min-w-0">
+            {editingTitle ? (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={tempTitle}
+                  onChange={(e) => setTempTitle(e.target.value)}
+                  className={`w-full min-w-0 text-xl sm:text-2xl font-bold bg-transparent border-b focus:outline-none ${
+                    headerIsDark
+                      ? 'border-white/40 focus:border-white text-white placeholder:text-white/70'
+                      : 'border-border focus:border-primary text-foreground placeholder:text-muted-foreground'
+                  }`}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveTitle();
+                    if (e.key === 'Escape') handleCancelTitle();
+                  }}
+                  onBlur={handleSaveTitle}
+                  autoFocus
+                />
+                <button
+                  onClick={handleSaveTitle}
+                  className={`p-1 ${headerIsDark ? 'text-white/90 hover:text-white' : 'text-muted-foreground hover:text-foreground'}`}
                 >
-                  {localEpisode.title}
-                </h1>
-              )}
-              <p className="text-xs sm:text-sm text-gray-500 truncate">
-                {show.name} • Episode {localEpisode.episodeNumber}
-              </p>
-            </div>
+                  <Save className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handleCancelTitle}
+                  className={`p-1 ${headerIsDark ? 'text-white/70 hover:text-white' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className={`text-left w-full text-xl sm:text-2xl font-bold line-clamp-2 ${
+                  headerIsDark ? 'text-white hover:text-white/95' : 'text-foreground hover:text-foreground/90'
+                }`}
+                onClick={() => setEditingTitle(true)}
+                title="Click to edit title"
+              >
+                {localEpisode.title}
+              </button>
+            )}
           </div>
-        </div>
-      </div>
+        }
+      />
 
       {/* Tabs */}
       <div className="bg-white border-b border-gray-200">
@@ -1278,57 +1295,62 @@ export default function EpisodeDetail({
       {/* Screenwriting action row (separate row under tabs, like AV Script) */}
       {activeTab === 'screenwriting' && (
         <div className="bg-white border-b border-gray-200">
-          <div className="px-4 sm:px-6 py-3 hidden md:flex items-center gap-3 flex-wrap">
-            <button
-              onClick={() => setShowScreenplayDialog(true)}
-              className="px-3 py-1.5 rounded-md text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 flex items-center gap-2"
-              title="Auto-Create Screenplay with AI"
-            >
-              <Wand2 className="w-4 h-4" />
-              <span>Auto-Create</span>
-            </button>
-            <button
-              onClick={() => setShowNarrativeDialog(true)}
-              className="px-3 py-1.5 rounded-md text-sm font-medium border bg-white hover:bg-gray-100 text-gray-800 flex items-center gap-2"
-              title="Generate a narrative bedtime-story version from the screenplay"
-            >
-              <BookOpen className="w-4 h-4" />
-              <span>Narrative descriptions</span>
-            </button>
-            <button
-              onClick={() => screenplayEditorRef.current?.togglePreview()}
-              className="px-3 py-1.5 rounded-md text-sm font-medium border bg-white hover:bg-gray-100 text-gray-800 flex items-center gap-2"
-              title="Preview"
-            >
-              <Eye className="w-4 h-4" />
-              <span>Preview</span>
-            </button>
-            <button
-              onClick={() => screenplayEditorRef.current?.exportPDF()}
-              className="px-3 py-1.5 rounded-md text-sm font-medium border bg-white hover:bg-gray-100 text-gray-800 flex items-center gap-2"
-              title="Export PDF"
-            >
-              <Download className="w-4 h-4" />
-              <span>Export</span>
-            </button>
-            <button
-              onClick={() => screenplayEditorRef.current?.exportVO()}
-              className="px-3 py-1.5 rounded-md text-sm font-medium border bg-white hover:bg-gray-100 text-gray-800 flex items-center gap-2"
-              title="Export VO"
-            >
-              <Download className="w-4 h-4" />
-              <span>Export VO</span>
-            </button>
-            <button
-              onClick={() => screenplayEditorRef.current?.save()}
-              className="px-3 py-1.5 rounded-md text-sm font-medium border bg-green-600 text-white hover:bg-green-700"
-              title="Save"
-            >
-              Save
-            </button>
-            <span className="text-xs text-gray-500 whitespace-nowrap">
+          <div className="px-4 sm:px-6 py-3 hidden md:flex items-center justify-end gap-2">
+            <div className="text-xs text-gray-500 whitespace-nowrap mr-1">
               {screenplayLastSavedAt ? `Last saved: ${new Date(screenplayLastSavedAt).toLocaleString()}` : 'Not saved yet'}
-            </span>
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              disabled={screenplayIsSaving}
+              title="Save"
+              onClick={async () => {
+                if (!screenplayEditorRef.current) return;
+                setScreenplayIsSaving(true);
+                try {
+                  await screenplayEditorRef.current.save();
+                } finally {
+                  setScreenplayIsSaving(false);
+                }
+              }}
+            >
+              {screenplayIsSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            </Button>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" size="icon" title="More actions">
+                  <Menu className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel>Screenwriting</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => setShowScreenplayDialog(true)}>
+                  <Wand2 className="h-4 w-4" />
+                  <span>Auto-Create</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setShowNarrativeDialog(true)}>
+                  <BookOpen className="h-4 w-4" />
+                  <span>Narrative descriptions</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => screenplayEditorRef.current?.togglePreview()}>
+                  <Eye className="h-4 w-4" />
+                  <span>Preview</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => screenplayEditorRef.current?.exportPDF()}>
+                  <Download className="h-4 w-4" />
+                  <span>Export PDF</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => screenplayEditorRef.current?.exportVO()}>
+                  <Download className="h-4 w-4" />
+                  <span>Export VO</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       )}

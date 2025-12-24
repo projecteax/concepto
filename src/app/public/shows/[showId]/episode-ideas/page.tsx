@@ -3,10 +3,11 @@
 import { ConceptoApp } from '@/components/ConceptoApp';
 import { useParams } from 'next/navigation';
 
-export default function AssetDetailPage() {
+export default function PublicEpisodeIdeasPage() {
   const params = useParams();
   const showId = params.showId as string;
-  const assetId = params.assetId as string;
 
-  return <ConceptoApp initialView="asset-detail" showId={showId} assetId={assetId} />;
+  return <ConceptoApp initialView="episode-ideas" showId={showId} isPublicMode={true} />;
 }
+
+

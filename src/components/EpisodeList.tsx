@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { Show, Episode } from '@/types';
 import { 
-  ArrowLeft, 
   Plus, 
   Play, 
   Edit3, 
@@ -14,6 +13,8 @@ import {
   Calendar
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { AppBreadcrumbHeader } from './AppBreadcrumbHeader';
+import { useBasePath } from '@/hooks/useBasePath';
 
 interface EpisodeListProps {
   show: Show;
@@ -34,6 +35,7 @@ export function EpisodeList({
   onEditEpisode,
   onDeleteEpisode
 }: EpisodeListProps) {
+  const basePath = useBasePath();
   const [showAddForm, setShowAddForm] = useState(false);
   const [newEpisodeTitle, setNewEpisodeTitle] = useState('');
   const [newEpisodeNumber, setNewEpisodeNumber] = useState(1);
@@ -80,35 +82,28 @@ export function EpisodeList({
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={onBack}
-                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Episodes</h1>
-                <p className="text-sm text-gray-600">{show.name}</p>
-              </div>
-            </div>
-            <button
-              onClick={() => {
-                setNewEpisodeNumber(getNextEpisodeNumber());
-                setShowAddForm(true);
-              }}
-              className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add Episode</span>
-            </button>
-          </div>
-        </div>
-      </div>
+      <AppBreadcrumbHeader
+        coverImageUrl={show.coverImageUrl}
+        logoUrl={show.logoUrl}
+        backHref={`${basePath}/shows/${show.id}`}
+        items={[
+          { label: show.name, href: `${basePath}/shows/${show.id}` },
+          { label: 'Episodes' },
+        ]}
+        subtitle="All episodes for this show"
+        actions={
+          <button
+            onClick={() => {
+              setNewEpisodeNumber(getNextEpisodeNumber());
+              setShowAddForm(true);
+            }}
+            className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Episode</span>
+          </button>
+        }
+      />
 
       <div className="container mx-auto px-6 py-8">
         {episodes.length === 0 ? (

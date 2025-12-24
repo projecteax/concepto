@@ -2,10 +2,12 @@
 
 import React, { useState } from 'react';
 import { ArrowLeft, Plus, Edit3, Trash2, Tag, Calendar, Save, X } from 'lucide-react';
-import { EpisodeIdea } from '@/types';
+import { EpisodeIdea, Show } from '@/types';
+import { AppBreadcrumbHeader } from './AppBreadcrumbHeader';
+import { useBasePath } from '@/hooks/useBasePath';
 
 interface EpisodeIdeasProps {
-  showId: string;
+  show: Show;
   ideas: EpisodeIdea[];
   onBack: () => void;
   onSaveIdea: (idea: Omit<EpisodeIdea, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
@@ -14,12 +16,13 @@ interface EpisodeIdeasProps {
 }
 
 export function EpisodeIdeas({
-  showId,
+  show,
   ideas,
   onBack,
   onSaveIdea,
   onDeleteIdea
 }: EpisodeIdeasProps) {
+  const basePath = useBasePath();
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingIdea, setEditingIdea] = useState<string | null>(null);
   const [newIdea, setNewIdea] = useState({
@@ -35,7 +38,7 @@ export function EpisodeIdeas({
     
     try {
       await onSaveIdea({
-        showId,
+        showId: show.id,
         title: newIdea.title.trim(),
         description: newIdea.description.trim(),
         status: newIdea.status,
@@ -107,32 +110,25 @@ export function EpisodeIdeas({
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={onBack}
-                className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 transition-colors"
-              >
-                <ArrowLeft className="w-5 h-5" />
-                <span>Back to Dashboard</span>
-              </button>
-              <div className="h-6 w-px bg-gray-300" />
-              <h1 className="text-2xl font-bold text-gray-900">Episode Ideas</h1>
-            </div>
-            
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              <span>New Idea</span>
-            </button>
-          </div>
-        </div>
-      </div>
+      <AppBreadcrumbHeader
+        coverImageUrl={show.coverImageUrl}
+        logoUrl={show.logoUrl}
+        backHref={`${basePath}/shows/${show.id}`}
+        items={[
+          { label: show.name, href: `${basePath}/shows/${show.id}` },
+          { label: 'Episode Ideas' },
+        ]}
+        subtitle="Idea backlog for episodes"
+        actions={
+          <button
+            onClick={() => setShowAddForm(true)}
+            className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New Idea</span>
+          </button>
+        }
+      />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Add New Idea Form */}

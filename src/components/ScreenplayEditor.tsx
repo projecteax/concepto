@@ -30,12 +30,12 @@ export interface ScreenplayEditorHandle {
   exportVO: () => void;
   exportStoryboard: () => void;
   togglePreview: () => void;
-  save: () => void;
+  save: () => Promise<void>;
 }
 
 interface ScreenplayEditorProps {
   screenplayData: ScreenplayData;
-  onSave: (data: ScreenplayData) => void;
+  onSave: (data: ScreenplayData) => void | Promise<void>;
   episodeId: string;
 }
 
@@ -716,11 +716,14 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setIsSaving(true);
-    onSave(localData);
-    setIsSaving(false);
-    setLastSavedAt(Date.now());
+    try {
+      await onSave(localData);
+      setLastSavedAt(Date.now());
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Autosave on changes with debounce (30 seconds - backup save only)
@@ -733,7 +736,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
       window.clearTimeout(autosaveTimerRef.current);
     }
     autosaveTimerRef.current = window.setTimeout(() => {
-      handleSave();
+      void handleSave();
     }, 30000); // 30 seconds - backup save to prevent Firebase quota issues
     return () => {
       if (autosaveTimerRef.current) {

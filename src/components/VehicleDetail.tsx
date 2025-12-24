@@ -1,9 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { GlobalAsset, AssetConcept } from '@/types';
+import { GlobalAsset, AssetConcept, Show } from '@/types';
 import { 
-  ArrowLeft, 
   Car, 
   Upload, 
   Trash2, 
@@ -23,11 +22,12 @@ import {
 import { AIRefImages } from '@/types';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { AssetConceptGenerationDialog } from './AssetConceptGenerationDialog';
-import { showService } from '@/lib/firebase-services';
-import { Show } from '@/types';
 import { cn } from '@/lib/utils';
+import { AppBreadcrumbHeader } from './AppBreadcrumbHeader';
+import { useBasePath } from '@/hooks/useBasePath';
 
 interface VehicleDetailProps {
+  show: Show;
   vehicle: GlobalAsset;
   onBack: () => void;
   onSave: (vehicle: GlobalAsset) => void;
@@ -37,6 +37,7 @@ interface VehicleDetailProps {
 }
 
 export function VehicleDetail({
+  show,
   vehicle,
   onBack,
   onSave,
@@ -44,6 +45,8 @@ export function VehicleDetail({
   onDeleteConcept,
   globalAssets = []
 }: VehicleDetailProps) {
+  const basePath = useBasePath();
+  const headerIsDark = Boolean(show.coverImageUrl);
   const [activeTab, setActiveTab] = useState<'general' | 'concepts' | 'production' | 'ai-ref'>('general');
   const [isEditing, setIsEditing] = useState(false);
   
@@ -57,9 +60,6 @@ export function VehicleDetail({
   const [showImageGenerationDialog, setShowImageGenerationDialog] = useState(false);
   const [selectedConceptType, setSelectedConceptType] = useState<'all' | 'interior' | 'exterior' | 'general'>('all');
   const [selectedConceptIds, setSelectedConceptIds] = useState<Set<string>>(new Set());
-  
-  // Show data
-  const [show, setShow] = useState<Show | null>(null);
   
   // Image upload states
   const [uploadingFiles, setUploadingFiles] = useState<Map<string, { progress: number; error?: string }>>(new Map());
@@ -98,24 +98,6 @@ export function VehicleDetail({
       return () => document.removeEventListener('keydown', handleKeyDown);
     }
   }, [selectedImage]);
-
-  // Fetch show data for concept generation
-  useEffect(() => {
-    const fetchShow = async () => {
-      if (vehicle.showId) {
-        try {
-          const shows = await showService.getAll();
-          const foundShow = shows.find(s => s.id === vehicle.showId);
-          if (foundShow) {
-            setShow(foundShow);
-          }
-        } catch (error) {
-          console.error('Error fetching show:', error);
-        }
-      }
-    };
-    fetchShow();
-  }, [vehicle.showId]);
 
   // Clean up data URLs in mainRender when component loads
   useEffect(() => {
@@ -424,66 +406,67 @@ export function VehicleDetail({
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={onBack}
-                className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <div className="flex items-center space-x-3">
-                <Car className="w-6 h-6 text-indigo-600" />
-                <div>
-                  <h1 className="text-xl font-semibold text-gray-900">
-                    {isEditing ? (
-                      <input
-                        type="text"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        className="bg-transparent border-b border-gray-300 focus:border-indigo-500 focus:outline-none"
-                        autoFocus
-                      />
-                    ) : (
-                      vehicle.name
-                    )}
-                  </h1>
-                  <p className="text-sm text-gray-500">Vehicle Asset</p>
-                </div>
-              </div>
-            </div>
-            
-            <div className="flex items-center space-x-2">
-              {isEditing ? (
-                <>
-                  <button
-                    onClick={handleCancel}
-                    className="px-3 py-2 text-gray-600 hover:text-gray-800 rounded-lg hover:bg-gray-100"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={handleSave}
-                    className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-                  >
-                    <Save className="w-4 h-4" />
-                  </button>
-                </>
-              ) : (
+      <AppBreadcrumbHeader
+        coverImageUrl={show.coverImageUrl}
+        logoUrl={show.logoUrl}
+        backHref={`${basePath}/shows/${show.id}/assets?category=vehicle`}
+        items={[
+          { label: show.name, href: `${basePath}/shows/${show.id}` },
+          { label: 'Assets', href: `${basePath}/shows/${show.id}/assets` },
+          { label: 'Vehicles', href: `${basePath}/shows/${show.id}/assets?category=vehicle` },
+          { label: vehicle.name || 'Vehicle' },
+        ]}
+        subtitle="Vehicle asset"
+        actions={
+          <div className="flex items-center gap-2">
+            {isEditing ? (
+              <>
                 <button
-                  onClick={() => setIsEditing(true)}
-                  className="px-3 py-2 text-gray-600 hover:text-gray-800 rounded-lg hover:bg-gray-100"
+                  onClick={handleCancel}
+                  className="px-3 py-2 text-white/90 hover:text-white rounded-lg hover:bg-white/10"
+                  title="Cancel"
                 >
-                  <Edit3 className="w-4 h-4" />
+                  <X className="w-4 h-4" />
                 </button>
-              )}
-            </div>
+                <button
+                  onClick={handleSave}
+                  className="px-3 py-2 bg-white/90 text-gray-900 rounded-lg hover:bg-white"
+                  title="Save"
+                >
+                  <Save className="w-4 h-4" />
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setIsEditing(true)}
+                className="px-3 py-2 text-white/90 hover:text-white rounded-lg hover:bg-white/10"
+                title="Edit"
+              >
+                <Edit3 className="w-4 h-4" />
+              </button>
+            )}
           </div>
-        </div>
-      </div>
+        }
+        title={
+          isEditing ? (
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className={`w-full text-2xl sm:text-3xl font-bold bg-transparent border-b focus:outline-none ${
+                headerIsDark
+                  ? 'border-white/40 focus:border-white text-white'
+                  : 'border-border focus:border-primary text-foreground'
+              }`}
+              autoFocus
+            />
+          ) : (
+            <div className={`text-2xl sm:text-3xl font-bold truncate ${headerIsDark ? 'text-white' : 'text-foreground'}`}>
+              {vehicle.name}
+            </div>
+          )
+        }
+      />
 
       {/* Tabs */}
       <div className="bg-white border-b border-gray-200">

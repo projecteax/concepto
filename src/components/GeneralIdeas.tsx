@@ -15,6 +15,8 @@ import {
   MessageCircle
 } from 'lucide-react';
 import { useComments } from '@/contexts/CommentContext';
+import { AppBreadcrumbHeader } from './AppBreadcrumbHeader';
+import { useBasePath } from '@/hooks/useBasePath';
 
 interface GeneralIdeasProps {
   show: Show;
@@ -35,6 +37,7 @@ export function GeneralIdeas({
   onEditIdea,
   onDeleteIdea
 }: GeneralIdeasProps) {
+  const basePath = useBasePath();
   const { getCommentsForTarget } = useComments();
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
@@ -89,36 +92,25 @@ export function GeneralIdeas({
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={onBack}
-                className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <div className="flex items-center space-x-3">
-                <Lightbulb className="w-6 h-6 text-indigo-600" />
-                <div>
-                  <h1 className="text-xl font-semibold text-gray-900">General Ideas</h1>
-                  <p className="text-sm text-gray-500">{show.name}</p>
-                </div>
-              </div>
-            </div>
-            
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              <span>New Idea</span>
-            </button>
-          </div>
-        </div>
-      </div>
+      <AppBreadcrumbHeader
+        coverImageUrl={show.coverImageUrl}
+        logoUrl={show.logoUrl}
+        backHref={`${basePath}/shows/${show.id}`}
+        items={[
+          { label: show.name, href: `${basePath}/shows/${show.id}` },
+          { label: 'General Ideas' },
+        ]}
+        subtitle="Show-level idea bank"
+        actions={
+          <button
+            onClick={() => setShowAddForm(true)}
+            className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New Idea</span>
+          </button>
+        }
+      />
 
       {/* Filters */}
       <div className="bg-white border-b border-gray-200">

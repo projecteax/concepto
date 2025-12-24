@@ -25,7 +25,8 @@ import {
   Package,
   Video,
   PlusCircle,
-  Info
+  Info,
+  Menu
 } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { useSessionStorageState } from '@/hooks/useSessionStorageState';
@@ -35,6 +36,15 @@ import { AVEnhanceDialog } from './AVEnhanceDialog';
 import { AutoPopulateDialog } from './AutoPopulateDialog';
 import { ImportAVDialog } from './ImportAVDialog';
 import { ApiKeyDialog } from './ApiKeyDialog';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 interface AVScriptEditorProps {
   episodeId: string;
@@ -1139,73 +1149,60 @@ export function AVScriptEditor({
                 <div className="text-sm text-gray-500">Total RT</div>
                 <div className="text-lg font-semibold text-gray-900">{formatDuration(script.totalRuntime)}</div>
               </div>
-              {/* Import AV Button */}
-              <button
-                onClick={() => setShowImportAVDialog(true)}
-                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2 text-xs sm:text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                title="Import AV script from CSV file"
-              >
-                <Upload className="w-4 h-4" />
-                <span>Import AV</span>
-              </button>
-              {/* Get API Button */}
-              <button
-                onClick={() => setShowApiKeyDialog(true)}
-                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2 text-xs sm:text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-                title="Get API configuration for Blender plugin"
-              >
-                <Key className="w-4 h-4" />
-                <span>Get API</span>
-              </button>
-              {/* Download Blender Plugin Button */}
-              <button
-                onClick={handleDownloadPlugin}
-                disabled={isDownloadingPlugin}
-                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2 text-xs sm:text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Download Blender plugin as zip file"
-              >
-                {isDownloadingPlugin ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Package className="w-4 h-4" />
-                )}
-                <span>Blender Plugin</span>
-              </button>
-              {/* Auto-populate Button */}
-              <button
-                onClick={() => setShowAutoPopulateDialog(true)}
-                disabled={!screenplayData}
-                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2 text-xs sm:text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-                title="Auto-populate AV script from screenplay"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>Auto-populate</span>
-              </button>
-              {/* Manual Save Button */}
-              <button
-                onClick={handleManualSave}
-                disabled={isSaving}
-                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2 text-xs sm:text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-                title="Save manually"
-              >
-                {isSaving ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Saving...</span>
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4" />
-                    <span>Save</span>
-                  </>
-                )}
-              </button>
-              {/* Save Status */}
-              {lastSavedAt && !isSaving && (
+
+              <div className="ml-auto flex items-center gap-2">
+                {/* Save icon (always visible) */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={handleManualSave}
+                  disabled={isSaving}
+                  title="Save"
+                >
+                  {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                </Button>
+
+                {/* Last saved (always visible) */}
                 <div className="text-xs text-gray-500 whitespace-nowrap">
-                  Saved {new Date(lastSavedAt).toLocaleTimeString()}
+                  {lastSavedAt ? `Last saved: ${new Date(lastSavedAt).toLocaleTimeString()}` : 'Not saved yet'}
                 </div>
-              )}
+
+                {/* Hamburger menu for the rest */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button type="button" variant="outline" size="icon" title="More actions">
+                      <Menu className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuLabel>AV Script Actions</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={() => setShowImportAVDialog(true)}>
+                      <Upload className="h-4 w-4" />
+                      <span>Import AV</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setShowApiKeyDialog(true)}>
+                      <Key className="h-4 w-4" />
+                      <span>Get API</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        if (!isDownloadingPlugin) void handleDownloadPlugin();
+                      }}
+                      disabled={isDownloadingPlugin}
+                    >
+                      {isDownloadingPlugin ? <Loader2 className="h-4 w-4 animate-spin" /> : <Package className="h-4 w-4" />}
+                      <span>Blender Plugin</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={() => setShowAutoPopulateDialog(true)} disabled={!screenplayData}>
+                      <Sparkles className="h-4 w-4" />
+                      <span>Auto-populate</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
           </div>
           <div className="mt-3 sm:mt-4 flex flex-wrap items-center gap-4">

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Show, GlobalAsset, Episode, EpisodeIdea, GeneralIdea, PlotTheme } from '@/types';
 import { 
   ArrowLeft, 
@@ -20,8 +20,14 @@ import {
   BookOpen
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { PublicLinkGenerator } from './PublicLinkGenerator';
 import { ShowDownloadButton } from './ShowDownloadButton';
+import { useS3Upload } from '@/hooks/useS3Upload';
+import { AppBreadcrumbHeader } from './AppBreadcrumbHeader';
+import { useBasePath } from '@/hooks/useBasePath';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
 
 interface ShowDashboardProps {
   show: Show;
@@ -39,7 +45,7 @@ interface ShowDashboardProps {
   onSelectPlotThemes: () => void;
   onAddGlobalAsset?: (asset: Omit<GlobalAsset, 'id' | 'createdAt' | 'updatedAt'>) => void;
   onAddEpisode?: (episode: Omit<Episode, 'id' | 'createdAt' | 'updatedAt'>) => void;
-  onSaveShow?: (show: Show) => void;
+  onSaveShow?: (show: Show) => void | Promise<void>;
   isPublicMode?: boolean;
 }
 
@@ -80,6 +86,8 @@ export function ShowDashboard({
   onSaveShow,
   isPublicMode = false,
 }: ShowDashboardProps) {
+  const basePath = useBasePath();
+  const headerIsDark = Boolean(show.coverImageUrl);
   const [showAddAsset, setShowAddAsset] = useState(false);
   const [showAddEpisode, setShowAddEpisode] = useState(false);
   const [newAssetName, setNewAssetName] = useState('');
@@ -87,16 +95,31 @@ export function ShowDashboard({
   const [newEpisodeTitle, setNewEpisodeTitle] = useState('');
   const [newEpisodeNumber, setNewEpisodeNumber] = useState(1);
   
-  // Edit show state
-  const [isEditingShow, setIsEditingShow] = useState(false);
+  // Edit show state (Show Settings)
   const [showName, setShowName] = useState(show.name);
   const [showDescription, setShowDescription] = useState(show.description || '');
+  const [coverImageUrl, setCoverImageUrl] = useState(show.coverImageUrl || '');
+  const [logoUrl, setLogoUrl] = useState(show.logoUrl || '');
+  const [seasonsCount, setSeasonsCount] = useState<number>(show.seasonsCount ?? 1);
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
+  const coverInputRef = useRef<HTMLInputElement | null>(null);
+  const logoInputRef = useRef<HTMLInputElement | null>(null);
+  const { uploadFile, uploadState, resetUpload } = useS3Upload();
+  const [coverUploadHint, setCoverUploadHint] = useState<string | null>(null);
+  const [logoUploadHint, setLogoUploadHint] = useState<string | null>(null);
+  const [coverSaveStatus, setCoverSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [logoSaveStatus, setLogoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [coverSaveError, setCoverSaveError] = useState<string | null>(null);
+  const [logoSaveError, setLogoSaveError] = useState<string | null>(null);
 
   // Sync local state when show prop changes
   useEffect(() => {
     setShowName(show.name);
     setShowDescription(show.description || '');
-  }, [show.name, show.description]);
+    setCoverImageUrl(show.coverImageUrl || '');
+    setLogoUrl(show.logoUrl || '');
+    setSeasonsCount(show.seasonsCount ?? 1);
+  }, [show.name, show.description, show.coverImageUrl, show.logoUrl, show.seasonsCount]);
 
   const getAssetCount = (category: keyof typeof assetLabels) => {
     return globalAssets.filter(asset => asset.category === category).length;
@@ -137,158 +160,201 @@ export function ShowDashboard({
         ...show,
         name: showName.trim(),
         description: showDescription.trim() || undefined,
+        coverImageUrl: coverImageUrl.trim() || undefined,
+        logoUrl: logoUrl.trim() || undefined,
+        ...(Number.isFinite(seasonsCount) ? ({ seasonsCount } as Show) : {}),
       };
       onSaveShow(updatedShow);
     }
-    setIsEditingShow(false);
+    setIsEditingDescription(false);
   };
 
-  const handleCancelEditShow = () => {
+  const handleCancelEdits = () => {
     setShowName(show.name);
     setShowDescription(show.description || '');
-    setIsEditingShow(false);
+    setCoverImageUrl(show.coverImageUrl || '');
+    setLogoUrl(show.logoUrl || '');
+    setSeasonsCount(show.seasonsCount ?? 1);
+    resetUpload();
+    setIsEditingDescription(false);
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={onBack}
-                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <div className="flex-1">
-                {isEditingShow && !isPublicMode ? (
-                  <div className="space-y-2">
-                    <input
-                      type="text"
-                      value={showName}
-                      onChange={(e) => setShowName(e.target.value)}
-                      className="text-2xl font-bold text-gray-900 bg-white border border-gray-300 rounded-lg px-3 py-1 w-full focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                      placeholder="Show name..."
-                    />
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={handleSaveShow}
-                        className="p-1.5 text-green-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-colors"
-                        title="Save changes"
-                      >
-                        <Save className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={handleCancelEditShow}
-                        className="p-1.5 text-gray-600 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                        title="Cancel"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center space-x-2 group">
-                    <h1 className="text-2xl font-bold text-gray-900">{show.name}</h1>
-                    {!isPublicMode && onSaveShow && (
-                      <button
-                        onClick={() => setIsEditingShow(true)}
-                        className="p-1 text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg hover:bg-gray-100"
-                        title="Edit show name"
-                      >
-                        <Edit3 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                )}
-                <p className="text-sm text-gray-600">Show Dashboard</p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-3">
-              {!isPublicMode && (
-                <ShowDownloadButton
-                  show={show}
-                  globalAssets={globalAssets}
-                  episodes={episodes}
-                  episodeIdeas={episodeIdeas}
-                  generalIdeas={generalIdeas}
-                />
-              )}
-              {!isPublicMode && (
-                <PublicLinkGenerator showId={show.id} />
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+  const readImageSize = (file: File) =>
+    new Promise<{ width: number; height: number }>((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new window.Image();
+      img.onload = () => {
+        const out = { width: img.naturalWidth, height: img.naturalHeight };
+        URL.revokeObjectURL(url);
+        resolve(out);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('Failed to read image size'));
+      };
+      img.src = url;
+    });
 
-      <div className="container mx-auto px-6 py-8">
-        {/* Show Description */}
-        <div className="mb-8 p-6 bg-white rounded-lg border border-gray-200">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-lg font-semibold text-gray-900">Description</h2>
-            {!isEditingShow && !isPublicMode && onSaveShow && (
-              <button
-                onClick={() => setIsEditingShow(true)}
-                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                title="Edit description"
-              >
-                <Edit3 className="w-4 h-4" />
-              </button>
-            )}
+  const handleUploadShowImage = async (file: File, kind: 'cover' | 'logo') => {
+    // Soft validation + guidance (we still allow upload).
+    try {
+      const { width, height } = await readImageSize(file);
+      const ratio = width / Math.max(1, height);
+      if (kind === 'cover') {
+        const okRatio = ratio >= 3 && ratio <= 5; // roughly banner-ish
+        const okSize = width >= 1600 && height >= 360;
+        setCoverUploadHint(
+          `${width}×${height}px • ${ratio.toFixed(2)}:1` +
+            (!okSize ? ' • Consider a larger image (min ~1600×360).' : '') +
+            (!okRatio ? ' • Consider a wider banner (ideal ~4:1).' : ''),
+        );
+      } else {
+        const square = Math.abs(ratio - 1) <= 0.12;
+        const okSize = width >= 256 && height >= 256;
+        setLogoUploadHint(
+          `${width}×${height}px` +
+            (!okSize ? ' • Consider at least 256×256.' : '') +
+            (!square ? ' • Consider a square logo (1:1).' : ''),
+        );
+      }
+    } catch {
+      // ignore
+    }
+    const prefix = `shows/${show.id}/${kind}`;
+    const result = await uploadFile(file, prefix);
+    if (!result) return;
+    if (kind === 'cover') {
+      setCoverImageUrl(result.url);
+      setCoverSaveStatus('saving');
+      setCoverSaveError(null);
+    } else {
+      setLogoUrl(result.url);
+      setLogoSaveStatus('saving');
+      setLogoSaveError(null);
+    }
+
+    // Auto-save to DB so reload never loses it.
+    if (!isPublicMode && onSaveShow) {
+      const updatedShow: Show = {
+        ...show,
+        name: showName.trim(),
+        description: showDescription.trim() || undefined,
+        coverImageUrl: kind === 'cover' ? result.url : (coverImageUrl.trim() || undefined),
+        logoUrl: kind === 'logo' ? result.url : (logoUrl.trim() || undefined),
+        seasonsCount,
+      };
+      try {
+        await onSaveShow(updatedShow);
+        if (kind === 'cover') setCoverSaveStatus('saved');
+        else setLogoSaveStatus('saved');
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to save';
+        if (kind === 'cover') {
+          setCoverSaveStatus('error');
+          setCoverSaveError(msg);
+        } else {
+          setLogoSaveStatus('error');
+          setLogoSaveError(msg);
+        }
+      }
+    } else {
+      // In public mode there's no DB write; treat as idle.
+      if (kind === 'cover') setCoverSaveStatus('idle');
+      else setLogoSaveStatus('idle');
+    }
+  };
+
+  const formatSafeDate = (d: unknown) => {
+    const date = d instanceof Date ? d : null;
+    if (!date || Number.isNaN(date.getTime())) return '—';
+    return new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'short', day: 'numeric' }).format(date);
+  };
+
+  const charactersCount = globalAssets.filter(a => a.category === 'character').length;
+  const locationsCount = globalAssets.filter(a => a.category === 'location').length;
+
+  return (
+    <div className="min-h-screen bg-background">
+      <AppBreadcrumbHeader
+        coverImageUrl={show.coverImageUrl}
+        logoUrl={show.logoUrl}
+        backHref={`${basePath}/shows`}
+        items={[{ label: show.name || 'Show' }]}
+        subtitle="Show dashboard"
+        title={
+          <div className="min-w-0">
+            <div className={cn('text-2xl sm:text-3xl font-bold truncate', headerIsDark ? 'text-white' : 'text-foreground')}>
+              {show.name}
+            </div>
           </div>
-          {isEditingShow && !isPublicMode ? (
+        }
+      />
+
+      <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8">
+        {/* Show Description */}
+        <Card className="mb-8">
+          <CardHeader className="flex-row items-center justify-between space-y-0">
+            <div>
+              <CardTitle>Description</CardTitle>
+              <CardDescription>Short pitch, audience, premise — shown across the studio.</CardDescription>
+            </div>
+            {!isEditingDescription && !isPublicMode && onSaveShow ? (
+              <Button variant="outline" size="sm" onClick={() => setIsEditingDescription(true)} className="gap-2">
+                <Edit3 className="w-4 h-4" />
+                Edit
+              </Button>
+            ) : null}
+          </CardHeader>
+          <CardContent>
+          <div className="flex items-center justify-between mb-2">
+          </div>
+          {isEditingDescription && !isPublicMode ? (
             <div className="space-y-3">
-              <textarea
+              <Textarea
                 value={showDescription}
                 onChange={(e) => setShowDescription(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
                 rows={4}
                 placeholder="Enter show description..."
               />
+              {uploadState.error ? <div className="text-sm text-red-600">{uploadState.error}</div> : null}
               <div className="flex items-center space-x-2">
-                <button
-                  onClick={handleSaveShow}
-                  className="flex items-center space-x-2 px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
-                >
+                <Button onClick={handleSaveShow} className="gap-2">
                   <Save className="w-4 h-4" />
-                  <span>Save</span>
-                </button>
-                <button
-                  onClick={handleCancelEditShow}
-                  className="flex items-center space-x-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
-                >
+                  Save
+                </Button>
+                <Button variant="secondary" onClick={handleCancelEdits} className="gap-2">
                   <X className="w-4 h-4" />
-                  <span>Cancel</span>
-                </button>
+                  Cancel
+                </Button>
               </div>
             </div>
           ) : (
-            <p className="text-gray-600 whitespace-pre-wrap">{show.description || <span className="text-gray-400 italic">No description</span>}</p>
+            <p className="text-muted-foreground whitespace-pre-wrap">
+              {show.description || <span className="text-muted-foreground/70 italic">No description</span>}
+            </p>
           )}
-        </div>
+          </CardContent>
+        </Card>
 
         {/* Main Navigation */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
           {/* Global Assets Section */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-6">
+          <Card>
+            <CardHeader className="flex-row items-center justify-between space-y-0">
               <div className="flex items-center space-x-3">
-                <FolderOpen className="w-6 h-6 text-indigo-600" />
-                <h2 className="text-xl font-semibold text-gray-900">Global Assets</h2>
+                <FolderOpen className="w-6 h-6 text-primary" />
+                <CardTitle>Global Assets</CardTitle>
               </div>
-              <button
-                onClick={() => setShowAddAsset(true)}
-                className="flex items-center space-x-2 px-3 py-1 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm"
-              >
+              <Button onClick={() => setShowAddAsset(true)} className="gap-2" size="sm">
                 <Plus className="w-4 h-4" />
-                <span>Add Asset</span>
-              </button>
+                Add Asset
+              </Button>
+            </CardHeader>
+            <CardContent>
+            <div className="flex items-center justify-between mb-6">
             </div>
 
-            <p className="text-gray-600 mb-6">
+            <p className="text-muted-foreground mb-6">
               Manage characters, locations, gadgets, textures, backgrounds, and vehicles that will be used across the show.
             </p>
 
@@ -301,48 +367,47 @@ export function ShowDashboard({
                 return (
                   <div
                     key={category}
-                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+                    className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent transition-colors cursor-pointer"
                     onClick={() => onSelectGlobalAssets(category as 'character' | 'location' | 'gadget' | 'texture' | 'background' | 'vehicle')}
                   >
                     <div className="flex items-center space-x-3">
-                      <Icon className="w-5 h-5 text-gray-600" />
-                      <span className="font-medium text-gray-900">{label}</span>
+                      <Icon className="w-5 h-5 text-muted-foreground" />
+                      <span className="font-medium">{label}</span>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <span className="text-sm text-gray-500">{count} items</span>
-                      <span className="text-gray-400">→</span>
+                      <span className="text-sm text-muted-foreground">{count} items</span>
+                      <span className="text-muted-foreground">→</span>
                     </div>
                   </div>
                 );
               })}
             </div>
 
-            <button
+            <Button
               onClick={() => onSelectGlobalAssets('all')}
-              className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+              className="w-full gap-2"
             >
               <FolderOpen className="w-5 h-5" />
               <span>Manage Global Assets</span>
-            </button>
-          </div>
+            </Button>
+            </CardContent>
+          </Card>
 
           {/* Episodes Section */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-6">
+          <Card>
+            <CardHeader className="flex-row items-center justify-between space-y-0">
               <div className="flex items-center space-x-3">
-                <Play className="w-6 h-6 text-green-600" />
-                <h2 className="text-xl font-semibold text-gray-900">Episodes</h2>
+                <Play className="w-6 h-6 text-primary" />
+                <CardTitle>Episodes</CardTitle>
               </div>
-              <button
-                onClick={() => setShowAddEpisode(true)}
-                className="flex items-center space-x-2 px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
-              >
+              <Button onClick={() => setShowAddEpisode(true)} className="gap-2" size="sm">
                 <Plus className="w-4 h-4" />
-                <span>Add Episode</span>
-              </button>
-            </div>
+                Add Episode
+              </Button>
+            </CardHeader>
+            <CardContent>
 
-            <p className="text-gray-600 mb-6">
+            <p className="text-muted-foreground mb-6">
               Create and manage episodes with scripts, character lists, and location details.
             </p>
 
@@ -351,92 +416,306 @@ export function ShowDashboard({
               {episodes.slice(0, 3).map((episode) => (
                 <div
                   key={episode.id}
-                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+                  className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent transition-colors cursor-pointer"
                   onClick={() => onSelectEpisode(episode)}
                 >
                   <div>
-                    <h4 className="font-medium text-gray-900 hover:text-green-600 transition-colors">Episode {episode.episodeNumber}</h4>
-                    <p className="text-sm text-gray-600">{episode.title}</p>
+                    <h4 className="font-medium hover:text-primary transition-colors">Episode {episode.episodeNumber}</h4>
+                    <p className="text-sm text-muted-foreground">{episode.title}</p>
                   </div>
-                  <span className="text-sm text-gray-500">
+                  <span className="text-sm text-muted-foreground">
                     {episode.characters.length} characters
                   </span>
                 </div>
               ))}
               
               {episodes.length === 0 && (
-                <div className="text-center py-6 text-gray-500">
-                  <Play className="w-8 h-8 mx-auto mb-2 text-gray-400" />
+                <div className="text-center py-6 text-muted-foreground">
+                  <Play className="w-8 h-8 mx-auto mb-2 text-muted-foreground/60" />
                   <p className="text-sm">No episodes yet</p>
                 </div>
               )}
             </div>
 
-            <button
-              onClick={onSelectEpisodes}
-              className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-            >
-              <Play className="w-5 h-5" />
-              <span>Manage Episodes</span>
-            </button>
-            
-            <button
-              onClick={onSelectEpisodeIdeas}
-              className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors mt-3"
-            >
-              <FolderOpen className="w-5 h-5" />
-              <span>Episode Ideas</span>
-            </button>
-          </div>
-
-          {/* General Ideas Card */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center space-x-3">
-                <Lightbulb className="w-6 h-6 text-yellow-600" />
-                <h3 className="text-lg font-semibold text-gray-900">General Ideas</h3>
-              </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Button onClick={onSelectEpisodes} className="w-full gap-2">
+                <Play className="w-5 h-5" />
+                Manage Episodes
+              </Button>
+              <Button onClick={onSelectEpisodeIdeas} variant="secondary" className="w-full gap-2">
+                <FolderOpen className="w-5 h-5" />
+                Episode Ideas
+              </Button>
             </div>
-
-            <p className="text-gray-600 mb-6">
-              Capture random concepts, inspiration, and creative ideas that don&apos;t fit into specific categories.
-            </p>
-
-            <button
-              onClick={onSelectGeneralIdeas}
-              className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
-            >
-              <Lightbulb className="w-5 h-5" />
-              <span>Manage Ideas</span>
-            </button>
-          </div>
-
-          {/* Plot Themes Card */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center space-x-3">
-                <BookOpen className="w-6 h-6 text-purple-600" />
-                <h3 className="text-lg font-semibold text-gray-900">Plot Themes</h3>
-              </div>
-            </div>
-
-            <p className="text-gray-600 mb-6">
-              Create and manage plot themes that can be used across episodes to guide screenplay generation.
-            </p>
-
-            <div className="mb-4 text-sm text-gray-500">
-              {plotThemes.length} {plotThemes.length === 1 ? 'theme' : 'themes'} available
-            </div>
-
-            <button
-              onClick={onSelectPlotThemes}
-              className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-            >
-              <BookOpen className="w-5 h-5" />
-              <span>Manage Plot Themes</span>
-            </button>
-          </div>
+            </CardContent>
+          </Card>
         </div>
+
+        {/* Ideas & Themes */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <Lightbulb className="w-6 h-6 text-primary" />
+                <div>
+                  <CardTitle>General Ideas</CardTitle>
+                  <CardDescription>Inspiration and concepts that don&apos;t fit a specific bucket.</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Button onClick={onSelectGeneralIdeas} className="w-full gap-2">
+                <Lightbulb className="w-5 h-5" />
+                Manage Ideas
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <BookOpen className="w-6 h-6 text-primary" />
+                <div>
+                  <CardTitle>Plot Themes</CardTitle>
+                  <CardDescription>Reusable themes that guide episode descriptions and screenplays.</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="text-sm text-muted-foreground">
+                {plotThemes.length} {plotThemes.length === 1 ? 'theme' : 'themes'} available
+              </div>
+              <Button onClick={onSelectPlotThemes} className="w-full gap-2">
+                <BookOpen className="w-5 h-5" />
+                Manage Plot Themes
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Show Settings */}
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle>Show Settings</CardTitle>
+            <CardDescription>Branding, exports, and show-level metadata.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Show name</label>
+                  <Input
+                    value={showName}
+                    onChange={(e) => setShowName(e.target.value)}
+                    placeholder="Show name…"
+                    disabled={isPublicMode || !onSaveShow}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Seasons</label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={seasonsCount}
+                      onChange={(e) => setSeasonsCount(Math.max(1, Number(e.target.value) || 1))}
+                      disabled={isPublicMode || !onSaveShow}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Created</label>
+                    <div className="h-10 flex items-center rounded-md border bg-card px-3 text-sm text-muted-foreground">
+                      {formatSafeDate(show.createdAt)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="rounded-lg border bg-card p-3">
+                    <div className="text-xs text-muted-foreground">Episodes</div>
+                    <div className="text-lg font-semibold">{episodes.length}</div>
+                  </div>
+                  <div className="rounded-lg border bg-card p-3">
+                    <div className="text-xs text-muted-foreground">Characters</div>
+                    <div className="text-lg font-semibold">{charactersCount}</div>
+                  </div>
+                  <div className="rounded-lg border bg-card p-3">
+                    <div className="text-xs text-muted-foreground">Locations</div>
+                    <div className="text-lg font-semibold">{locationsCount}</div>
+                  </div>
+                  <div className="rounded-lg border bg-card p-3">
+                    <div className="text-xs text-muted-foreground">Assets</div>
+                    <div className="text-lg font-semibold">{globalAssets.length}</div>
+                  </div>
+                </div>
+
+                {!isPublicMode && (
+                  <div className="flex flex-wrap gap-2">
+                    {onSaveShow ? (
+                      <>
+                        <Button onClick={handleSaveShow} className="gap-2" disabled={uploadState.isUploading}>
+                          <Save className="w-4 h-4" />
+                          Save Settings
+                        </Button>
+                        <Button variant="secondary" onClick={handleCancelEdits} className="gap-2" disabled={uploadState.isUploading}>
+                          <X className="w-4 h-4" />
+                          Reset
+                        </Button>
+                      </>
+                    ) : null}
+
+                    <ShowDownloadButton
+                      show={show}
+                      globalAssets={globalAssets}
+                      episodes={episodes}
+                      episodeIdeas={episodeIdeas}
+                      generalIdeas={generalIdeas}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-4">
+                <div className="rounded-lg border bg-card p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-medium">Cover image (banner)</div>
+                      <div className="text-xs text-muted-foreground">
+                        Recommended: <span className="font-medium">1920×480</span> (or <span className="font-medium">2400×600</span>) • Ratio ~<span className="font-medium">4:1</span> • JPG/PNG/WebP
+                      </div>
+                    </div>
+                    <input
+                      ref={coverInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) void handleUploadShowImage(f, 'cover');
+                        e.currentTarget.value = '';
+                      }}
+                      disabled={isPublicMode || !onSaveShow}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => coverInputRef.current?.click()}
+                      disabled={uploadState.isUploading || isPublicMode || !onSaveShow}
+                    >
+                      Upload
+                    </Button>
+                  </div>
+                  <div className="mt-3">
+                    {coverImageUrl ? (
+                      <div className="relative h-28 w-full overflow-hidden rounded-lg border bg-muted">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={coverImageUrl} alt="" className="h-full w-full object-cover" />
+                        {!isPublicMode && onSaveShow ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setCoverImageUrl('')}
+                            className="absolute top-2 right-2 bg-background/80"
+                          >
+                            Remove
+                          </Button>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="h-28 w-full rounded-lg border border-dashed bg-muted/30 flex items-center justify-center text-sm text-muted-foreground">
+                        No cover uploaded
+                      </div>
+                    )}
+                  </div>
+                  {coverUploadHint ? <div className="mt-2 text-xs text-muted-foreground">{coverUploadHint}</div> : null}
+                  {!isPublicMode && onSaveShow ? (
+                    <div className="mt-1 text-xs">
+                      {coverSaveStatus === 'saving' ? (
+                        <span className="text-muted-foreground">Saving…</span>
+                      ) : coverSaveStatus === 'saved' ? (
+                        <span className="text-muted-foreground">Saved.</span>
+                      ) : coverSaveStatus === 'error' ? (
+                        <span className="text-destructive">Failed to save: {coverSaveError || 'Unknown error'}</span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="rounded-lg border bg-card p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-medium">Show logo</div>
+                      <div className="text-xs text-muted-foreground">
+                        Recommended: <span className="font-medium">512×512</span> (or <span className="font-medium">1024×1024</span>) • Square • PNG (transparent ok)
+                      </div>
+                    </div>
+                    <input
+                      ref={logoInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) void handleUploadShowImage(f, 'logo');
+                        e.currentTarget.value = '';
+                      }}
+                      disabled={isPublicMode || !onSaveShow}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => logoInputRef.current?.click()}
+                      disabled={uploadState.isUploading || isPublicMode || !onSaveShow}
+                    >
+                      Upload
+                    </Button>
+                  </div>
+
+                  <div className="mt-3">
+                    {logoUrl ? (
+                      <div className="relative h-24 w-24 overflow-hidden rounded-lg border bg-muted">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={logoUrl} alt="" className="h-full w-full object-cover" />
+                        {!isPublicMode && onSaveShow ? (
+                          <button
+                            type="button"
+                            onClick={() => setLogoUrl('')}
+                            className="absolute top-1 right-1 h-6 w-6 rounded-md border bg-background/80 text-xs hover:bg-background"
+                            title="Remove logo"
+                          >
+                            ✕
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="h-24 w-24 rounded-lg border border-dashed bg-muted/30 flex items-center justify-center text-xs text-muted-foreground">
+                        No logo
+                      </div>
+                    )}
+                  </div>
+                  {logoUploadHint ? <div className="mt-2 text-xs text-muted-foreground">{logoUploadHint}</div> : null}
+                  {!isPublicMode && onSaveShow ? (
+                    <div className="mt-1 text-xs">
+                      {logoSaveStatus === 'saving' ? (
+                        <span className="text-muted-foreground">Saving…</span>
+                      ) : logoSaveStatus === 'saved' ? (
+                        <span className="text-muted-foreground">Saved.</span>
+                      ) : logoSaveStatus === 'error' ? (
+                        <span className="text-destructive">Failed to save: {logoSaveError || 'Unknown error'}</span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+
+                {uploadState.error ? <div className="text-sm text-destructive">{uploadState.error}</div> : null}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Add Asset Modal */}
         {showAddAsset && (

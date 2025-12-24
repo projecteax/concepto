@@ -3,7 +3,6 @@
 import React, { useState } from 'react';
 import { Show, GlobalAsset, AssetCategory } from '@/types';
 import { 
-  ArrowLeft, 
   Users, 
   MapPin, 
   Wrench, 
@@ -12,9 +11,12 @@ import {
   Car,
   Plus,
   Edit3,
-  Trash2
+  Trash2,
+  Star
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { AppBreadcrumbHeader } from './AppBreadcrumbHeader';
+import { useBasePath } from '@/hooks/useBasePath';
 
 interface GlobalAssetsManagerProps {
   show: Show;
@@ -26,6 +28,7 @@ interface GlobalAssetsManagerProps {
   onAddAsset: (asset: Omit<GlobalAsset, 'id' | 'createdAt' | 'updatedAt'>) => void;
   onEditAsset: (asset: GlobalAsset) => void;
   onDeleteAsset: (assetId: string) => void;
+  onToggleMainCharacter?: (characterId: string, isMain: boolean) => void | Promise<void>;
 }
 
 const categoryIcons = {
@@ -55,8 +58,10 @@ export function GlobalAssetsManager({
   onSelectAsset,
   onAddAsset,
   onEditAsset,
-  onDeleteAsset
+  onDeleteAsset,
+  onToggleMainCharacter
 }: GlobalAssetsManagerProps) {
+  const basePath = useBasePath();
   const [showAddForm, setShowAddForm] = useState(false);
   const [newAssetName, setNewAssetName] = useState('');
   const [newAssetCategory, setNewAssetCategory] = useState<AssetCategory>('character');
@@ -65,6 +70,18 @@ export function GlobalAssetsManager({
   const filteredAssets = selectedCategory === 'all' 
     ? globalAssets 
     : globalAssets.filter(asset => asset.category === selectedCategory);
+
+  const sortedAssets = [...filteredAssets].sort((a, b) => {
+    // Starred characters always first (within current filter)
+    const aMain = a.category === 'character' && a.isMainCharacter ? 1 : 0;
+    const bMain = b.category === 'character' && b.isMainCharacter ? 1 : 0;
+    if (aMain !== bMain) return bMain - aMain;
+
+    // Otherwise newest first
+    const aTime = a.createdAt instanceof Date ? a.createdAt.getTime() : new Date(a.createdAt).getTime();
+    const bTime = b.createdAt instanceof Date ? b.createdAt.getTime() : new Date(b.createdAt).getTime();
+    return bTime - aTime;
+  });
 
   const getCategoryCount = (category: AssetCategory) => {
     return globalAssets.filter(asset => asset.category === category).length;
@@ -92,39 +109,44 @@ export function GlobalAssetsManager({
     }).format(date);
   };
 
+  const getAssetThumbnailUrl = (asset: GlobalAsset) => {
+    // Prefer explicit main fields if present, then fall back to first images in galleries/concepts.
+    const anyAsset = asset as unknown as { mainImage?: string };
+    return (
+      anyAsset.mainImage ||
+      asset.mainRender ||
+      asset.galleryImages?.[0] ||
+      asset.concepts?.find((c) => c.imageUrl)?.imageUrl ||
+      ''
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={onBack}
-                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Global Assets</h1>
-                <p className="text-sm text-gray-600">{show.name}</p>
-              </div>
-            </div>
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add Asset</span>
-            </button>
-          </div>
-        </div>
-      </div>
+      <AppBreadcrumbHeader
+        coverImageUrl={show.coverImageUrl}
+        logoUrl={show.logoUrl}
+        backHref={`${basePath}/shows/${show.id}`}
+        items={[
+          { label: show.name, href: `${basePath}/shows/${show.id}` },
+          { label: 'Assets' },
+        ]}
+        subtitle="Global assets for this show"
+        actions={
+          <button
+            onClick={() => setShowAddForm(true)}
+            className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Asset</span>
+          </button>
+        }
+      />
 
-      <div className="container mx-auto px-6 py-8">
-        <div className="flex gap-8">
+      <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8">
+        <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
           {/* Sidebar */}
-          <div className="w-64 flex-shrink-0">
+          <div className="w-full lg:w-64 flex-shrink-0">
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Categories</h2>
               
@@ -197,21 +219,37 @@ export function GlobalAssetsManager({
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredAssets.map((asset) => (
+                {sortedAssets.map((asset) => (
                   <div
                     key={asset.id}
                     className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group"
                     onClick={() => onSelectAsset(asset)}
                   >
                     <div className="p-6">
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="flex items-center space-x-3">
-                          {React.createElement(categoryIcons[asset.category], {
-                            className: "w-5 h-5 text-indigo-600"
-                          })}
-                          <h3 className="font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors">{asset.name}</h3>
-                        </div>
-                        <div className="flex space-x-1">
+                      <div className="relative mb-4">
+                        {/* Star (top-left) */}
+                        {asset.category === 'character' ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const next = !asset.isMainCharacter;
+                              void onToggleMainCharacter?.(asset.id, next);
+                            }}
+                            className={cn(
+                              "absolute left-0 top-0 p-1 rounded-md transition-colors",
+                              asset.isMainCharacter
+                                ? "text-amber-500 hover:text-amber-600"
+                                : "text-gray-300 hover:text-gray-500"
+                            )}
+                            title={asset.isMainCharacter ? "Main character (click to unstar)" : "Mark as main character"}
+                            aria-label={asset.isMainCharacter ? "Unmark main character" : "Mark as main character"}
+                          >
+                            <Star className={cn("w-5 h-5", asset.isMainCharacter ? "fill-current" : "")} />
+                          </button>
+                        ) : null}
+
+                        {/* Actions (top-right, do not affect centering) */}
+                        <div className="absolute right-0 top-0 flex space-x-1">
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -232,6 +270,33 @@ export function GlobalAssetsManager({
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
+                        </div>
+
+                        {/* Centered header */}
+                        <div className="flex flex-col items-center text-center">
+                          <div className="mb-3 flex justify-center">
+                            <div className="h-24 w-24 rounded-full border bg-gray-50 overflow-hidden flex-shrink-0">
+                              {getAssetThumbnailUrl(asset) ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={getAssetThumbnailUrl(asset)}
+                                  alt=""
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <div className="h-full w-full flex items-center justify-center">
+                                  {React.createElement(categoryIcons[asset.category], {
+                                    className: "w-7 h-7 text-gray-500"
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <h3 className="w-full font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors truncate">
+                            {asset.name}
+                          </h3>
+                          <div className="text-xs text-gray-500 mt-0.5">{categoryLabels[asset.category]}</div>
                         </div>
                       </div>
 

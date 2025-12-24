@@ -194,7 +194,20 @@ export function ConceptoApp({
 
   const handleEditShow = async (show: Show) => {
     try {
-      await updateShow(show.id, show);
+      // Only persist editable fields; avoid overwriting createdAt/updatedAt with client values.
+      await updateShow(show.id, {
+        name: show.name,
+        description: show.description,
+        coverImageUrl: show.coverImageUrl,
+        logoUrl: show.logoUrl,
+        seasonsCount: show.seasonsCount,
+        archived: show.archived,
+      });
+
+      // Keep current selection in sync in this session.
+      if (selectedShow?.id === show.id) {
+        setSelectedShow({ ...selectedShow, ...show });
+      }
     } catch (error) {
       console.error('Failed to update show:', error);
     }
@@ -250,6 +263,17 @@ export function ConceptoApp({
       console.error('Error saving global asset:', error);
     }
   };
+
+  const handleToggleMainCharacter = async (characterId: string, isMain: boolean) => {
+    try {
+      await updateGlobalAsset(characterId, { isMainCharacter: isMain });
+      if (selectedAsset?.id === characterId) {
+        setSelectedAsset({ ...selectedAsset, isMainCharacter: isMain } as GlobalAsset);
+      }
+    } catch (error) {
+      console.error('Failed to toggle main character:', error);
+    }
+  };
   const handleAddEpisode = async (episodeData: Omit<Episode, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
       await createEpisode(episodeData);
@@ -270,11 +294,13 @@ export function ConceptoApp({
   };
 
   const handleSelectEpisodeIdeas = () => {
-    setCurrentView('episode-ideas');
+    const basePath = isPublicMode ? '/public' : '/app';
+    router.push(`${basePath}/shows/${selectedShow?.id}/episode-ideas`);
   };
 
   const handleSelectGeneralIdeas = () => {
-    setCurrentView('general-ideas');
+    const basePath = isPublicMode ? '/public' : '/app';
+    router.push(`${basePath}/shows/${selectedShow?.id}/general-ideas`);
   };
 
   const handleSelectAsset = (asset: GlobalAsset) => {
@@ -305,8 +331,9 @@ export function ConceptoApp({
   };
 
   const handleBackToGeneralIdeas = () => {
-    setCurrentView('general-ideas');
+    const basePath = isPublicMode ? '/public' : '/app';
     setSelectedGeneralIdea(null);
+    router.push(`${basePath}/shows/${selectedShow?.id}/general-ideas`);
   };
 
   const handleSelectGeneralIdea = (idea: GeneralIdea) => {
@@ -353,7 +380,8 @@ export function ConceptoApp({
 
   const handleSelectPlotThemes = () => {
     if (selectedShow) {
-      setCurrentView('plot-themes');
+      const basePath = isPublicMode ? '/public' : '/app';
+      router.push(`${basePath}/shows/${selectedShow.id}/plot-themes`);
     }
   };
 
@@ -394,6 +422,7 @@ export function ConceptoApp({
       const updates = {
         name: character.name,
         description: character.description,
+        isMainCharacter: character.isMainCharacter,
         general: character.general,
         clothing: character.clothing,
         pose: character.pose,
@@ -651,6 +680,7 @@ export function ConceptoApp({
           onAddAsset={isPublicMode ? () => {} : handleAddGlobalAsset}
           onEditAsset={isPublicMode ? () => {} : (asset) => console.log('Edit asset:', asset)}
           onDeleteAsset={isPublicMode ? () => {} : handleDeleteGlobalAsset}
+          onToggleMainCharacter={isPublicMode ? undefined : handleToggleMainCharacter}
         />
       ) : null;
 
@@ -667,6 +697,7 @@ export function ConceptoApp({
             case 'character':
               return (
                 <CharacterDetail
+                  show={selectedShow as Show}
                   character={selectedAsset as Character}
                   onBack={handleBackToGlobalAssets}
                   onSave={isPublicMode ? () => {} : handleSaveCharacter}
@@ -678,6 +709,7 @@ export function ConceptoApp({
             case 'location':
               return (
                 <LocationDetail
+                  show={selectedShow as Show}
                   location={selectedAsset}
                   onBack={handleBackToGlobalAssets}
                   onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
@@ -688,6 +720,7 @@ export function ConceptoApp({
             case 'gadget':
               return (
                 <GadgetDetail
+                  show={selectedShow as Show}
                   gadget={selectedAsset}
                   onBack={handleBackToGlobalAssets}
                   onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
@@ -698,6 +731,7 @@ export function ConceptoApp({
             case 'texture':
               return (
                 <TextureDetail
+                  show={selectedShow as Show}
                   texture={selectedAsset}
                   onBack={handleBackToGlobalAssets}
                   onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
@@ -707,6 +741,7 @@ export function ConceptoApp({
             case 'background':
               return (
                 <BackgroundDetail
+                  show={selectedShow as Show}
                   background={selectedAsset}
                   onBack={handleBackToGlobalAssets}
                   onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
@@ -716,6 +751,7 @@ export function ConceptoApp({
             case 'vehicle':
               return (
                 <VehicleDetail
+                  show={selectedShow as Show}
                   vehicle={selectedAsset}
                   onBack={handleBackToGlobalAssets}
                   onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
@@ -759,7 +795,7 @@ export function ConceptoApp({
     case 'episode-ideas':
       return selectedShow ? (
         <EpisodeIdeas
-          showId={selectedShow.id}
+          show={selectedShow}
           ideas={episodeIdeas}
           onBack={handleBackToDashboard}
           onSaveIdea={isPublicMode ? async () => {} : handleSaveEpisodeIdea}
@@ -796,6 +832,7 @@ export function ConceptoApp({
     case 'general-idea-detail':
       return selectedShow && selectedGeneralIdea ? (
         <GeneralIdeaDetail
+          show={selectedShow}
           idea={selectedGeneralIdea}
           onBack={handleBackToGeneralIdeas}
           onSave={isPublicMode ? () => {} : handleSaveGeneralIdea}

@@ -1,9 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { GeneralIdea } from '@/types';
+import { GeneralIdea, Show } from '@/types';
 import { 
-  ArrowLeft, 
   Lightbulb, 
   Upload, 
   Trash2, 
@@ -18,18 +17,24 @@ import {
 import { useS3Upload } from '@/hooks/useS3Upload';
 import CommentThread from './CommentThread';
 import { useComments } from '@/contexts/CommentContext';
+import { AppBreadcrumbHeader } from './AppBreadcrumbHeader';
+import { useBasePath } from '@/hooks/useBasePath';
 
 interface GeneralIdeaDetailProps {
+  show: Show;
   idea: GeneralIdea;
   onBack: () => void;
   onSave: (idea: GeneralIdea) => void;
 }
 
 export function GeneralIdeaDetail({
+  show,
   idea,
   onBack,
   onSave
 }: GeneralIdeaDetailProps) {
+  const basePath = useBasePath();
+  const headerIsDark = Boolean(show.coverImageUrl);
   const [isEditing, setIsEditing] = useState(false);
   
   // Form states
@@ -149,66 +154,62 @@ export function GeneralIdeaDetail({
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={onBack}
-                className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <div className="flex items-center space-x-3">
-                <Lightbulb className="w-6 h-6 text-indigo-600" />
-                <div>
-                  <h1 className="text-xl font-semibold text-gray-900">
-                    {isEditing ? (
-                      <input
-                        type="text"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        className="bg-transparent border-b border-gray-300 focus:border-indigo-500 focus:outline-none"
-                        autoFocus
-                      />
-                    ) : (
-                      idea.name
-                    )}
-                  </h1>
-                  <p className="text-sm text-gray-500">General Idea</p>
-                </div>
-              </div>
-            </div>
-            
-            <div className="flex items-center space-x-2">
-              {isEditing ? (
-                <>
-                  <button
-                    onClick={handleCancel}
-                    className="px-3 py-2 text-gray-600 hover:text-gray-800 rounded-lg hover:bg-gray-100"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={handleSave}
-                    className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-                  >
-                    <Save className="w-4 h-4" />
-                  </button>
-                </>
-              ) : (
+      <AppBreadcrumbHeader
+        coverImageUrl={show.coverImageUrl}
+        logoUrl={show.logoUrl}
+        backHref={`${basePath}/shows/${show.id}/general-ideas`}
+        items={[
+          { label: show.name, href: `${basePath}/shows/${show.id}` },
+          { label: 'General Ideas', href: `${basePath}/shows/${show.id}/general-ideas` },
+          { label: idea.name || 'Idea' },
+        ]}
+        subtitle="General idea"
+        actions={
+          <div className="flex items-center gap-2">
+            {isEditing ? (
+              <>
                 <button
-                  onClick={() => setIsEditing(true)}
-                  className="px-3 py-2 text-gray-600 hover:text-gray-800 rounded-lg hover:bg-gray-100"
+                  onClick={handleCancel}
+                  className={`px-3 py-2 rounded-lg ${headerIsDark ? 'text-white/90 hover:text-white hover:bg-white/10' : 'text-muted-foreground hover:text-foreground hover:bg-accent'}`}
+                  title="Cancel"
                 >
-                  <Edit3 className="w-4 h-4" />
+                  <X className="w-4 h-4" />
                 </button>
-              )}
-            </div>
+                <button
+                  onClick={handleSave}
+                  className={`px-3 py-2 rounded-lg ${headerIsDark ? 'bg-white/90 text-gray-900 hover:bg-white' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
+                  title="Save"
+                >
+                  <Save className="w-4 h-4" />
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setIsEditing(true)}
+                className={`px-3 py-2 rounded-lg ${headerIsDark ? 'text-white/90 hover:text-white hover:bg-white/10' : 'text-muted-foreground hover:text-foreground hover:bg-accent'}`}
+                title="Edit"
+              >
+                <Edit3 className="w-4 h-4" />
+              </button>
+            )}
           </div>
-        </div>
-      </div>
+        }
+        title={
+          isEditing ? (
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className={`w-full text-2xl sm:text-3xl font-bold bg-transparent border-b focus:outline-none ${
+                headerIsDark ? 'border-white/40 focus:border-white text-white' : 'border-border focus:border-primary text-foreground'
+              }`}
+              autoFocus
+            />
+          ) : (
+            <div className={`text-2xl sm:text-3xl font-bold truncate ${headerIsDark ? 'text-white' : 'text-foreground'}`}>{idea.name}</div>
+          )
+        }
+      />
 
       {/* Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

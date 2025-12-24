@@ -32,13 +32,15 @@ import {
 import { cn } from '@/lib/utils';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { GLTFViewer } from './BabylonOnlyViewer';
-import { showService } from '@/lib/firebase-services';
 import { Show } from '@/types';
 import { BackstoryGenerationDialog } from './BackstoryGenerationDialog';
 import { AssetConceptGenerationDialog } from './AssetConceptGenerationDialog';
 import { GlobalAsset } from '@/types';
+import { AppBreadcrumbHeader } from './AppBreadcrumbHeader';
+import { useBasePath } from '@/hooks/useBasePath';
 
 interface CharacterDetailProps {
+  show: Show;
   character: Character;
   onBack: () => void;
   onSave: (character: Character) => void;
@@ -48,6 +50,7 @@ interface CharacterDetailProps {
 }
 
 export function CharacterDetail({
+  show,
   character,
   onBack,
   onSave,
@@ -55,10 +58,13 @@ export function CharacterDetail({
   onDeleteConcept,
   globalAssets = []
 }: CharacterDetailProps) {
+  const basePath = useBasePath();
+  const headerIsDark = Boolean(show.coverImageUrl);
   const [activeTab, setActiveTab] = useState<'general' | 'clothing' | 'gallery' | 'pose-concepts' | '3d-models' | 'production' | 'voice' | 'video-examples' | 'ai-ref'>('general');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState(character.name);
+  const [isMainCharacter, setIsMainCharacter] = useState<boolean>(Boolean(character.isMainCharacter));
   
   // Autosave ref
   const isFirstRenderRef = useRef(true);
@@ -157,8 +163,7 @@ export function CharacterDetail({
   const [uploadingVoiceFiles, setUploadingVoiceFiles] = useState<Map<string, { progress: number; error?: string }>>(new Map());
   const [voiceFormData, setVoiceFormData] = useState<Map<number, { description: string; language: string }>>(new Map());
 
-  // Show information for backstory generation
-  const [show, setShow] = useState<Show | null>(null);
+  // Backstory generation dialog
   const [showBackstoryDialog, setShowBackstoryDialog] = useState(false);
   
   // Image generation state
@@ -182,6 +187,11 @@ export function CharacterDetail({
     }
   }, [character.voice]);
 
+  // Keep main-character flag in sync when navigating between characters
+  useEffect(() => {
+    setIsMainCharacter(Boolean(character.isMainCharacter));
+  }, [character.id, character.isMainCharacter]);
+
   // Update AI ref images state when character data changes
   useEffect(() => {
     if (character.aiRefImages) {
@@ -190,24 +200,6 @@ export function CharacterDetail({
       setAiRefImages({});
     }
   }, [character.aiRefImages]);
-
-  // Fetch show information for backstory generation
-  useEffect(() => {
-    const fetchShow = async () => {
-      if (character.showId) {
-        try {
-          const shows = await showService.getAll();
-          const foundShow = shows.find(s => s.id === character.showId);
-          if (foundShow) {
-            setShow(foundShow);
-          }
-        } catch (error) {
-          console.error('Error fetching show:', error);
-        }
-      }
-    };
-    fetchShow();
-  }, [character.showId]);
 
   // Migrate relationships to relations for backward compatibility
   useEffect(() => {
@@ -262,6 +254,7 @@ export function CharacterDetail({
     const updatedCharacter: Character = {
       ...character,
       name: name.trim(),
+      isMainCharacter,
       general: generalToSave,
       clothing,
       pose,
@@ -279,7 +272,7 @@ export function CharacterDetail({
     console.log('💾 Uploaded models being saved:', updatedCharacter.uploadedModels);
     onSave(updatedCharacter);
     setIsEditing(false);
-  }, [character, name, general, clothing, pose, voice, mainImageUrl, modelFiles, characterGallery, characterVideoGallery, conceptVideos, renderVideos, uploadedModels, aiRefImages, onSave]);
+  }, [character, name, isMainCharacter, general, clothing, pose, voice, mainImageUrl, modelFiles, characterGallery, characterVideoGallery, conceptVideos, renderVideos, uploadedModels, aiRefImages, onSave]);
 
   // Autosave on voice changes with debounce (30 seconds - backup save only)
   useEffect(() => {
@@ -961,74 +954,97 @@ export function CharacterDetail({
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={onBack}
-                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">
-                  {isEditing ? (
-                    <input
-                      type="text"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      className="bg-transparent border-b border-gray-300 focus:border-indigo-500 focus:outline-none"
-                      autoFocus
-                    />
-                  ) : (
-                    character.name
-                  )}
-                </h1>
-                <p className="text-sm text-gray-600">Character Details</p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-3">
-              {isEditing ? (
-                <>
-                  <button
-                    onClick={() => {
-                      setName(character.name);
-                      setIsEditing(false);
-                    }}
-                    className="px-3 py-2 text-gray-600 hover:text-gray-800 rounded-lg hover:bg-gray-100"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={handleSave}
-                    className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-                  >
-                    <Save className="w-4 h-4" />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    onClick={() => setIsEditing(true)}
-                    className="px-3 py-2 text-gray-600 hover:text-gray-800 rounded-lg hover:bg-gray-100"
-                  >
-                    <Edit3 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={handleSave}
-                    className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-                  >
-                    <Save className="w-4 h-4" />
-                    <span>Save Changes</span>
-                  </button>
-                </>
+      <AppBreadcrumbHeader
+        coverImageUrl={show.coverImageUrl}
+        logoUrl={show.logoUrl}
+        backHref={`${basePath}/shows/${show.id}/assets?category=character`}
+        items={[
+          { label: show.name, href: `${basePath}/shows/${show.id}` },
+          { label: 'Assets', href: `${basePath}/shows/${show.id}/assets` },
+          { label: 'Characters', href: `${basePath}/shows/${show.id}/assets?category=character` },
+          { label: character.name || 'Character' },
+        ]}
+        subtitle="Character details"
+        actions={
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const next = !isMainCharacter;
+                setIsMainCharacter(next);
+                onSave({ ...character, isMainCharacter: next });
+              }}
+              className={cn(
+                "px-3 py-2 rounded-lg transition-colors",
+                headerIsDark ? "hover:bg-white/10" : "hover:bg-accent",
+                isMainCharacter ? "text-amber-500" : (headerIsDark ? "text-white/80" : "text-muted-foreground"),
               )}
-            </div>
+              title={isMainCharacter ? "Main character (click to unstar)" : "Mark as main character"}
+              aria-label={isMainCharacter ? "Unmark main character" : "Mark as main character"}
+            >
+              <Star className={cn("w-4 h-4", isMainCharacter ? "fill-current" : "")} />
+            </button>
+            {isEditing ? (
+              <>
+                <button
+                  onClick={() => {
+                    setName(character.name);
+                    setIsEditing(false);
+                  }}
+                  className="px-3 py-2 text-white/90 hover:text-white rounded-lg hover:bg-white/10"
+                  title="Cancel"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handleSave}
+                  className="px-3 py-2 bg-white/90 text-gray-900 rounded-lg hover:bg-white"
+                  title="Save"
+                >
+                  <Save className="w-4 h-4" />
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="px-3 py-2 text-white/90 hover:text-white rounded-lg hover:bg-white/10"
+                  title="Edit"
+                >
+                  <Edit3 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handleSave}
+                  className="px-3 py-2 bg-white/90 text-gray-900 rounded-lg hover:bg-white flex items-center gap-2"
+                  title="Save changes"
+                >
+                  <Save className="w-4 h-4" />
+                  <span className="hidden sm:inline">Save</span>
+                </button>
+              </>
+            )}
           </div>
-        </div>
-      </div>
+        }
+        title={
+          isEditing ? (
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className={`w-full text-2xl sm:text-3xl font-bold bg-transparent border-b focus:outline-none ${
+                headerIsDark
+                  ? 'border-white/40 focus:border-white text-white'
+                  : 'border-border focus:border-primary text-foreground'
+              }`}
+              autoFocus
+            />
+          ) : (
+            <div className={`text-2xl sm:text-3xl font-bold truncate ${headerIsDark ? 'text-white' : 'text-foreground'}`}>
+              {character.name}
+            </div>
+          )
+        }
+      />
 
       {/* Tabs */}
       <div className="bg-white border-b border-gray-200">
@@ -2602,8 +2618,8 @@ export function CharacterDetail({
         onBackstoryGenerated={handleBackstoryGenerated}
         characterName={name}
         characterAge={general.age}
-        showName={show?.name}
-        showDescription={show?.description}
+        showName={show.name}
+        showDescription={show.description}
         currentBackstory={general.backstory}
       />
 

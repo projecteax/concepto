@@ -34,6 +34,12 @@ export interface Show {
   id: string;
   name: string;
   description?: string;
+  /** Optional cover image (banner) shown in show-level headers. */
+  coverImageUrl?: string;
+  /** Optional logo shown in show selection and headers. */
+  logoUrl?: string;
+  /** Optional count used for planning/metadata (UI only until seasons are modeled). */
+  seasonsCount?: number;
   archived?: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -46,6 +52,8 @@ export interface GlobalAsset {
   name: string;
   description?: string;
   category: AssetCategory;
+  /** For characters: pin as a "main character" and float to top in lists. */
+  isMainCharacter?: boolean;
   concepts: AssetConcept[];
   galleryImages?: string[];
   mainRender?: string;
