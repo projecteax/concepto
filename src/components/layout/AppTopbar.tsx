@@ -19,8 +19,13 @@ export function AppTopbar({ mode, title }: AppTopbarProps) {
       <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-3 px-4 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <Link href={mode === 'public' ? '/public' : '/app'} className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg bg-primary text-primary-foreground grid place-items-center text-sm font-semibold">
-              C
+            <div className="h-8 w-8 rounded-lg overflow-hidden bg-transparent">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/android-chrome-192x192.png"
+                alt="Concepto"
+                className="h-full w-full object-contain"
+              />
             </div>
             <div className="hidden sm:block">
               <div className="text-sm font-semibold leading-4">
