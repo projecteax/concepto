@@ -1273,7 +1273,7 @@ export default function EpisodeDetail({
 
       {/* Tabs */}
       <div className="bg-white border-b border-gray-200">
-        <div className="px-4 sm:px-6">
+        <div className="studio-container">
           <nav className="flex space-x-4 sm:space-x-8 overflow-x-auto no-scrollbar">
             {tabs.map((tab) => (
               <button
@@ -1295,7 +1295,7 @@ export default function EpisodeDetail({
       {/* Screenwriting action row (separate row under tabs, like AV Script) */}
       {activeTab === 'screenwriting' && (
         <div className="bg-white border-b border-gray-200">
-          <div className="px-4 sm:px-6 py-3 hidden md:flex items-center justify-end gap-2">
+          <div className="studio-container py-3 hidden md:flex items-center justify-end gap-2">
             <div className="text-xs text-gray-500 whitespace-nowrap mr-1">
               {screenplayLastSavedAt ? `Last saved: ${new Date(screenplayLastSavedAt).toLocaleString()}` : 'Not saved yet'}
             </div>
@@ -1356,7 +1356,7 @@ export default function EpisodeDetail({
       )}
 
       {/* Content */}
-      <div className="p-4 sm:p-6">
+      <div className="studio-container py-4 sm:py-6">
         {activeTab === 'overview' && (
           <div className="space-y-6">
             <div className="bg-white rounded-lg shadow p-6">

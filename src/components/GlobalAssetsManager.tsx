@@ -143,7 +143,7 @@ export function GlobalAssetsManager({
         }
       />
 
-      <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      <div className="studio-container py-6 sm:py-8">
         <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
           {/* Sidebar */}
           <div className="w-full lg:w-64 flex-shrink-0">

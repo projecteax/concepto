@@ -290,7 +290,7 @@ export function ShowDashboard({
         }
       />
 
-      <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      <div className="studio-container py-6 sm:py-8">
         {/* Show Description */}
         <Card className="mb-8">
           <CardHeader className="flex-row items-center justify-between space-y-0">
