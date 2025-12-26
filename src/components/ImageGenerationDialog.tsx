@@ -6764,7 +6764,7 @@ export function ImageGenerationDialog({
             <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2 flex-wrap justify-center">
               {enlargedContent.type === 'image' && (() => {
                 // Find which image this is
-                let imageUrl = enlargedContent.url;
+                const imageUrl = enlargedContent.url;
                 const uploadedImg = uploadedImages.find(img => img.imageUrl === imageUrl);
                 const generatedImg = generatedImages.find(img => img.imageUrl === imageUrl);
                 const isStartFrame = startFrame === imageUrl;
