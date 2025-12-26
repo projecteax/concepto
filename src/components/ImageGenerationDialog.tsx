@@ -440,6 +440,8 @@ export function ImageGenerationDialog({
   const [uploadedVideos, setUploadedVideos] = useState<Array<{ id: string; videoUrl: string; createdAt: Date; manualCost?: number }>>([]);
   const [editingVideoCost, setEditingVideoCost] = useState<{id: string; cost: number} | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'image' | 'video'; id: string; url: string } | null>(null);
+  const [showMobilePromptPanel, setShowMobilePromptPanel] = useState(false);
+  const [mobilePanelType, setMobilePanelType] = useState<'image' | 'video' | 'upload' | null>(null);
   const isPerformingOperation = useRef(false); // Flag to prevent reloading during operations
   const lastLoadedThreadId = useRef<string | undefined>(undefined); // Track last loaded thread ID
   const lastLoadedThreadUpdatedAt = useRef<Date | string | number | undefined>(undefined); // Track last loaded thread updatedAt
@@ -2580,218 +2582,158 @@ export function ImageGenerationDialog({
 
   return (
     <>
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] flex flex-col">
-          {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b">
-            <h2 className="text-xl font-semibold">Generate image/video</h2>
-              <button
-              onClick={handleClose}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="w-5 h-5" />
-              </button>
-          </div>
+      {/* MOBILE LAYOUT - Full Screen */}
+      <div className="sm:hidden fixed inset-0 bg-white z-50 flex flex-col">
+        {/* Header - Fixed at top */}
+        <div className="flex items-center justify-between p-4 border-b bg-white flex-shrink-0">
+          <h2 className="text-lg font-semibold text-gray-900">Generate Content</h2>
+          <button
+            onClick={handleClose}
+            className="p-2 -mr-2 text-gray-600 hover:text-gray-900"
+          >
+            <X className="w-6 h-6" />
+          </button>
+        </div>
 
-          {/* Content - Two Column Layout */}
-          <div className="flex-1 flex gap-4 p-4 overflow-hidden">
-            {/* Left Column - 4 Image Slots */}
-            <div className="w-64 flex-shrink-0 flex flex-col gap-4 overflow-y-auto">
-              {/* First Frame */}
-              <div className="border rounded-lg p-3">
-                <h3 className="text-sm font-medium text-gray-700 mb-2">First Frame</h3>
-                {startFrame ? (
-                  <div className="relative">
-                    <img
-                      src={startFrame}
-                      alt="Start Frame"
-                      className="w-full aspect-video object-cover rounded border"
-                    />
+        {/* Image Input Cards - Horizontal Scroll */}
+        <div className="flex-shrink-0 border-b bg-gray-50 p-4">
+          <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'thin' }}>
+            {/* First Frame Card */}
+            <div className="flex-shrink-0 w-32">
+              <div className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden shadow-sm">
+                <div className="aspect-video relative">
+                  {startFrame ? (
+                    <>
+                      <img src={startFrame} alt="First Frame" className="w-full h-full object-cover" />
+                      <button
+                        onClick={() => setStartFrame(null)}
+                        className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center shadow-lg"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </>
+                  ) : (
                     <button
-                      onClick={() => setStartFrame(null)}
-                      className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded hover:bg-red-600"
-                      title="Remove"
+                      onClick={() => startFrameFileInputRef.current?.click()}
+                      className="w-full h-full flex flex-col items-center justify-center gap-1 bg-gray-100"
                     >
-                      <X className="w-3 h-3" />
+                      <Upload className="w-6 h-6 text-gray-400" />
+                      <span className="text-[10px] font-medium text-gray-500 px-1 text-center">First Frame</span>
                     </button>
-                        </div>
-                ) : (
-                  <button
-                    onClick={() => startFrameFileInputRef.current?.click()}
-                    className="w-full aspect-video border-2 border-dashed border-gray-300 rounded flex flex-col items-center justify-center gap-2 hover:border-gray-400 text-sm text-gray-600"
-                  >
-                    <Upload className="w-6 h-6" />
-                    UPLOAD IMAGE
-                  </button>
-                )}
-                <input
-                  ref={startFrameFileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleUploadStartFrame}
-                  className="hidden"
-                />
-                    </div>
-
-              {/* Last Frame */}
-              <div className="border rounded-lg p-3">
-                <h3 className="text-sm font-medium text-gray-700 mb-2">Last Frame</h3>
-                {endFrame ? (
-                  <div className="relative">
-                    <img
-                      src={endFrame}
-                      alt="End Frame"
-                      className="w-full aspect-video object-cover rounded border"
-                    />
-                    <button
-                      onClick={() => setEndFrame(null)}
-                      className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded hover:bg-red-600"
-                      title="Remove"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
+                  )}
+                </div>
               </div>
-                ) : (
-                  <button
-                    onClick={() => endFrameFileInputRef.current?.click()}
-                    className="w-full aspect-video border-2 border-dashed border-gray-300 rounded flex flex-col items-center justify-center gap-2 hover:border-gray-400 text-sm text-gray-600"
-                  >
-                    <Upload className="w-6 h-6" />
-                    UPLOAD IMAGE
-                  </button>
-                )}
-                <input
-                  ref={endFrameFileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleUploadEndFrame}
-                  className="hidden"
-                />
-              </div>
-
-              {/* Main Image */}
-              <div className="border rounded-lg p-3">
-                <h3 className="text-sm font-medium text-gray-700 mb-2">Main Image</h3>
-                {getMainImageUrl() ? (
-                  <div className="relative">
-                    <img
-                      src={getMainImageUrl()!}
-                      alt="Main Image"
-                      className="w-full aspect-video object-cover rounded border cursor-pointer hover:opacity-90"
-                      onClick={() => setEnlargedContent({ type: 'image', url: getMainImageUrl()! })}
-                    />
-                    <button
-                      onClick={() => {
-                        // Clear the main image
-                        setMainImageId(null);
-                      }}
-                      className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded hover:bg-red-600"
-                      title="Clear main image"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => referenceImageFileInputRef.current?.click()}
-                    className="w-full aspect-video border-2 border-dashed border-gray-300 rounded flex flex-col items-center justify-center gap-2 hover:border-gray-400 text-sm text-gray-600"
-                  >
-                    <Upload className="w-6 h-6" />
-                    UPLOAD MAIN IMAGE
-                  </button>
-                )}
-                <input
-                  ref={referenceImageFileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleUploadReferenceImage}
-                  className="hidden"
-                />
-              </div>
-
-              {/* Reference Video */}
-              <div className="border rounded-lg p-3">
-                <h3 className="text-sm font-medium text-gray-700 mb-2">Reference video</h3>
-                {referenceVideo ? (
-                  <div className="relative">
-                    <video
-                      src={referenceVideo}
-                      className="w-full aspect-video object-cover rounded border"
-                      controls
-                    />
-                    {/* Video camera icon to indicate this is a video */}
-                    <div className="absolute bottom-1 right-1 bg-black bg-opacity-60 rounded-full p-1.5 pointer-events-none z-10">
-                      <Video className="w-3 h-3 text-white" />
-                    </div>
-                    <button
-                      onClick={() => handleToggleMainVideo('referenceVideo')}
-                      className={`absolute top-1 right-1 px-2 py-1 text-xs rounded ${
-                        mainVideoId === 'referenceVideo'
-                          ? 'bg-green-600 text-white'
-                          : 'bg-gray-400 text-white'
-                      }`}
-                    >
-                      MAIN
-                    </button>
-                    <button
-                      onClick={() => {
-                        setReferenceVideo(null);
-                        if (mainVideoId === 'referenceVideo') setMainVideoId(null);
-                      }}
-                      className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded hover:bg-red-600"
-                      title="Remove"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => referenceVideoFileInputRef.current?.click()}
-                    className="w-full aspect-video border-2 border-dashed border-gray-300 rounded flex flex-col items-center justify-center gap-2 hover:border-gray-400 text-sm text-gray-600"
-                  >
-                    <Video className="w-6 h-6" />
-                    UPLOAD VIDEO
-                  </button>
-                )}
-                <input
-                  ref={referenceVideoFileInputRef}
-                  type="file"
-                  accept="video/*"
-                  onChange={handleUploadReferenceVideo}
-                  className="hidden"
-                />
-              </div>
-
-              {/* Note: Act Two uses images for character (not videos) - see main image or generated images above */}
+              <input ref={startFrameFileInputRef} type="file" accept="image/*" onChange={handleUploadStartFrame} className="hidden" />
             </div>
 
-            {/* Right Column - Generated Content Grid + Prompt Area */}
-            <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Cost Breakdown */}
-              {generatedVideos.length > 0 && (
-                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-semibold text-gray-900">Generation Cost Breakdown</h3>
-                    <span className="text-lg font-bold text-blue-700">
-                      ${calculateTotalCost().toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="space-y-1 max-h-32 overflow-y-auto">
-                    {getCostBreakdownByModel().map((item, idx) => (
-                      <div key={idx} className="text-xs text-gray-700 flex items-center justify-between">
-                        <span className="truncate flex-1">
-                          {item.modelName} {item.count > 1 && `×${item.count}`}
-                        </span>
-                        <span className="ml-2 font-medium">${item.totalCost.toFixed(2)}</span>
-                      </div>
-                    ))}
-                  </div>
+            {/* Last Frame Card */}
+            <div className="flex-shrink-0 w-32">
+              <div className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden shadow-sm">
+                <div className="aspect-video relative">
+                  {endFrame ? (
+                    <>
+                      <img src={endFrame} alt="Last Frame" className="w-full h-full object-cover" />
+                      <button
+                        onClick={() => setEndFrame(null)}
+                        className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center shadow-lg"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => endFrameFileInputRef.current?.click()}
+                      className="w-full h-full flex flex-col items-center justify-center gap-1 bg-gray-100"
+                    >
+                      <Upload className="w-6 h-6 text-gray-400" />
+                      <span className="text-[10px] font-medium text-gray-500 px-1 text-center">Last Frame</span>
+                    </button>
+                  )}
                 </div>
-              )}
-              {/* Scrollable Generated Content Grid */}
-              <div className="flex-1 overflow-y-auto mb-4">
-                {/* Grid with 3 items per row */}
-                <div className="grid grid-cols-3 gap-3">
+              </div>
+              <input ref={endFrameFileInputRef} type="file" accept="image/*" onChange={handleUploadEndFrame} className="hidden" />
+            </div>
+
+            {/* Main Image Card */}
+            <div className="flex-shrink-0 w-32">
+              <div className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden shadow-sm">
+                <div className="aspect-video relative">
+                  {getMainImageUrl() ? (
+                    <>
+                      <img 
+                        src={getMainImageUrl()!} 
+                        alt="Main Image" 
+                        className="w-full h-full object-cover cursor-pointer"
+                        onClick={() => setEnlargedContent({ type: 'image', url: getMainImageUrl()! })}
+                      />
+                      <button
+                        onClick={() => setMainImageId(null)}
+                        className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center shadow-lg"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => referenceImageFileInputRef.current?.click()}
+                      className="w-full h-full flex flex-col items-center justify-center gap-1 bg-gray-100"
+                    >
+                      <Upload className="w-6 h-6 text-gray-400" />
+                      <span className="text-[10px] font-medium text-gray-500 px-1 text-center">Main Image</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+              <input ref={referenceImageFileInputRef} type="file" accept="image/*" onChange={handleUploadReferenceImage} className="hidden" />
+            </div>
+
+            {/* Reference Video Card */}
+            <div className="flex-shrink-0 w-32">
+              <div className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden shadow-sm">
+                <div className="aspect-video relative">
+                  {referenceVideo ? (
+                    <>
+                      <video src={referenceVideo} className="w-full h-full object-cover" />
+                      <button
+                        onClick={() => {
+                          setReferenceVideo(null);
+                          if (mainVideoId === 'referenceVideo') setMainVideoId(null);
+                        }}
+                        className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center shadow-lg"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => referenceVideoFileInputRef.current?.click()}
+                      className="w-full h-full flex flex-col items-center justify-center gap-1 bg-gray-100"
+                    >
+                      <Video className="w-6 h-6 text-gray-400" />
+                      <span className="text-[10px] font-medium text-gray-500 px-1 text-center">Video</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+              <input ref={referenceVideoFileInputRef} type="file" accept="video/*" onChange={handleUploadReferenceVideo} className="hidden" />
+            </div>
+          </div>
+        </div>
+
+        {/* Generated Content - Main area, scrollable */}
+        <div className="flex-1 overflow-y-auto p-4 pb-24">
+          {/* Cost Summary - Compact */}
+          {generatedVideos.length > 0 && (
+            <div className="mb-4 px-3 py-2 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-gray-700">Total Cost</span>
+                <span className="text-sm font-bold text-blue-700">${calculateTotalCost().toFixed(2)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Gallery Grid - 2 columns on mobile */}
+          <div className="grid grid-cols-2 gap-3">
                   {/* First Frame (if set) */}
                   {startFrame && (
                     <div
@@ -3564,6 +3506,1010 @@ export function ImageGenerationDialog({
                   
                   {/* Empty state */}
                   {!startFrame && !endFrame && !referenceImage && uploadedImages.length === 0 && uploadedVideos.length === 0 && generatedImages.length === 0 && generatedVideos.length === 0 && (
+                    <div className="col-span-2 text-sm text-gray-500 text-center py-8">
+                      No content yet. Generate or upload images/videos to get started.
+                    </div>
+                  )}
+                </div>
+        </div>
+
+        {/* Fixed Bottom Action Bar - Mobile Only */}
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-lg z-50 p-2 sm:hidden">
+          <div className="flex gap-1.5">
+            <Button
+              onClick={() => {
+                setMobilePanelType('image');
+                setShowMobilePromptPanel(true);
+              }}
+              disabled={isGenerating}
+              className="flex-1 h-11 bg-blue-600 hover:bg-blue-700 text-white font-medium disabled:opacity-50 text-[10px] leading-tight px-1.5"
+            >
+              <ImageIcon className="w-4 h-4 mr-1 flex-shrink-0" />
+              <span className="truncate">Image</span>
+            </Button>
+            <Button
+              onClick={() => {
+                setMobilePanelType('video');
+                setShowMobilePromptPanel(true);
+              }}
+              disabled={isGenerating}
+              className="flex-1 h-11 bg-red-600 hover:bg-red-700 text-white font-medium disabled:opacity-50 text-[10px] leading-tight px-1.5"
+            >
+              <Clapperboard className="w-4 h-4 mr-1 flex-shrink-0" />
+              <span className="truncate">Video</span>
+            </Button>
+            <Button
+              onClick={() => {
+                setMobilePanelType('upload');
+                setShowMobilePromptPanel(true);
+              }}
+              disabled={isGenerating}
+              className="flex-1 h-11 bg-gray-800 hover:bg-gray-900 text-white font-medium disabled:opacity-50 text-[10px] leading-tight px-1.5"
+            >
+              <Upload className="w-4 h-4 mr-1 flex-shrink-0" />
+              <span className="truncate">Upload</span>
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* DESKTOP LAYOUT - Keep existing desktop code */}
+      <div className="hidden sm:flex fixed inset-0 bg-black bg-opacity-50 items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] flex flex-col">
+          {/* Header */}
+          <div className="flex items-center justify-between p-4 border-b">
+            <h2 className="text-xl font-semibold">Generate image/video</h2>
+              <button
+              onClick={handleClose}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+          </div>
+
+          {/* Content - Two Column Layout */}
+          <div className="flex-1 flex flex-row gap-4 p-4 overflow-hidden">
+            {/* Left Column - 4 Image Slots */}
+            <div className="w-64 flex-shrink-0 flex flex-col gap-4 overflow-y-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+              <style jsx>{`
+                div::-webkit-scrollbar {
+                  display: none;
+                }
+              `}</style>
+              {/* First Frame */}
+              <div className="border rounded-lg p-3">
+                <h3 className="text-sm font-medium text-gray-700 mb-2">First Frame</h3>
+                {startFrame ? (
+                  <div className="relative">
+                    <img
+                      src={startFrame}
+                      alt="Start Frame"
+                      className="w-full aspect-video object-cover rounded border"
+                    />
+                    <button
+                      onClick={() => setStartFrame(null)}
+                      className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded hover:bg-red-600"
+                      title="Remove"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                        </div>
+                ) : (
+                  <button
+                    onClick={() => startFrameFileInputRef.current?.click()}
+                    className="w-full aspect-video border-2 border-dashed border-gray-300 rounded flex flex-col items-center justify-center gap-2 hover:border-gray-400 text-sm text-gray-600"
+                  >
+                    <Upload className="w-6 h-6" />
+                    UPLOAD IMAGE
+                  </button>
+                )}
+                <input
+                  ref={startFrameFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleUploadStartFrame}
+                  className="hidden"
+                />
+                    </div>
+
+              {/* Last Frame */}
+              <div className="border rounded-lg p-3">
+                <h3 className="text-sm font-medium text-gray-700 mb-2">Last Frame</h3>
+                {endFrame ? (
+                  <div className="relative">
+                    <img
+                      src={endFrame}
+                      alt="End Frame"
+                      className="w-full aspect-video object-cover rounded border"
+                    />
+                    <button
+                      onClick={() => setEndFrame(null)}
+                      className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded hover:bg-red-600"
+                      title="Remove"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+              </div>
+                ) : (
+                  <button
+                    onClick={() => endFrameFileInputRef.current?.click()}
+                    className="w-full aspect-video border-2 border-dashed border-gray-300 rounded flex flex-col items-center justify-center gap-2 hover:border-gray-400 text-sm text-gray-600"
+                  >
+                    <Upload className="w-6 h-6" />
+                    UPLOAD IMAGE
+                  </button>
+                )}
+                <input
+                  ref={endFrameFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleUploadEndFrame}
+                  className="hidden"
+                />
+              </div>
+
+              {/* Main Image */}
+              <div className="border rounded-lg p-3">
+                <h3 className="text-sm font-medium text-gray-700 mb-2">Main Image</h3>
+                {getMainImageUrl() ? (
+                  <div className="relative">
+                    <img
+                      src={getMainImageUrl()!}
+                      alt="Main Image"
+                      className="w-full aspect-video object-cover rounded border cursor-pointer hover:opacity-90"
+                      onClick={() => setEnlargedContent({ type: 'image', url: getMainImageUrl()! })}
+                    />
+                    <button
+                      onClick={() => setMainImageId(null)}
+                      className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded hover:bg-red-600"
+                      title="Clear main image"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => referenceImageFileInputRef.current?.click()}
+                    className="w-full aspect-video border-2 border-dashed border-gray-300 rounded flex flex-col items-center justify-center gap-2 hover:border-gray-400 text-sm text-gray-600"
+                  >
+                    <Upload className="w-6 h-6" />
+                    UPLOAD MAIN IMAGE
+                  </button>
+                )}
+                <input
+                  ref={referenceImageFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleUploadReferenceImage}
+                  className="hidden"
+                />
+              </div>
+
+              {/* Reference Video */}
+              <div className="border rounded-lg p-3">
+                <h3 className="text-sm font-medium text-gray-700 mb-2">Reference video</h3>
+                {referenceVideo ? (
+                  <div className="relative">
+                    <video
+                      src={referenceVideo}
+                      className="w-full aspect-video object-cover rounded border"
+                      controls
+                    />
+                    <div className="absolute bottom-1 right-1 bg-black bg-opacity-60 rounded-full p-1.5 pointer-events-none z-10">
+                      <Video className="w-3 h-3 text-white" />
+                    </div>
+                    <button
+                      onClick={() => handleToggleMainVideo('referenceVideo')}
+                      className={`absolute top-1 right-1 px-2 py-1 text-xs rounded ${
+                        mainVideoId === 'referenceVideo'
+                          ? 'bg-green-600 text-white'
+                          : 'bg-gray-400 text-white'
+                      }`}
+                    >
+                      MAIN
+                    </button>
+                    <button
+                      onClick={() => {
+                        setReferenceVideo(null);
+                        if (mainVideoId === 'referenceVideo') setMainVideoId(null);
+                      }}
+                      className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded hover:bg-red-600"
+                      title="Remove"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => referenceVideoFileInputRef.current?.click()}
+                    className="w-full aspect-video border-2 border-dashed border-gray-300 rounded flex flex-col items-center justify-center gap-2 hover:border-gray-400 text-sm text-gray-600"
+                  >
+                    <Video className="w-6 h-6" />
+                    UPLOAD VIDEO
+                  </button>
+                )}
+                <input
+                  ref={referenceVideoFileInputRef}
+                  type="file"
+                  accept="video/*"
+                  onChange={handleUploadReferenceVideo}
+                  className="hidden"
+                />
+              </div>
+            </div>
+
+            {/* Right Column - Generated Content Grid + Prompt Area */}
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* Cost Breakdown */}
+              {generatedVideos.length > 0 && (
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-semibold text-gray-900">Generation Cost Breakdown</h3>
+                    <span className="text-lg font-bold text-blue-700">
+                      ${calculateTotalCost().toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    {getCostBreakdownByModel().map((item, idx) => (
+                      <div key={idx} className="text-xs text-gray-700 flex items-center justify-between">
+                        <span className="truncate flex-1">
+                          {item.modelName} {item.count > 1 && `×${item.count}`}
+                        </span>
+                        <span className="ml-2 font-medium">${item.totalCost.toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* Scrollable Generated Content Grid */}
+              <div className="flex-1 overflow-y-auto mb-4">
+                {/* Grid with 3 items per row */}
+                <div className="grid grid-cols-3 gap-3">
+                  {/* First Frame (if set) */}
+                  {startFrame && (
+                    <div
+                      onClick={() => setEnlargedContent({ type: 'image', url: startFrame })}
+                      className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group ${
+                        mainImageId === 'startFrame' ? 'border-green-500' : 'border-blue-500'
+                      }`}
+                    >
+                      <img
+                        src={startFrame}
+                        alt="First Frame"
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute top-1 left-1 bg-blue-500 text-white text-xs px-2 py-1 rounded z-10">
+                        FIRST
+                      </div>
+                      {mainImageId === 'startFrame' && (
+                        <div className="absolute top-1 right-1 bg-green-500 text-white text-xs px-2 py-1 rounded z-10">
+                          MAIN
+                        </div>
+                      )}
+                      <div className="absolute top-1 right-1 flex gap-1 z-10">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPromptModal({ type: 'image', prompt: 'Start frame (uploaded)' });
+                          }}
+                          className="bg-gray-600 text-white rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-700"
+                          title="Show prompt"
+                        >
+                          <Info className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleMain('startFrame');
+                          }}
+                          className={`p-1 rounded ${
+                            mainImageId === 'startFrame'
+                              ? 'bg-green-600 text-white'
+                              : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                          }`}
+                          title="Set as Main"
+                        >
+                          <Star className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setStartFrame(null);
+                          if (mainImageId === 'startFrame') {
+                            setMainImageId(null);
+                          }
+                          const thread = createThreadFromState();
+                          thread.startFrame = undefined;
+                          if (thread.mainImageId === 'startFrame') {
+                            thread.mainImageId = undefined;
+                          }
+                          const mainImageUrl = getMainImageUrl();
+                          if (mainImageUrl) {
+                            onImageGenerated(mainImageUrl, thread);
+                          }
+                        }}
+                        className="absolute bottom-1 left-1 p-1 bg-red-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-red-600"
+                        title="Remove First Frame"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Last Frame (if set) */}
+                  {endFrame && (
+                    <div
+                      onClick={() => setEnlargedContent({ type: 'image', url: endFrame })}
+                      className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group ${
+                        mainImageId === 'endFrame' ? 'border-green-500' : 'border-purple-500'
+                      }`}
+                    >
+                      <img
+                        src={endFrame}
+                        alt="Last Frame"
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute top-1 left-1 bg-purple-500 text-white text-xs px-2 py-1 rounded z-10">
+                        LAST
+                      </div>
+                      {mainImageId === 'endFrame' && (
+                        <div className="absolute top-1 right-1 bg-green-500 text-white text-xs px-2 py-1 rounded z-10">
+                          MAIN
+                        </div>
+                      )}
+                      <div className="absolute top-1 right-1 flex gap-1 z-10">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPromptModal({ type: 'image', prompt: 'End frame (uploaded)' });
+                          }}
+                          className="bg-gray-600 text-white rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-700"
+                          title="Show prompt"
+                        >
+                          <Info className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleMain('endFrame');
+                          }}
+                          className={`p-1 rounded ${
+                            mainImageId === 'endFrame'
+                              ? 'bg-green-600 text-white'
+                              : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                          }`}
+                          title="Set as Main"
+                        >
+                          <Star className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEndFrame(null);
+                          if (mainImageId === 'endFrame') {
+                            setMainImageId(null);
+                          }
+                          const thread = createThreadFromState();
+                          thread.endFrame = undefined;
+                          if (thread.mainImageId === 'endFrame') {
+                            thread.mainImageId = undefined;
+                          }
+                          const mainImageUrl = getMainImageUrl();
+                          if (mainImageUrl) {
+                            onImageGenerated(mainImageUrl, thread);
+                          }
+                        }}
+                        className="absolute bottom-1 left-1 p-1 bg-red-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-red-600"
+                        title="Remove Last Frame"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Main Image (referenceImage, if set) */}
+                  {referenceImage && (
+                    <div
+                      onClick={() => setEnlargedContent({ type: 'image', url: referenceImage })}
+                      className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group ${
+                        mainImageId === 'referenceImage' ? 'border-green-500' : 'border-gray-300'
+                      }`}
+                    >
+                      <img
+                        src={referenceImage}
+                        alt="Main Image"
+                        className="w-full h-full object-cover"
+                      />
+                      {mainImageId === 'referenceImage' && (
+                        <div className="absolute top-1 left-1 bg-green-500 text-white text-xs px-2 py-1 rounded z-10">
+                          MAIN
+                        </div>
+                      )}
+                      <div className="absolute top-1 right-1 flex gap-1 z-10">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPromptModal({ type: 'image', prompt: 'Reference image (uploaded)' });
+                          }}
+                          className="bg-gray-600 text-white rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-700"
+                          title="Show prompt"
+                        >
+                          <Info className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleMain('referenceImage');
+                          }}
+                          className={`p-1 rounded ${
+                            mainImageId === 'referenceImage'
+                              ? 'bg-green-600 text-white'
+                              : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                          }`}
+                          title="Set as Main"
+                        >
+                          <Star className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setReferenceImage(null);
+                          if (mainImageId === 'referenceImage') {
+                            setMainImageId(null);
+                          }
+                          const thread = createThreadFromState();
+                          thread.referenceImage = undefined;
+                          if (thread.mainImageId === 'referenceImage') {
+                            thread.mainImageId = undefined;
+                          }
+                          const mainImageUrl = getMainImageUrl();
+                          if (mainImageUrl) {
+                            onImageGenerated(mainImageUrl, thread);
+                          }
+                        }}
+                        className="absolute bottom-1 left-1 p-1 bg-red-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-red-600"
+                        title="Remove Main Image"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Uploaded Images */}
+                  {uploadedImages.map((img, idx) => (
+                    <div key={`uploaded-img-${img.id}-${idx}`} className="flex flex-col">
+                    <div
+                      onClick={() => setEnlargedContent({ type: 'image', url: img.imageUrl })}
+                      className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group ${
+                        mainImageId === `uploaded-image-${img.id}` ? 'border-green-500' : 'border-gray-300'
+                      }`}
+                    >
+                      <img
+                        src={img.imageUrl}
+                        alt="Uploaded"
+                        className="w-full h-full object-cover"
+                      />
+                      {mainImageId === `uploaded-image-${img.id}` && (
+                        <div className="absolute top-1 left-1 bg-green-500 text-white text-xs px-2 py-1 rounded z-10">
+                          MAIN
+                        </div>
+                      )}
+                      <div className="absolute top-1 right-1 flex gap-1 z-10">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPromptModal({ type: 'image', prompt: 'Uploaded image' });
+                          }}
+                          className="bg-gray-600 text-white rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-700"
+                          title="Show prompt"
+                        >
+                          <Info className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleMain(`uploaded-image-${img.id}`);
+                          }}
+                          className={`p-1 rounded ${
+                            mainImageId === `uploaded-image-${img.id}`
+                              ? 'bg-green-600 text-white'
+                              : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                          }`}
+                          title="Set as Main"
+                        >
+                          <Star className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteConfirm({ type: 'image', id: img.id, url: img.imageUrl });
+                        }}
+                        className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-red-600"
+                        title="Delete image"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                      </div>
+                      {/* Metadata below thumbnail */}
+                      <div className="mt-1 px-1 space-y-0.5">
+                        <div className="text-xs text-gray-600">
+                          <span className="font-medium">Type:</span>{' '}
+                          <span className="text-gray-800">Uploaded</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {/* Uploaded Videos */}
+                  {uploadedVideos.map((vid, idx) => (
+                    <div key={`uploaded-vid-${vid.id}-${idx}`} className="flex flex-col">
+                      <div
+                        onClick={() => setEnlargedContent({ type: 'video', url: vid.videoUrl })}
+                        className="relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group"
+                      >
+                        <video
+                          src={vid.videoUrl}
+                          className="w-full h-full object-cover"
+                          muted
+                        />
+                        {/* Video camera icon to indicate this is a video */}
+                        <div className="absolute bottom-1 right-1 bg-black bg-opacity-60 rounded-full p-1.5 pointer-events-none z-10">
+                          <Video className="w-3 h-3 text-white" />
+                        </div>
+                        <div className="absolute top-1 right-1 flex gap-1 z-10">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPromptModal({ type: 'video', prompt: 'Uploaded video' });
+                            }}
+                            className="bg-gray-600 text-white rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-700"
+                            title="Show prompt"
+                          >
+                            <Info className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleMainVideo(`uploaded-video-${vid.id}`);
+                            }}
+                            className={`px-2 py-1 text-xs rounded ${
+                              mainVideoId === `uploaded-video-${vid.id}`
+                                ? 'bg-green-600 text-white'
+                                : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                            }`}
+                          >
+                            MAIN
+                          </button>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteConfirm({ type: 'video', id: vid.id, url: vid.videoUrl });
+                          }}
+                          className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-red-600"
+                          title="Delete video"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={(e) => handleDownloadVideo(vid.videoUrl, e)}
+                          className="absolute bottom-1 left-1 p-1 bg-blue-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-blue-600"
+                          title="Download video"
+                        >
+                          <Download className="w-3 h-3" />
+                        </button>
+                      </div>
+                      {/* Metadata below thumbnail */}
+                      <div className="mt-1 px-1 space-y-0.5">
+                        <div className="text-xs text-gray-600">
+                          <span className="font-medium">Type:</span>{' '}
+                          <span className="text-gray-800">Uploaded</span>
+                        </div>
+                        {(() => {
+                          if (editingVideoCost?.id === vid.id) {
+                            return (
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs font-medium text-gray-700">Cost: $</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={editingVideoCost.cost}
+                              onChange={(e) => {
+                                const value = parseFloat(e.target.value) || 0;
+                                setEditingVideoCost({ id: vid.id, cost: value });
+                              }}
+                              onBlur={() => {
+                                if (editingVideoCost) {
+                                  setUploadedVideos(prev => prev.map(v => 
+                                    v.id === vid.id ? { ...v, manualCost: editingVideoCost.cost } : v
+                                  ));
+                                  setEditingVideoCost(null);
+                                }
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  if (editingVideoCost) {
+                                    setUploadedVideos(prev => prev.map(v => 
+                                      v.id === vid.id ? { ...v, manualCost: editingVideoCost.cost } : v
+                                    ));
+                                    setEditingVideoCost(null);
+                                  }
+                                } else if (e.key === 'Escape') {
+                                  setEditingVideoCost(null);
+                                }
+                              }}
+                              className="w-16 px-1 py-0.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                              autoFocus
+                            />
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (editingVideoCost) {
+                                  setUploadedVideos(prev => prev.map(v => 
+                                    v.id === vid.id ? { ...v, manualCost: editingVideoCost.cost } : v
+                                  ));
+                                  setEditingVideoCost(null);
+                                }
+                              }}
+                              className="text-green-600 hover:text-green-800"
+                              title="Save cost"
+                            >
+                              <Check className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingVideoCost(null);
+                              }}
+                              className="text-red-600 hover:text-red-800"
+                              title="Cancel"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                            );
+                          } else {
+                            return (
+                          <div className="flex items-center gap-1">
+                            <div className="text-xs font-semibold text-blue-700">
+                              <span className="font-medium">Cost:</span>{' '}
+                              ${(vid.manualCost || 0).toFixed(2)}
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingVideoCost({ id: vid.id, cost: vid.manualCost || 0 });
+                              }}
+                              className="text-gray-500 hover:text-gray-700"
+                              title="Edit cost"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                            </button>
+                          </div>
+                            );
+                          }
+                        })()}
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {/* Generated Images */}
+                  {generatedImages
+                    .sort((a, b) => {
+                      const getTime = (date: Date | string | number | undefined | { toMillis?: () => number }): number => {
+                        if (date instanceof Date) return date.getTime();
+                        if (typeof date === 'string') return new Date(date).getTime();
+                        if (typeof date === 'number') return date;
+                        if (date && typeof date === 'object' && 'toMillis' in date && typeof date.toMillis === 'function') {
+                          return date.toMillis();
+                        }
+                        return 0;
+                      };
+                      const aTime = getTime(a.createdAt);
+                      const bTime = getTime(b.createdAt);
+                      return bTime - aTime;
+                    })
+                    .map((img, idx) => (
+                      <div key={`gen-img-${img.id}-${idx}`} className="flex flex-col">
+                        <div
+                          onClick={() => setEnlargedContent({ type: 'image', url: img.imageUrl })}
+                          className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group ${
+                            mainImageId === img.id ? 'border-green-500' : 'border-gray-300'
+                          }`}
+                        >
+                          <img
+                            src={img.imageUrl}
+                            alt="Generated"
+                            className="w-full h-full object-cover"
+                          />
+                          {mainImageId === img.id && (
+                            <div className="absolute top-1 left-1 bg-green-500 text-white text-xs px-2 py-1 rounded z-10">
+                              MAIN
+                            </div>
+                          )}
+                          {/* Icon buttons for first/last/main - positioned at corners */}
+                          <div className="absolute top-1 right-1 flex gap-1 z-10">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPromptModal({ type: 'image', prompt: img.prompt, modelName: img.modelName });
+                              }}
+                              className="bg-gray-600 text-white rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-700"
+                              title="Show prompt"
+                            >
+                              <Info className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSetFirstFrame(img.imageUrl);
+                              }}
+                              className={`p-1 rounded ${
+                                startFrame === img.imageUrl
+                                  ? 'bg-blue-600 text-white'
+                                  : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                              }`}
+                              title="Set as First Frame"
+                            >
+                              <ChevronRight className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSetLastFrame(img.imageUrl);
+                              }}
+                              className={`p-1 rounded ${
+                                endFrame === img.imageUrl
+                                  ? 'bg-purple-600 text-white'
+                                  : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                              }`}
+                              title="Set as Last Frame"
+                            >
+                              <ChevronLeft className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleToggleMain(img.id);
+                              }}
+                              className={`p-1 rounded ${
+                                mainImageId === img.id
+                                  ? 'bg-green-600 text-white'
+                                  : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                              }`}
+                              title="Set as Main"
+                            >
+                              <Star className="w-3 h-3" />
+                            </button>
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteConfirm({ type: 'image', id: img.id, url: img.imageUrl });
+                            }}
+                            className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-red-600"
+                            title="Delete image"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                        {/* Metadata below thumbnail */}
+                        <div className="mt-1 px-1 space-y-0.5">
+                          <div className="text-xs text-gray-600">
+                            <span className="font-medium">Model:</span>{' '}
+                            <span className="text-gray-800">{formatModelName(img.modelName)}</span>
+                          </div>
+                          <div className="text-xs text-gray-600">
+                            <span className="font-medium">Style:</span>{' '}
+                            <span className="text-gray-800">{selectedStyle === 'storyboard' ? 'Storyboard' : '3D Render'}</span>
+                          </div>
+                          <div className="text-xs text-gray-600">
+                            <span className="font-medium">Generated:</span>{' '}
+                            <span className="text-gray-800">
+                              {img.generatedAt
+                                ? new Date(img.generatedAt).toLocaleString('en-US', {
+                                    year: 'numeric',
+                                    month: 'short',
+                                    day: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })
+                                : img.createdAt
+                                ? new Date(img.createdAt).toLocaleString('en-US', {
+                                    year: 'numeric',
+                                    month: 'short',
+                                    day: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })
+                                : 'N/A'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  
+                  {/* Generated Videos */}
+                  {generatedVideos
+                    .sort((a, b) => {
+                      const getTime = (date: Date | string | number | undefined | { toMillis?: () => number }): number => {
+                        if (date instanceof Date) return date.getTime();
+                        if (typeof date === 'string') return new Date(date).getTime();
+                        if (typeof date === 'number') return date;
+                        if (date && typeof date === 'object' && 'toMillis' in date && typeof date.toMillis === 'function') {
+                          return date.toMillis();
+                        }
+                        return 0;
+                      };
+                      const aTime = getTime(a.generatedAt || a.createdAt);
+                      const bTime = getTime(b.generatedAt || b.createdAt);
+                      return bTime - aTime;
+                    })
+                    .map((vid, idx) => (
+                      <div key={`gen-vid-${vid.id}-${idx}`} className="flex flex-col">
+                        <div
+                          onClick={() => setEnlargedContent({ type: 'video', url: vid.videoUrl })}
+                          className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video group ${
+                            mainVideoId === vid.id ? 'border-green-500' : 'border-gray-300'
+                          }`}
+                        >
+                          <video
+                            src={vid.videoUrl}
+                            className="w-full h-full object-cover"
+                            muted
+                          />
+                          {/* Video camera icon to indicate this is a video */}
+                          <div className="absolute bottom-1 right-1 bg-black bg-opacity-60 rounded-full p-1.5 pointer-events-none z-10">
+                            <Video className="w-3 h-3 text-white" />
+                          </div>
+                          {mainVideoId === vid.id && (
+                            <div className="absolute top-1 left-1 bg-green-500 text-white text-xs px-2 py-1 rounded z-10">
+                              MAIN
+                            </div>
+                          )}
+                          <div className="absolute top-1 right-1 flex gap-1 z-10">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPromptModal({ type: 'video', prompt: vid.prompt, modelName: vid.modelName });
+                              }}
+                              className="bg-gray-600 text-white rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-700"
+                              title="Show prompt"
+                            >
+                              <Info className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleToggleMainVideo(vid.id);
+                              }}
+                              className={`px-2 py-1 text-xs rounded ${
+                                mainVideoId === vid.id
+                                  ? 'bg-green-600 text-white'
+                                  : 'bg-gray-400 text-white opacity-0 group-hover:opacity-100'
+                              }`}
+                            >
+                              MAIN
+                            </button>
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteConfirm({ type: 'video', id: vid.id, url: vid.videoUrl });
+                            }}
+                            className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-red-600"
+                            title="Delete video"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={(e) => handleDownloadVideo(vid.videoUrl, e)}
+                            className="absolute bottom-1 left-1 p-1 bg-blue-500 text-white rounded opacity-0 group-hover:opacity-100 z-10 hover:bg-blue-600"
+                            title="Download video"
+                          >
+                            <Download className="w-3 h-3" />
+                          </button>
+                        </div>
+                        {/* Metadata below thumbnail */}
+                        <div className="mt-1 px-1 space-y-0.5">
+                          <div className="text-xs text-gray-600">
+                            <span className="font-medium">Model:</span>{' '}
+                            <span className="text-gray-800">{formatModelName(vid.modelName)}</span>
+                          </div>
+                          {(() => {
+                            const calculatedCost = calculateVideoCost(vid.modelName || '', vid.duration || 0, vid.resolution || '720p', vid.klingMode || 'std', vid.kling26Audio === true, vid.omniVideoInput ? true : undefined);
+                            const displayCost = vid.manualCost !== undefined && vid.manualCost > 0 ? vid.manualCost : calculatedCost;
+                            if (editingGeneratedVideoCost?.id === vid.id) {
+                              return (
+                                <div className="flex items-center gap-1">
+                                  <span className="text-xs font-medium text-gray-700">Cost: $</span>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={editingGeneratedVideoCost.cost}
+                                    onChange={(e) => {
+                                      const value = parseFloat(e.target.value) || 0;
+                                      setEditingGeneratedVideoCost({ id: vid.id, cost: value });
+                                    }}
+                                    onBlur={() => {
+                                      if (editingGeneratedVideoCost) {
+                                        setGeneratedVideos(prev => prev.map(v => 
+                                          v.id === vid.id ? { ...v, manualCost: editingGeneratedVideoCost.cost } : v
+                                        ));
+                                        setEditingGeneratedVideoCost(null);
+                                      }
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        if (editingGeneratedVideoCost) {
+                                          setGeneratedVideos(prev => prev.map(v => 
+                                            v.id === vid.id ? { ...v, manualCost: editingGeneratedVideoCost.cost } : v
+                                          ));
+                                          setEditingGeneratedVideoCost(null);
+                                        }
+                                      } else if (e.key === 'Escape') {
+                                        setEditingGeneratedVideoCost(null);
+                                      }
+                                    }}
+                                    className="w-16 px-1 py-0.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                    autoFocus
+                                  />
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (editingGeneratedVideoCost) {
+                                        setGeneratedVideos(prev => prev.map(v => 
+                                          v.id === vid.id ? { ...v, manualCost: editingGeneratedVideoCost.cost } : v
+                                        ));
+                                        setEditingGeneratedVideoCost(null);
+                                      }
+                                    }}
+                                    className="text-green-600 hover:text-green-800"
+                                    title="Save cost"
+                                  >
+                                    <Check className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingGeneratedVideoCost(null);
+                                    }}
+                                    className="text-red-600 hover:text-red-800"
+                                    title="Cancel"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
+                          <div className="text-xs text-gray-600">
+                            <span className="font-medium">Generated:</span>{' '}
+                            <span className="text-gray-800">
+                              {vid.generatedAt
+                                ? new Date(vid.generatedAt).toLocaleString('en-US', {
+                                    year: 'numeric',
+                                    month: 'short',
+                                    day: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })
+                                : 'N/A'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  
+                  {/* Empty state */}
+                  {!startFrame && !endFrame && !referenceImage && uploadedImages.length === 0 && uploadedVideos.length === 0 && generatedImages.length === 0 && generatedVideos.length === 0 && (
                     <div className="col-span-3 text-sm text-gray-500 text-center py-8">
                       No content yet. Generate or upload images/videos to get started.
                     </div>
@@ -3982,10 +4928,384 @@ export function ImageGenerationDialog({
         </div>
       </div>
 
+      {/* Mobile Prompt Panel - Bottom Sheet */}
+      <div className={`sm:hidden fixed inset-x-0 bottom-0 bg-white rounded-t-3xl shadow-2xl z-[60] transform transition-transform duration-300 ease-out ${
+        showMobilePromptPanel ? 'translate-y-0' : 'translate-y-full'
+      }`} style={{ maxHeight: '90vh' }}>
+        {/* Handle bar */}
+        <div className="flex justify-center pt-3 pb-2">
+          <div className="w-12 h-1 bg-gray-300 rounded-full"></div>
+        </div>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 pb-3 border-b">
+          <h3 className="text-lg font-semibold text-gray-900">
+            {mobilePanelType === 'image' ? 'Generate Image' : 
+             mobilePanelType === 'video' ? 'Generate Video' : 
+             'Upload Manually'}
+          </h3>
+          <button
+            onClick={() => {
+              setShowMobilePromptPanel(false);
+              setMobilePanelType(null);
+            }}
+            className="p-2 -mr-2 text-gray-600"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Scrollable Content */}
+        <div className="overflow-y-auto px-4 py-4" style={{ maxHeight: 'calc(90vh - 120px)' }}>
+          {/* Conditional content based on panel type */}
+          {mobilePanelType === 'upload' ? (
+            /* Upload Panel */
+            <div className="space-y-4 pb-4">
+              <div>
+                <p className="text-sm text-gray-600 mb-4">Upload images or videos manually to add them to your collection.</p>
+                <Button
+                  onClick={() => {
+                    manualUploadRef.current?.click();
+                  }}
+                  className="w-full h-14 bg-gray-800 hover:bg-gray-900 text-white text-base font-semibold"
+                >
+                  <Upload className="w-5 h-5 mr-2" />
+                  Choose File
+                </Button>
+                <input
+                  ref={manualUploadRef}
+                  type="file"
+                  accept="image/*,video/*"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    
+                    setShowMobilePromptPanel(false);
+                    setMobilePanelType(null);
+                    
+                    // Set flag to prevent useEffect from reloading during upload
+                    isPerformingOperation.current = true;
+                    
+                    try {
+                      if (file.type.startsWith('image/')) {
+                        const result = await uploadFile(file, `episodes/${episodeId}/av-script/images/`);
+                        if (result) {
+                          const uploadedImgId = `uploaded-img-${Date.now()}`;
+                          const uploadedImageMainId = `uploaded-image-${uploadedImgId}`;
+                          
+                          // Add the new image to the state
+                          const newImage = {
+                            id: uploadedImgId,
+                            imageUrl: result.url,
+                            createdAt: new Date(),
+                          };
+                          
+                          // Update state and get current values
+                          const currentMainImageUrl = getMainImageUrl();
+                          const shouldSetAsMain = !currentMainImageUrl;
+                          
+                          setUploadedImages(prev => [...prev, newImage]);
+                          
+                          if (shouldSetAsMain) {
+                            setMainImageId(uploadedImageMainId);
+                          }
+                          
+                          // Wait for state to update then save
+                          await new Promise(resolve => setTimeout(resolve, 150));
+                          
+                          // Create thread with updated state
+                          const allImages = [
+                            ...uploadedImages,
+                            newImage,
+                            ...generatedImages.map(img => ({
+                              id: img.id,
+                              imageUrl: img.imageUrl,
+                              prompt: 'Uploaded image',
+                              style: selectedStyle as 'storyboard' | '3d-render',
+                              createdAt: img.createdAt,
+                            })),
+                          ].map(img => ({
+                            id: img.id,
+                            imageUrl: img.imageUrl,
+                            prompt: ('prompt' in img && typeof img.prompt === 'string') ? img.prompt : 'Uploaded image',
+                            style: selectedStyle as 'storyboard' | '3d-render',
+                            createdAt: img.createdAt,
+                          }));
+                          
+                          const allVideos = [
+                            ...uploadedVideos.map(vid => ({
+                              id: vid.id,
+                              videoUrl: vid.videoUrl,
+                              prompt: 'Uploaded video',
+                              createdAt: vid.createdAt,
+                              manualCost: vid.manualCost,
+                            })),
+                            ...generatedVideos,
+                          ];
+                          
+                          const thread = {
+                            id: existingThread?.id || `thread-${Date.now()}`,
+                            selectedAssets: selectedAssets.map(a => ({
+                              id: a.id,
+                              type: a.type,
+                              name: a.name,
+                            })),
+                            sketchImage: sketchImage || undefined,
+                            startFrame: startFrame || undefined,
+                            endFrame: endFrame || undefined,
+                            referenceImage: referenceImage || undefined,
+                            referenceVideo: referenceVideo || undefined,
+                            mainImageId: shouldSetAsMain ? uploadedImageMainId : (mainImageId || undefined),
+                            mainVideoId: mainVideoId || undefined,
+                            messages: messages,
+                            generatedImages: allImages,
+                            generatedVideos: allVideos.length > 0 ? allVideos : undefined,
+                            selectedImageId: selectedImageId || undefined,
+                            createdAt: existingThread?.createdAt || new Date(),
+                            updatedAt: new Date(),
+                          };
+                          
+                          const imageUrlToSave = shouldSetAsMain ? result.url : (currentMainImageUrl || result.url);
+                          onImageGenerated(imageUrlToSave, thread);
+                        }
+                      } else if (file.type.startsWith('video/')) {
+                        const result = await uploadFile(file, `episodes/${episodeId}/av-script/videos/`);
+                        if (result) {
+                          const uploadedVidId = `uploaded-vid-${Date.now()}`;
+                          const uploadedVideoMainId = `uploaded-video-${uploadedVidId}`;
+                          
+                          const newVideo = {
+                            id: uploadedVidId,
+                            videoUrl: result.url,
+                            createdAt: new Date(),
+                          };
+                          
+                          setUploadedVideos(prev => [...prev, newVideo]);
+                          
+                          // Wait for state to update then save
+                          await new Promise(resolve => setTimeout(resolve, 150));
+                          
+                          const thread = createThreadFromState();
+                          onImageGenerated(getMainImageUrl() || '', thread);
+                        }
+                      }
+                    } catch (error) {
+                      console.error('Upload error:', error);
+                    } finally {
+                      isPerformingOperation.current = false;
+                    }
+                  }}
+                  className="hidden"
+                />
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Quick Actions - Asset Selection (for image and video) */}
+              <div className="mb-6">
+                <h4 className="text-sm font-semibold text-gray-900 mb-3">Add References</h4>
+                <div className="grid grid-cols-3 gap-3">
+                  <button
+                    onClick={() => additionalReferenceImageFileInputRef.current?.click()}
+                    className="aspect-square bg-white border-2 border-gray-200 rounded-xl flex flex-col items-center justify-center gap-2 active:bg-gray-50"
+                  >
+                    <Plus className="w-6 h-6 text-gray-600" />
+                    <span className="text-xs font-medium text-gray-700">Image</span>
+                  </button>
+                  <button
+                    onClick={handleAddLocation}
+                    className="aspect-square bg-white border-2 border-gray-200 rounded-xl flex flex-col items-center justify-center gap-2 active:bg-gray-50"
+                  >
+                    <MapPin className="w-6 h-6 text-gray-600" />
+                    <span className="text-xs font-medium text-gray-700">Location</span>
+                  </button>
+                  <button
+                    onClick={handleAddCharacter}
+                    className="aspect-square bg-white border-2 border-gray-200 rounded-xl flex flex-col items-center justify-center gap-2 active:bg-gray-50"
+                  >
+                    <User className="w-6 h-6 text-gray-600" />
+                    <span className="text-xs font-medium text-gray-700">Character</span>
+                  </button>
+                  <button
+                    onClick={handleAddGadget}
+                    className="aspect-square bg-white border-2 border-gray-200 rounded-xl flex flex-col items-center justify-center gap-2 active:bg-gray-50"
+                  >
+                    <Box className="w-6 h-6 text-gray-600" />
+                    <span className="text-xs font-medium text-gray-700">Gadget</span>
+                  </button>
+                  <button
+                    onClick={handleAddVehicle}
+                    className="aspect-square bg-white border-2 border-gray-200 rounded-xl flex flex-col items-center justify-center gap-2 active:bg-gray-50"
+                  >
+                    <Car className="w-6 h-6 text-gray-600" />
+                    <span className="text-xs font-medium text-gray-700">Vehicle</span>
+                  </button>
+                  <button
+                    onClick={() => setShowDrawingCanvas(true)}
+                    className="aspect-square bg-white border-2 border-gray-200 rounded-xl flex flex-col items-center justify-center gap-2 active:bg-gray-50"
+                  >
+                    <Pencil className="w-6 h-6 text-gray-600" />
+                    <span className="text-xs font-medium text-gray-700">Sketch</span>
+                  </button>
+                </div>
+                <input ref={additionalReferenceImageFileInputRef} type="file" accept="image/*" onChange={handleUploadAdditionalReferenceImage} className="hidden" />
+              </div>
+
+              {/* Selected References */}
+              {(selectedAssets.length > 0 || sketchImage) && (
+                <div className="mb-6">
+                  <h4 className="text-sm font-semibold text-gray-900 mb-3">Selected</h4>
+                  <div className="flex flex-wrap gap-3">
+                    {selectedAssets.map((asset) => (
+                      <div key={asset.id} className="relative">
+                        <img src={asset.thumbnailUrl} alt={asset.name} className="w-16 h-16 rounded-lg border-2 border-gray-200 object-cover" />
+                        <button
+                          onClick={() => handleRemoveAsset(asset.id)}
+                          className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                    {sketchImage && (
+                      <div className="relative">
+                        <img src={sketchImage} alt="Sketch" className="w-16 h-16 rounded-lg border-2 border-gray-200 object-cover" />
+                        <button
+                          onClick={() => setSketchImage(null)}
+                          className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Prompt Textarea */}
+              <div className="mb-6">
+                <label className="block text-sm font-semibold text-gray-900 mb-2">Prompt</label>
+                <textarea
+                  value={editablePrompt}
+                  onChange={(e) => {
+                    isManuallyEditing.current = true;
+                    setEditablePrompt(e.target.value);
+                  }}
+                  onBlur={() => {
+                    setTimeout(() => {
+                      isManuallyEditing.current = false;
+                    }, 2000);
+                  }}
+                  rows={10}
+                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none font-mono text-sm"
+                  placeholder="Edit the prompt..."
+                  disabled={isGenerating}
+                />
+              </div>
+
+              {/* Style Selection - Only for image generation */}
+              {mobilePanelType === 'image' && (
+                <div className="mb-6">
+                  <h4 className="text-sm font-semibold text-gray-900 mb-3">Style</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Button
+                      variant={selectedStyle === 'storyboard' ? 'default' : 'outline'}
+                      size="lg"
+                      onClick={() => setSelectedStyle('storyboard')}
+                      className="h-14 text-base"
+                    >
+                      Storyboard
+                    </Button>
+                    <Button
+                      variant={selectedStyle === '3d-render' ? 'default' : 'outline'}
+                      size="lg"
+                      onClick={() => setSelectedStyle('3d-render')}
+                      className="h-14 text-base"
+                    >
+                      3D Render
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons - Show based on panel type */}
+              <div className="space-y-3 pb-4">
+                {mobilePanelType === 'image' && (
+                  <Button
+                    onClick={() => {
+                      handleSend();
+                      setShowMobilePromptPanel(false);
+                      setMobilePanelType(null);
+                    }}
+                    disabled={isGenerating || !editablePrompt.trim()}
+                    className="w-full h-14 bg-blue-600 hover:bg-blue-700 text-base font-semibold disabled:opacity-50"
+                  >
+                    {isGenerating ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <ImageIcon className="w-5 h-5 mr-2" />
+                        Generate Image
+                      </>
+                    )}
+                  </Button>
+                )}
+
+                {mobilePanelType === 'video' && (
+                  <Button
+                    onClick={() => {
+                      let prompt = '';
+                      if (audioText) {
+                        prompt = audioText;
+                      } else {
+                        prompt = visualDescription || '';
+                      }
+                      if (prompt && !prompt.toLowerCase().includes('16:9') && !prompt.toLowerCase().includes('aspect ratio')) {
+                        prompt += ' The video MUST be in 16:9 aspect ratio.';
+                      }
+                      setVideoPrompt(prompt);
+                      if (getMainImageUrl()) {
+                        setSelectedVideoInputType('main');
+                      } else if (startFrame && endFrame) {
+                        setSelectedVideoInputType('start-end');
+                      } else {
+                        setSelectedVideoInputType(null);
+                      }
+                      setShowVideoGenerationModal(true);
+                      setShowMobilePromptPanel(false);
+                      setMobilePanelType(null);
+                    }}
+                    disabled={isGenerating}
+                    className="w-full h-14 bg-red-600 hover:bg-red-700 text-base font-semibold"
+                  >
+                    <Clapperboard className="w-5 h-5 mr-2" />
+                    Generate Video
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Backdrop for mobile panel */}
+      {showMobilePromptPanel && (
+        <div
+          className="sm:hidden fixed inset-0 bg-black bg-opacity-40 z-[55]"
+          onClick={() => {
+            setShowMobilePromptPanel(false);
+            setMobilePanelType(null);
+          }}
+        />
+      )}
+
       {/* Video Generation Modal */}
       {showVideoGenerationModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[60]">
-          <div className="bg-white rounded-lg p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[60] p-2 sm:p-4">
+          <div className="bg-white rounded-lg p-3 sm:p-6 max-w-4xl w-full max-h-[95vh] sm:max-h-[90vh] overflow-y-auto m-0 sm:m-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold">Generate Video</h3>
               <button
@@ -5417,8 +6737,8 @@ export function ImageGenerationDialog({
 
       {/* Enlarged Content Modal */}
       {enlargedContent && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[70]" onClick={() => setEnlargedContent(null)}>
-          <div className="relative max-w-4xl max-h-[90vh] p-4">
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[70] p-2 sm:p-4" onClick={() => setEnlargedContent(null)}>
+          <div className="relative max-w-4xl w-full max-h-[95vh] sm:max-h-[90vh] p-2 sm:p-4">
             <button
               onClick={() => setEnlargedContent(null)}
               className="absolute top-2 right-2 bg-black bg-opacity-50 text-white rounded-full p-2 hover:bg-opacity-75 z-10"
@@ -5440,27 +6760,62 @@ export function ImageGenerationDialog({
                 onClick={(e) => e.stopPropagation()}
               />
             )}
-            {/* Select as Main buttons */}
-            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2">
-              {enlargedContent.type === 'image' && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    // Find which image this is
-                    const uploadedImg = uploadedImages.find(img => img.imageUrl === enlargedContent.url);
-                    const generatedImg = generatedImages.find(img => img.imageUrl === enlargedContent.url);
-                    if (uploadedImg) {
-                      handleToggleMain(`uploaded-image-${uploadedImg.id}`);
-                    } else if (generatedImg) {
-                      handleToggleMain(generatedImg.id);
-                    }
-                    setEnlargedContent(null);
-                  }}
-                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-                >
-                  Select as Main Image
-                </button>
-              )}
+            {/* Action buttons */}
+            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2 flex-wrap justify-center">
+              {enlargedContent.type === 'image' && (() => {
+                // Find which image this is
+                let imageUrl = enlargedContent.url;
+                const uploadedImg = uploadedImages.find(img => img.imageUrl === imageUrl);
+                const generatedImg = generatedImages.find(img => img.imageUrl === imageUrl);
+                const isStartFrame = startFrame === imageUrl;
+                const isEndFrame = endFrame === imageUrl;
+                const isReferenceImage = referenceImage === imageUrl;
+                
+                return (
+                  <>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (uploadedImg) {
+                          handleToggleMain(`uploaded-image-${uploadedImg.id}`);
+                        } else if (generatedImg) {
+                          handleToggleMain(generatedImg.id);
+                        } else if (isReferenceImage) {
+                          handleToggleMain('referenceImage');
+                        } else if (isStartFrame) {
+                          handleToggleMain('startFrame');
+                        } else if (isEndFrame) {
+                          handleToggleMain('endFrame');
+                        }
+                        setEnlargedContent(null);
+                      }}
+                      className="px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-sm"
+                    >
+                      Main
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSetFirstFrame(imageUrl);
+                        setEnlargedContent(null);
+                      }}
+                      className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+                    >
+                      First
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSetLastFrame(imageUrl);
+                        setEnlargedContent(null);
+                      }}
+                      className="px-3 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 text-sm"
+                    >
+                      Last
+                    </button>
+                  </>
+                );
+              })()}
               {enlargedContent.type === 'video' && (
                 <button
                   onClick={(e) => {
@@ -5472,6 +6827,8 @@ export function ImageGenerationDialog({
                       handleToggleMainVideo(`uploaded-video-${uploadedVid.id}`);
                     } else if (generatedVid) {
                       handleToggleMainVideo(generatedVid.id);
+                    } else if (referenceVideo === enlargedContent.url) {
+                      handleToggleMainVideo('referenceVideo');
                     }
                     setEnlargedContent(null);
                   }}
@@ -5487,8 +6844,8 @@ export function ImageGenerationDialog({
 
       {/* Delete Confirmation Modal */}
       {deleteConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[80]">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[80] p-2 sm:p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-4 sm:p-6 m-0 sm:m-4">
             <div className="flex items-center space-x-3 mb-4">
               <div className="flex-shrink-0">
                 <X className="w-6 h-6 text-red-600" />
@@ -5851,10 +7208,10 @@ export function ImageGenerationDialog({
 
       {/* Prompt Info Modal */}
       {promptModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50" onClick={() => setPromptModal(null)}>
-          <div className="relative max-w-2xl w-full mx-4 bg-white rounded-lg shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="text-lg font-semibold text-gray-900">
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-2 sm:p-4" onClick={() => setPromptModal(null)}>
+          <div className="relative max-w-2xl w-full bg-white rounded-lg shadow-xl m-0 sm:m-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-3 sm:p-4 border-b">
+              <h3 className="text-base sm:text-lg font-semibold text-gray-900">
                 Generation Prompt {promptModal.type === 'image' ? '(Image)' : '(Video)'}
               </h3>
               <button

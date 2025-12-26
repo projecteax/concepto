@@ -1224,50 +1224,50 @@ export default function EpisodeDetail({
         subtitle={`Episode ${localEpisode.episodeNumber}`}
         title={
           <div className="min-w-0">
-            {editingTitle ? (
+              {editingTitle ? (
               <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={tempTitle}
-                  onChange={(e) => setTempTitle(e.target.value)}
+                  <input
+                    type="text"
+                    value={tempTitle}
+                    onChange={(e) => setTempTitle(e.target.value)}
                   className={`w-full min-w-0 text-xl sm:text-2xl font-bold bg-transparent border-b focus:outline-none ${
                     headerIsDark
                       ? 'border-white/40 focus:border-white text-white placeholder:text-white/70'
                       : 'border-border focus:border-primary text-foreground placeholder:text-muted-foreground'
                   }`}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleSaveTitle();
-                    if (e.key === 'Escape') handleCancelTitle();
-                  }}
-                  onBlur={handleSaveTitle}
-                  autoFocus
-                />
-                <button
-                  onClick={handleSaveTitle}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveTitle();
+                      if (e.key === 'Escape') handleCancelTitle();
+                    }}
+                    onBlur={handleSaveTitle}
+                    autoFocus
+                  />
+                  <button
+                    onClick={handleSaveTitle}
                   className={`p-1 ${headerIsDark ? 'text-white/90 hover:text-white' : 'text-muted-foreground hover:text-foreground'}`}
-                >
-                  <Save className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={handleCancelTitle}
+                  >
+                    <Save className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleCancelTitle}
                   className={`p-1 ${headerIsDark ? 'text-white/70 hover:text-white' : 'text-muted-foreground hover:text-foreground'}`}
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
               <button
                 type="button"
                 className={`text-left w-full text-xl sm:text-2xl font-bold line-clamp-2 ${
                   headerIsDark ? 'text-white hover:text-white/95' : 'text-foreground hover:text-foreground/90'
                 }`}
-                onClick={() => setEditingTitle(true)}
-                title="Click to edit title"
-              >
-                {localEpisode.title}
+                  onClick={() => setEditingTitle(true)}
+                  title="Click to edit title"
+                >
+                  {localEpisode.title}
               </button>
-            )}
-          </div>
+              )}
+            </div>
         }
       />
 
@@ -1293,7 +1293,7 @@ export default function EpisodeDetail({
       </div>
 
       {/* Screenwriting action row (separate row under tabs, like AV Script) */}
-      {activeTab === 'screenwriting' && (
+          {activeTab === 'screenwriting' && (
         <div className="bg-white border-b border-gray-200">
           <div className="studio-container py-3 hidden md:flex items-center justify-end gap-2">
             <div className="text-xs text-gray-500 whitespace-nowrap mr-1">
@@ -1330,7 +1330,7 @@ export default function EpisodeDetail({
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => setShowScreenplayDialog(true)}>
                   <Wand2 className="h-4 w-4" />
-                  <span>Auto-Create</span>
+                <span>Auto-Create</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setShowNarrativeDialog(true)}>
                   <BookOpen className="h-4 w-4" />
@@ -1339,7 +1339,7 @@ export default function EpisodeDetail({
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => screenplayEditorRef.current?.togglePreview()}>
                   <Eye className="h-4 w-4" />
-                  <span>Preview</span>
+                <span>Preview</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => screenplayEditorRef.current?.exportPDF()}>
                   <Download className="h-4 w-4" />
@@ -1347,16 +1347,16 @@ export default function EpisodeDetail({
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => screenplayEditorRef.current?.exportVO()}>
                   <Download className="h-4 w-4" />
-                  <span>Export VO</span>
+                <span>Export VO</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          </div>
+            </div>
         </div>
       )}
 
       {/* Content */}
-      <div className="studio-container py-4 sm:py-6">
+      <div className={`${activeTab === 'screenwriting' ? 'py-0' : 'studio-container py-4 sm:py-6'}`}>
         {activeTab === 'overview' && (
           <div className="space-y-6">
             <div className="bg-white rounded-lg shadow p-6">
@@ -1695,7 +1695,7 @@ export default function EpisodeDetail({
         )}
 
         {activeTab === 'screenwriting' && (
-          <div className="bg-white rounded-lg shadow-sm h-full flex flex-col">
+          <div className="bg-white md:rounded-lg md:shadow-sm h-full flex flex-col">
             {/* Mobile Auto-Create Button */}
             <div className="md:hidden p-4 border-b border-gray-200">
               <button

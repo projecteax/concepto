@@ -189,21 +189,21 @@ export function ImportAVDialog({ isOpen, onClose, onImport }: ImportAVDialogProp
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-2 sm:p-4">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[95vh] sm:max-h-[90vh] flex flex-col m-0 sm:m-4">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <h2 className="text-2xl font-bold text-gray-900">Import AV Script from CSV</h2>
+        <div className="flex items-center justify-between p-3 sm:p-6 border-b border-gray-200">
+          <h2 className="text-lg sm:text-2xl font-bold text-gray-900">Import AV Script from CSV</h2>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
-            <X className="w-6 h-6" />
+            <X className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-auto p-6">
+        <div className="flex-1 overflow-auto p-3 sm:p-6">
           {/* File Upload */}
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -246,7 +246,7 @@ export function ImportAVDialog({ isOpen, onClose, onImport }: ImportAVDialogProp
           {/* Table */}
           {importedShots.length > 0 && (
             <div className="border border-gray-200 rounded-lg overflow-hidden">
-              <div className="overflow-x-auto max-h-[60vh]">
+              <div className="overflow-x-auto max-h-[50vh] sm:max-h-[60vh]" style={{ scrollbarWidth: 'thin', msOverflowStyle: 'auto' }}>
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 sticky top-0">
                     <tr>
@@ -283,7 +283,7 @@ export function ImportAVDialog({ isOpen, onClose, onImport }: ImportAVDialogProp
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-4 p-6 border-t border-gray-200">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3 sm:gap-4 p-3 sm:p-6 border-t border-gray-200">
           <button
             onClick={onClose}
             className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
@@ -293,7 +293,7 @@ export function ImportAVDialog({ isOpen, onClose, onImport }: ImportAVDialogProp
           <button
             onClick={handleImport}
             disabled={importedShots.length === 0}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            className="w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
           >
             <CheckCircle2 className="w-4 h-4" />
             <span>Auto-populate AV Script</span>

@@ -578,14 +578,14 @@ export function ScreenplayGenerationDialog({
               <Upload className="w-4 h-4" />
               <span>Upload JSON</span>
             </button>
-            <button
-              onClick={handleCancel}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-              disabled={isGenerating}
+          <button
+            onClick={handleCancel}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+            disabled={isGenerating}
               title="Close"
-            >
-              <X className="w-6 h-6" />
-            </button>
+          >
+            <X className="w-6 h-6" />
+          </button>
           </div>
         </div>
 

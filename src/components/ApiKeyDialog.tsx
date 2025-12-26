@@ -139,24 +139,24 @@ export function ApiKeyDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[95vh] sm:max-h-[90vh] overflow-y-auto m-0 sm:m-4">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b">
-          <div className="flex items-center gap-3">
-            <Key className="w-6 h-6 text-indigo-600" />
-            <h2 className="text-xl font-semibold">Blender Plugin API Configuration</h2>
+        <div className="flex items-center justify-between p-3 sm:p-6 border-b">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <Key className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-600 flex-shrink-0" />
+            <h2 className="text-base sm:text-xl font-semibold truncate">Blender Plugin API Configuration</h2>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            className="text-gray-400 hover:text-gray-600 transition-colors flex-shrink-0 ml-2"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-6">
+        <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
           {/* API Key Section */}
           <div>
             <div className="flex items-center justify-between mb-3">
@@ -394,7 +394,7 @@ export function ApiKeyDialog({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 p-6 border-t bg-gray-50">
+        <div className="flex items-center justify-end gap-3 p-3 sm:p-6 border-t bg-gray-50">
           <Button
             onClick={onClose}
             variant="outline"

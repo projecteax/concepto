@@ -947,11 +947,11 @@ Generate the complete AV script following this format exactly. Maintain the sequ
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[95vh] sm:max-h-[90vh] flex flex-col m-0 sm:m-4">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-xl font-semibold">Auto-populate AV Script</h2>
+        <div className="flex items-center justify-between p-3 sm:p-4 border-b">
+          <h2 className="text-lg sm:text-xl font-semibold">Auto-populate AV Script</h2>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600"
@@ -961,7 +961,7 @@ Generate the complete AV script following this format exactly. Maintain the sequ
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-4">
           {/* Language Selection */}
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-2">

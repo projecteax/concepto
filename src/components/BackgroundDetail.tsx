@@ -258,8 +258,13 @@ export function BackgroundDetail({
 
       {/* Tabs */}
       <div className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <nav className="flex space-x-8">
+        <div className="studio-container">
+          <nav className="flex space-x-4 sm:space-x-8 overflow-x-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+            <style jsx>{`
+              nav::-webkit-scrollbar {
+                display: none;
+              }
+            `}</style>
             {[
               { id: 'general', label: 'General', icon: Mountain },
               { id: 'concepts', label: 'Concepts', icon: ImageIcon },
@@ -268,7 +273,7 @@ export function BackgroundDetail({
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as 'general' | 'concepts' | 'production')}
-                className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm ${
+                className={`flex items-center space-x-2 py-3 sm:py-4 px-1 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap flex-shrink-0 ${
                   activeTab === tab.id
                     ? 'border-indigo-500 text-indigo-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -283,10 +288,10 @@ export function BackgroundDetail({
       </div>
 
       {/* Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="studio-container py-4 sm:py-6 lg:py-8">
         {activeTab === 'general' && (
           <div className="space-y-6">
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Background Information</h2>
               
               <div className="space-y-4">
@@ -311,7 +316,7 @@ export function BackgroundDetail({
               </div>
             </div>
 
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Environment Settings</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
@@ -385,7 +390,7 @@ export function BackgroundDetail({
               </div>
             </div>
 
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Composition Elements</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
@@ -412,7 +417,7 @@ export function BackgroundDetail({
         {activeTab === 'concepts' && (
           <div className="space-y-6">
             {/* Concept Generation */}
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Generate New Background</h2>
               <div className="space-y-4">
                 <div>
@@ -650,7 +655,7 @@ export function BackgroundDetail({
 
         {activeTab === 'production' && (
           <div className="space-y-6">
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Production Notes</h2>
               <div className="space-y-4">
                 <div>

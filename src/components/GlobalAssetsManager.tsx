@@ -143,10 +143,67 @@ export function GlobalAssetsManager({
         }
       />
 
-      <div className="studio-container py-6 sm:py-8">
+      <div className="studio-container py-4 sm:py-6 lg:py-8">
+        {/* Mobile: Horizontal scrollable categories */}
+        <div className="lg:hidden mb-4">
+          <div className="bg-white rounded-lg border border-gray-200 p-3">
+            <nav className="flex space-x-2 overflow-x-auto -mx-3 px-3" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+              <style jsx>{`
+                nav::-webkit-scrollbar {
+                  display: none;
+                }
+              `}</style>
+              <button
+                onClick={() => onSelectCategory('all')}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-2 text-sm rounded-lg whitespace-nowrap transition-colors flex-shrink-0",
+                  selectedCategory === 'all'
+                    ? "bg-indigo-100 text-indigo-700"
+                    : "text-gray-700 bg-gray-50 hover:bg-gray-100"
+                )}
+              >
+                <span>All</span>
+                <span className={cn(
+                  "text-xs px-2 py-0.5 rounded-full",
+                  selectedCategory === 'all' ? "bg-indigo-200 text-indigo-800" : "bg-gray-200 text-gray-600"
+                )}>
+                  {globalAssets.length}
+                </span>
+              </button>
+
+              {Object.entries(categoryLabels).map(([category, label]) => {
+                const Icon = categoryIcons[category as AssetCategory];
+                const count = getCategoryCount(category as AssetCategory);
+                
+                return (
+                  <button
+                    key={category}
+                    onClick={() => onSelectCategory(category as AssetCategory)}
+                    className={cn(
+                      "flex items-center gap-2 px-3 py-2 text-sm rounded-lg whitespace-nowrap transition-colors flex-shrink-0",
+                      selectedCategory === category
+                        ? "bg-indigo-100 text-indigo-700"
+                        : "text-gray-700 bg-gray-50 hover:bg-gray-100"
+                    )}
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span>{label}</span>
+                    <span className={cn(
+                      "text-xs px-2 py-0.5 rounded-full",
+                      selectedCategory === category ? "bg-indigo-200 text-indigo-800" : "bg-gray-200 text-gray-600"
+                    )}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+        </div>
+
         <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
-          {/* Sidebar */}
-          <div className="w-full lg:w-64 flex-shrink-0">
+          {/* Sidebar (Desktop only) */}
+          <div className="hidden lg:block w-64 flex-shrink-0">
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Categories</h2>
               
@@ -198,12 +255,12 @@ export function GlobalAssetsManager({
           {/* Main Content */}
           <div className="flex-1">
             {filteredAssets.length === 0 ? (
-              <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
+              <div className="bg-white rounded-lg border border-gray-200 p-8 sm:p-12 text-center">
                 <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
                   <Plus className="w-8 h-8 text-gray-400" />
                 </div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No assets yet</h3>
-                <p className="text-gray-600 mb-4">
+                <p className="text-gray-600 mb-4 text-sm sm:text-base">
                   {selectedCategory === 'all' 
                     ? 'Create your first global asset to get started.'
                     : `No ${categoryLabels[selectedCategory as AssetCategory]?.toLowerCase()} found.`
@@ -211,22 +268,22 @@ export function GlobalAssetsManager({
                 </p>
                 <button
                   onClick={() => setShowAddForm(true)}
-                  className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors mx-auto"
+                  className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors mx-auto text-sm sm:text-base"
                 >
                   <Plus className="w-4 h-4" />
                   <span>Add Asset</span>
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 gap-4 sm:gap-6 sm:grid-cols-2 lg:grid-cols-3">
                 {sortedAssets.map((asset) => (
                   <div
                     key={asset.id}
                     className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group"
                     onClick={() => onSelectAsset(asset)}
                   >
-                    <div className="p-6">
-                      <div className="relative mb-4">
+                    <div className="p-4 sm:p-6">
+                      <div className="relative mb-3 sm:mb-4">
                         {/* Star (top-left) */}
                         {asset.category === 'character' ? (
                           <button

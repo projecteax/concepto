@@ -1048,13 +1048,18 @@ export function CharacterDetail({
 
       {/* Tabs */}
       <div className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <nav className="flex space-x-8">
+        <div className="studio-container">
+          <nav className="flex space-x-4 sm:space-x-8 overflow-x-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+            <style jsx>{`
+              nav::-webkit-scrollbar {
+                display: none;
+              }
+            `}</style>
             {tabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm ${
+                className={`flex items-center space-x-2 py-3 sm:py-4 px-1 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap flex-shrink-0 ${
                   activeTab === tab.id
                     ? 'border-indigo-500 text-indigo-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -1069,8 +1074,8 @@ export function CharacterDetail({
       </div>
 
       {/* Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
+      <div className="studio-container py-4 sm:py-6 lg:py-8">
+        <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6">
               {/* General Tab */}
               {activeTab === 'general' && (
                 <div className="space-y-6">
@@ -1079,9 +1084,9 @@ export function CharacterDetail({
                   {/* Main Character Image */}
                   <div className="space-y-4">
                     <h4 className="text-lg font-medium text-gray-900">Main Character Image</h4>
-                    <div className="flex items-start space-x-6">
+                    <div className="flex flex-col sm:flex-row items-start gap-4 sm:gap-6">
                       {/* Current Image */}
-                      <div className="flex-shrink-0">
+                      <div className="flex-shrink-0 mx-auto sm:mx-0">
                         {mainImageUrl ? (
                           <div className="relative">
                             <img
@@ -1103,7 +1108,7 @@ export function CharacterDetail({
                       </div>
                       
                       {/* Upload Controls */}
-                      <div className="flex-1">
+                      <div className="flex-1 w-full sm:w-auto">
                         <div className="space-y-3">
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">

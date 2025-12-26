@@ -92,22 +92,22 @@ export function EpisodeList({
         ]}
         subtitle="All episodes for this show"
         actions={
-          <button
-            onClick={() => {
-              setNewEpisodeNumber(getNextEpisodeNumber());
-              setShowAddForm(true);
-            }}
-            className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Episode</span>
-          </button>
+            <button
+              onClick={() => {
+                setNewEpisodeNumber(getNextEpisodeNumber());
+                setShowAddForm(true);
+              }}
+              className="flex items-center space-x-1 sm:space-x-2 px-2 sm:px-4 py-1.5 sm:py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-xs sm:text-base"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">Add Episode</span>
+            </button>
         }
       />
 
-      <div className="container mx-auto px-6 py-8">
+      <div className="px-[5px] sm:container sm:mx-auto sm:px-6 py-4 sm:py-8">
         {episodes.length === 0 ? (
-          <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
+          <div className="bg-white rounded-lg border border-gray-200 p-8 sm:p-12 text-center">
             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <Play className="w-8 h-8 text-gray-400" />
             </div>
@@ -127,75 +127,147 @@ export function EpisodeList({
             </button>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3 sm:space-y-4">
             {sortedEpisodes.map((episode) => (
               <div
                 key={episode.id}
                 className="bg-white rounded-lg border border-gray-200 hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group"
                 onClick={() => onSelectEpisode(episode)}
               >
-                <div className="p-6">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-4 mb-3">
-                        <div className="flex items-center space-x-2">
-                          <div className="w-8 h-8 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-sm font-semibold">
-                            {episode.episodeNumber}
-                          </div>
-                          <h3 className="text-xl font-semibold text-gray-900 group-hover:text-green-600 transition-colors">{episode.title}</h3>
+                <div className="p-4 sm:p-6">
+                  {/* Mobile Layout: Stacked */}
+                  <div className="block sm:hidden space-y-3">
+                    {/* Header: Episode number and title */}
+                    <div className="flex items-center space-x-2">
+                      <div className="w-8 h-8 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0">
+                        {episode.episodeNumber}
+                      </div>
+                      <h3 className="text-lg font-semibold text-gray-900 group-hover:text-green-600 transition-colors flex-1 min-w-0">
+                        {episode.title}
+                      </h3>
+                      <div className="flex items-center space-x-1 flex-shrink-0">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEditEpisode(episode);
+                          }}
+                          className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                          title="Edit episode"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteEpisode(episode.id);
+                          }}
+                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded transition-colors"
+                          title="Delete episode"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Description */}
+                    {episode.description && (
+                      <p className="text-sm text-gray-600 line-clamp-2">{episode.description}</p>
+                    )}
+
+                    {/* Stats: Stack vertically on mobile */}
+                    <div className="flex flex-col space-y-2 text-xs text-gray-500">
+                      <div className="flex items-center space-x-4">
+                        <div className="flex items-center space-x-1">
+                          <Users className="w-4 h-4" />
+                          <span>{episode.characters.length} characters</span>
                         </div>
-                        <div className="flex items-center space-x-4 text-sm text-gray-500">
-                          <div className="flex items-center space-x-1">
-                            <Users className="w-4 h-4" />
-                            <span>{episode.characters.length} characters</span>
-                          </div>
-                          <div className="flex items-center space-x-1">
-                            <MapPin className="w-4 h-4" />
-                            <span>{episode.locations.length} locations</span>
-                          </div>
-                          <div className="flex items-center space-x-1">
-                            <FileText className="w-4 h-4" />
-                            <span>{episode.script ? 'Script ready' : 'No script'}</span>
-                          </div>
+                        <div className="flex items-center space-x-1">
+                          <MapPin className="w-4 h-4" />
+                          <span>{episode.locations.length} locations</span>
+                        </div>
+                        <div className="flex items-center space-x-1">
+                          <FileText className="w-4 h-4" />
+                          <span>{episode.script ? 'Script' : 'No script'}</span>
                         </div>
                       </div>
+                      
+                      {/* Dates */}
+                      <div className="flex flex-col space-y-1">
+                        <div className="flex items-center space-x-1">
+                          <Calendar className="w-3.5 h-3.5" />
+                          <span>Created {formatDate(episode.createdAt)}</span>
+                        </div>
+                        {new Date(episode.updatedAt).getTime() !== new Date(episode.createdAt).getTime() && (
+                          <span className="text-gray-400">Updated {formatDate(episode.updatedAt)}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
 
-                      {episode.description && (
-                        <p className="text-gray-600 mb-4 line-clamp-2">{episode.description}</p>
-                      )}
-
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4 text-sm text-gray-500">
-                          <div className="flex items-center space-x-1">
-                            <Calendar className="w-4 h-4" />
-                            <span>Created {formatDate(episode.createdAt)}</span>
+                  {/* Desktop Layout: Original */}
+                  <div className="hidden sm:block">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-4 mb-3">
+                          <div className="flex items-center space-x-2">
+                            <div className="w-8 h-8 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-sm font-semibold">
+                              {episode.episodeNumber}
+                            </div>
+                            <h3 className="text-xl font-semibold text-gray-900 group-hover:text-green-600 transition-colors">{episode.title}</h3>
                           </div>
-                          {new Date(episode.updatedAt).getTime() !== new Date(episode.createdAt).getTime() && (
-                            <span>Updated {formatDate(episode.updatedAt)}</span>
-                          )}
+                          <div className="flex items-center space-x-4 text-sm text-gray-500">
+                            <div className="flex items-center space-x-1">
+                              <Users className="w-4 h-4" />
+                              <span>{episode.characters.length} characters</span>
+                            </div>
+                            <div className="flex items-center space-x-1">
+                              <MapPin className="w-4 h-4" />
+                              <span>{episode.locations.length} locations</span>
+                            </div>
+                            <div className="flex items-center space-x-1">
+                              <FileText className="w-4 h-4" />
+                              <span>{episode.script ? 'Script ready' : 'No script'}</span>
+                            </div>
+                          </div>
                         </div>
 
-                        <div className="flex items-center space-x-2">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onEditEpisode(episode);
-                            }}
-                            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                            title="Edit episode"
-                          >
-                            <Edit3 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onDeleteEpisode(episode.id);
-                            }}
-                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-lg transition-colors"
-                            title="Delete episode"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                        {episode.description && (
+                          <p className="text-gray-600 mb-4 line-clamp-2">{episode.description}</p>
+                        )}
+
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-4 text-sm text-gray-500">
+                            <div className="flex items-center space-x-1">
+                              <Calendar className="w-4 h-4" />
+                              <span>Created {formatDate(episode.createdAt)}</span>
+                            </div>
+                            {new Date(episode.updatedAt).getTime() !== new Date(episode.createdAt).getTime() && (
+                              <span>Updated {formatDate(episode.updatedAt)}</span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onEditEpisode(episode);
+                              }}
+                              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                              title="Edit episode"
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDeleteEpisode(episode.id);
+                              }}
+                              className="p-2 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-lg transition-colors"
+                              title="Delete episode"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>

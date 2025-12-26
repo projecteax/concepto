@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo, useImperativeHandle, forwardRef } from 'react';
 import { 
   Type, 
   Users, 
@@ -71,6 +71,17 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   const [showEnhanceDialog, setShowEnhanceDialog] = useState(false);
   const [enhanceElementId, setEnhanceElementId] = useState<string | null>(null);
   const [originalContent, setOriginalContent] = useState<{ [key: string]: string }>({});
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Track window size for responsive styles
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 640);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Save language to localStorage when it changes
   useEffect(() => {
@@ -170,42 +181,39 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
 
   // Industry standard formatting for A4 page
   // US Standard screenplay format: 8.5" x 11" with specific margins
-  // On mobile we cap the width to the viewport so the page fits without horizontal scrolling
-  const pageStyles = {
+  // On mobile we use minimal margins (5px) and responsive units
+  const pageStyles = useMemo(() => ({
     width: '100%',
-    maxWidth: '8.5in',
-    minHeight: '11in',
+    maxWidth: isMobile ? '100%' : '8.5in',
+    minHeight: isMobile ? 'auto' : '11in',
     margin: '0 auto',
-    padding: '1in 1in', // 1 inch top/bottom, 1 inch left/right
+    padding: isMobile ? '12px 5px' : '1in 1in', // 5px left/right on mobile, 1 inch on desktop
     backgroundColor: 'white',
-    boxShadow: '0 0 10px rgba(0,0,0,0.1)',
+    boxShadow: isMobile ? 'none' : '0 0 10px rgba(0,0,0,0.1)',
     fontFamily: 'Courier New, monospace',
-    fontSize: '12pt',
+    fontSize: isMobile ? '11pt' : '12pt',
     lineHeight: '1.2',
     position: 'relative' as const,
     direction: 'ltr' as const,
     textAlign: 'left' as const,
     unicodeBidi: 'embed' as const
-  };
+  }), [isMobile]);
 
-  // Industry standard screenplay margins (from left edge of paper, accounting for 1" padding)
-  // Scene Heading: 1.5" left margin, extends to 7.0" (width: ~5.5")
-  // Action: 1.5" left margin, extends to 7.0" (width: ~5.5")
-  // Character: 4.1" left margin, centered (width: ~1.5")
-  // Dialogue: 2.5" left margin, extends to 6.5" (width: ~4.0")
-  // Parenthetical: 3.1" left margin, extends to 5.35" (width: ~2.25")
-  const elementStyles = {
+  // Industry standard screenplay margins (from left edge of paper, accounting for padding)
+  // On mobile: use minimal margins and percentages for responsive layout
+  // On desktop: use industry standard inch-based margins
+  const elementStyles = useMemo(() => ({
     'scene-setting': {
       textTransform: 'uppercase' as const,
       fontWeight: 'bold' as const,
       marginBottom: '0.5em',
       marginTop: '1em',
       textAlign: 'left' as const,
-      marginLeft: '0.5in', // 1.5" from paper edge (1" padding + 0.5" = 1.5")
-      marginRight: '1.0in', // Total right margin 2" (1" padding + 1" = 2")
+      marginLeft: isMobile ? '0' : '0.5in',
+      marginRight: isMobile ? '0' : '1.0in',
       paddingLeft: '0',
       paddingRight: '0',
-      width: '5.5in',
+      width: isMobile ? '100%' : '5.5in',
       direction: 'ltr' as const,
       unicodeBidi: 'embed' as const
     },
@@ -215,11 +223,11 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
       marginBottom: '0.25em',
       marginTop: '0.5em',
       textAlign: 'center' as const,
-      marginLeft: '3.1in', // 4.1" from paper edge (1" padding + 3.1" = 4.1")
-      marginRight: '3.1in', // Symmetrical for centering
+      marginLeft: isMobile ? 'auto' : '3.1in',
+      marginRight: isMobile ? 'auto' : '3.1in',
       paddingLeft: '0',
       paddingRight: '0',
-      width: '1.3in',
+      width: isMobile ? 'auto' : '1.3in',
       direction: 'ltr' as const,
       unicodeBidi: 'embed' as const
     },
@@ -229,11 +237,11 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
       marginBottom: '0.5em',
       marginTop: '0.5em',
       textAlign: 'left' as const,
-      marginLeft: '0.5in', // 1.5" from paper edge (same as scene heading)
-      marginRight: '1.0in',
+      marginLeft: isMobile ? '0' : '0.5in',
+      marginRight: isMobile ? '0' : '1.0in',
       paddingLeft: '0',
       paddingRight: '0',
-      width: '5.5in',
+      width: isMobile ? '100%' : '5.5in',
       lineHeight: '1.2',
       direction: 'ltr' as const,
       unicodeBidi: 'embed' as const
@@ -244,11 +252,11 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
       marginBottom: '0.25em',
       marginTop: '0.25em',
       textAlign: 'left' as const,
-      marginLeft: '2.1in', // 3.1" from paper edge (1" padding + 2.1" = 3.1")
-      marginRight: '2.35in', // 5.35" from paper edge
+      marginLeft: isMobile ? '10%' : '2.1in',
+      marginRight: isMobile ? '10%' : '2.35in',
       paddingLeft: '0',
       paddingRight: '0',
-      width: '2.05in',
+      width: isMobile ? 'auto' : '2.05in',
       fontStyle: 'italic' as const,
       direction: 'ltr' as const,
       unicodeBidi: 'embed' as const
@@ -259,11 +267,11 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
       marginBottom: '0.5em',
       marginTop: '0.25em',
       textAlign: 'left' as const,
-      marginLeft: '1.5in', // 2.5" from paper edge (1" padding + 1.5" = 2.5")
-      marginRight: '1.5in', // 6.5" from paper edge (1" padding + 1.5" = 2.5" right)
+      marginLeft: isMobile ? '5%' : '1.5in',
+      marginRight: isMobile ? '5%' : '1.5in',
       paddingLeft: '0',
       paddingRight: '0',
-      width: '3.5in',
+      width: isMobile ? 'auto' : '3.5in',
       lineHeight: '1.2',
       direction: 'ltr' as const,
       unicodeBidi: 'embed' as const
@@ -274,15 +282,15 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
       marginBottom: '0.5em',
       marginTop: '0.5em',
       textAlign: 'left' as const,
-      marginLeft: '0.5in',
-      marginRight: '1.0in',
+      marginLeft: isMobile ? '0' : '0.5in',
+      marginRight: isMobile ? '0' : '1.0in',
       paddingLeft: '0',
       paddingRight: '0',
-      width: '5.5in',
+      width: isMobile ? '100%' : '5.5in',
       direction: 'ltr' as const,
       unicodeBidi: 'embed' as const
     }
-  };
+  }), [isMobile]);
 
   const elementIcons = {
     'scene-setting': Type,
@@ -1449,7 +1457,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
         {/* Edited indicator and review button */}
         {!isPreviewMode && isEdited && (
           <button
-            className="absolute -right-8 top-0 w-6 h-6 rounded-full bg-yellow-500 border border-yellow-600 text-white flex items-center justify-center shadow-sm hover:bg-yellow-600 z-10"
+            className={`absolute ${isMobile ? 'top-0 right-0' : '-right-8 top-0'} w-6 h-6 rounded-full bg-yellow-500 border border-yellow-600 text-white flex items-center justify-center shadow-sm hover:bg-yellow-600 z-10`}
             title="Mark as reviewed"
             onClick={(e) => { 
               e.stopPropagation(); 
@@ -1462,7 +1470,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
         {/* Comment icon indicator - only when comments exist */}
         {!isPreviewMode && (element.comments && element.comments.length > 0) && !isEdited && (
           <button
-            className="absolute -right-8 top-0 w-6 h-6 rounded-full bg-yellow-100 border border-yellow-300 text-yellow-800 flex items-center justify-center shadow-sm hover:bg-yellow-200"
+            className={`absolute ${isMobile ? 'top-0 right-0' : '-right-8 top-0'} w-6 h-6 rounded-full bg-yellow-100 border border-yellow-300 text-yellow-800 flex items-center justify-center shadow-sm hover:bg-yellow-200 z-10`}
             title={`${element.comments.length} comment${element.comments.length > 1 ? 's' : ''}`}
             onClick={(e) => { e.stopPropagation(); setActiveCommentElementId(element.id); }}
           >
@@ -1471,7 +1479,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
         )}
         {/* Element Type Label - Much Clearer */}
         {!isPreviewMode && isEditing && (
-          <div className="absolute -left-32 top-0 opacity-100 transition-opacity">
+          <div className={`absolute ${isMobile ? 'top-0 left-0' : '-left-32 top-0'} opacity-100 transition-opacity z-10`}>
             <div className={`px-3 py-1 rounded-lg text-sm font-medium text-white ${elementColors[element.type].bg.replace('100', '600')}`}>
               {elementLabels[element.type]}
             </div>
@@ -1542,10 +1550,10 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
 
         {/* Action Buttons - Much Better Design */}
         {!isPreviewMode && isEditing && (
-          <div className={`absolute -right-32 ${dropdownDirection[element.id] === 'up' ? 'bottom-0' : 'top-0'} flex flex-col space-y-2`}>
-            <div className="bg-white border-2 border-gray-300 rounded-lg p-2 shadow-lg">
+          <div className={`absolute ${isMobile ? 'top-full left-0 mt-2 w-full' : `-right-32 ${dropdownDirection[element.id] === 'up' ? 'bottom-0' : 'top-0'}`} flex flex-col space-y-2 z-50`}>
+            <div className={`bg-white border-2 border-gray-300 rounded-lg p-2 shadow-lg ${isMobile ? 'w-full' : ''}`}>
               <div className="text-xs font-semibold text-gray-700 mb-2">Change Type:</div>
-              <div className="flex flex-col space-y-1">
+              <div className={`flex ${isMobile ? 'flex-row flex-wrap' : 'flex-col'} gap-1`}>
                 <button
                   type="button"
                   onMouseDown={(e) => {
@@ -1777,11 +1785,11 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
           )}
 
           <div className="flex-1 overflow-auto">
-            <div className="max-w-4xl mx-auto">
+            <div className={`${isMobile ? 'w-full px-[5px]' : 'max-w-4xl mx-auto'}`}>
           <div
             ref={editorRef}
             style={pageStyles}
-            className="bg-white shadow-2xl"
+            className={`bg-white ${isMobile ? 'shadow-none' : 'shadow-2xl'}`}
           >
 
             {/* Title */}

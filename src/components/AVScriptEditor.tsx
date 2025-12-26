@@ -1815,8 +1815,8 @@ export function AVScriptEditor({
 
       {/* Image Enlargement Modal */}
       {enlargedImage && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50" onClick={() => setEnlargedImage(null)}>
-          <div className="relative max-w-4xl max-h-[90vh] p-4">
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-2 sm:p-4" onClick={() => setEnlargedImage(null)}>
+          <div className="relative max-w-4xl w-full max-h-[95vh] sm:max-h-[90vh] p-2 sm:p-4">
             <button
               onClick={() => setEnlargedImage(null)}
               className="absolute top-2 right-2 bg-black bg-opacity-50 text-white rounded-full p-2 hover:bg-opacity-75 z-10"
@@ -1834,8 +1834,8 @@ export function AVScriptEditor({
       )}
 
       {enlargedVideo && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50" onClick={() => setEnlargedVideo(null)}>
-          <div className="relative max-w-4xl max-h-[90vh] p-4">
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-2 sm:p-4" onClick={() => setEnlargedVideo(null)}>
+          <div className="relative max-w-4xl w-full max-h-[95vh] sm:max-h-[90vh] p-2 sm:p-4">
             <button
               onClick={() => setEnlargedVideo(null)}
               className="absolute top-2 right-2 bg-black bg-opacity-50 text-white rounded-full p-2 hover:bg-opacity-75 z-10"
@@ -1854,10 +1854,10 @@ export function AVScriptEditor({
 
       {/* Prompt Info Modal */}
       {promptModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50" onClick={() => setPromptModal(null)}>
-          <div className="relative max-w-2xl w-full mx-4 bg-white rounded-lg shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="text-lg font-semibold text-gray-900">
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-2 sm:p-4" onClick={() => setPromptModal(null)}>
+          <div className="relative max-w-2xl w-full bg-white rounded-lg shadow-xl m-0 sm:m-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-3 sm:p-4 border-b">
+              <h3 className="text-base sm:text-lg font-semibold text-gray-900">
                 Generation Prompt {promptModal.type === 'image' ? '(Image)' : '(Video)'}
               </h3>
               <button
@@ -1867,7 +1867,7 @@ export function AVScriptEditor({
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-6">
+            <div className="p-3 sm:p-6">
               {promptModal.modelName && (
                 <div className="mb-4">
                   <span className="text-sm font-medium text-gray-700">Model: </span>
@@ -2027,15 +2027,15 @@ export function AVScriptEditor({
 
       {/* Delete Confirmation Modal */}
       {deleteConfirmation && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
-            <div className="flex items-center space-x-3 mb-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-4 sm:p-6 m-0 sm:m-4">
+            <div className="flex items-start space-x-3 mb-4">
               <div className="flex-shrink-0">
                 <AlertTriangle className="w-6 h-6 text-red-600" />
               </div>
-              <div>
-                <h3 className="text-lg font-medium text-gray-900">Confirm Deletion</h3>
-                <p className="text-sm text-gray-500">
+              <div className="min-w-0 flex-1">
+                <h3 className="text-base sm:text-lg font-medium text-gray-900">Confirm Deletion</h3>
+                <p className="text-sm text-gray-500 break-words">
                   Are you sure you want to delete &quot;{deleteConfirmation?.title}&quot;?
                 </p>
               </div>
@@ -2055,7 +2055,7 @@ export function AVScriptEditor({
               {/* Image deletion confirmation removed - images can only be deleted from the popup dialog */}
             </div>
 
-            <div className="flex space-x-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <button
                 onClick={() => {
                   if (deleteConfirmation?.type === 'segment') {
