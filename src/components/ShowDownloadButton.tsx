@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Download, Loader2, ChevronDown, Check } from 'lucide-react';
+import { Download, Loader2, ChevronDown } from 'lucide-react';
 import { Show, GlobalAsset, Episode, EpisodeIdea, GeneralIdea, PlotTheme } from '@/types';
 import { ShowDownloadService, DownloadOptions } from '@/lib/download-service';
 import { cn } from '@/lib/utils';

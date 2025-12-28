@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import jsPDF from 'jspdf';
-import { Show, GlobalAsset, Episode, EpisodeIdea, GeneralIdea, PlotTheme } from '@/types';
+import { Show, GlobalAsset, Episode, EpisodeIdea, GeneralIdea, PlotTheme, AVScript, AVPreviewData, AVShotAudioFile, AVPreviewTrack, AVPreviewClip, ScreenplayData, Character, ScreenplayElement } from '@/types';
 
 export interface DownloadOptions {
   // Show data
@@ -196,11 +196,11 @@ export class ShowDownloadService {
     infoFolder!.file('Show_Information.pdf', pdfBlob);
   }
 
-  private async addPlotThemes(showFolder: JSZip, options: DownloadOptions): Promise<void> {
+  private async addPlotThemes(showFolder: JSZip, _options: DownloadOptions): Promise<void> {
     const themesFolder = showFolder.folder('01_Plot_Themes');
     
     for (const theme of this.plotThemes) {
-      const themeFile = themesFolder!.file(`${theme.name.replace(/[^a-z0-9]/gi, '_')}.txt`, `
+      themesFolder!.file(`${theme.name.replace(/[^a-z0-9]/gi, '_')}.txt`, `
 # ${theme.name}
 
 **Description:** ${theme.description}
@@ -346,7 +346,8 @@ ${this.plotThemes.map(t => `## ${t.name}\n${t.description}\n`).join('\n')}
         
         // Character-specific files
         if (asset.category === 'character') {
-          const char = asset as any; // Type assertion for character-specific fields
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const char = asset as any; // Type assertion for character-specific fields (Character type extends GlobalAsset)
           
           // Character main image
           if (options.includeAssetImages && char.mainImage) {
@@ -431,7 +432,7 @@ ${this.plotThemes.map(t => `## ${t.name}\n${t.description}\n`).join('\n')}
             // Note: Model file names are stored, but actual files might be in S3
             // We'll create a manifest of available models
             const modelManifest = Object.entries(modelFiles)
-              .filter(([_, filename]) => filename)
+              .filter(([, filename]) => filename)
               .map(([type, filename]) => `${type}: ${filename}`)
               .join('\n');
             
@@ -506,7 +507,7 @@ Note: Model files may need to be downloaded separately from your storage service
     }
   }
 
-  private async addEpisodeMetadata(episodeFolder: JSZip, episode: Episode, options: DownloadOptions): Promise<void> {
+  private async addEpisodeMetadata(episodeFolder: JSZip, episode: Episode, _options: DownloadOptions): Promise<void> {
     const metadata = `# Episode ${episode.episodeNumber}: ${episode.title}
 
 **Description:** ${episode.description || 'No description available'}
@@ -534,7 +535,7 @@ ${episode.locations.map(l => `- ${l.locationName}${l.description ? `: ${l.descri
     episodeFolder.file('00_Episode_Metadata.txt', metadata);
   }
 
-  private async addAVScript(episodeFolder: JSZip, avScript: any, options: DownloadOptions): Promise<void> {
+  private async addAVScript(episodeFolder: JSZip, avScript: AVScript, options: DownloadOptions): Promise<void> {
     const avScriptFolder = episodeFolder.folder('01_AV_Script');
     
     // Main AV Script info
@@ -594,7 +595,7 @@ ${episode.locations.map(l => `- ${l.locationName}${l.description ? `: ${l.descri
 **Main Video:** ${shot.videoUrl || 'Not available'}
 
 **Audio Files:**
-${shot.audioFiles?.map((af: any) => `- ${af.voiceName || 'audio_file'}: ${af.audioUrl || 'No URL'}`).join('\n') || 'None'}
+${shot.audioFiles?.map((af: AVShotAudioFile) => `- ${af.voiceName || 'audio_file'}: ${af.audioUrl || 'No URL'}`).join('\n') || 'None'}
             `;
             
             shotsFolder!.file(`Shot_${shot.shotNumber.toString().padStart(3, '0')}_Info.txt`, shotInfo);
@@ -725,7 +726,7 @@ ${shot.audioFiles?.map((af: any) => `- ${af.voiceName || 'audio_file'}: ${af.aud
     }
   }
 
-  private async addAVPreviewData(episodeFolder: JSZip, avPreviewData: any): Promise<void> {
+  private async addAVPreviewData(episodeFolder: JSZip, avPreviewData: AVPreviewData): Promise<void> {
     const previewFolder = episodeFolder.folder('02_AV_Preview_Data');
     
     const tracksInfo = `
@@ -733,7 +734,7 @@ ${shot.audioFiles?.map((af: any) => `- ${af.voiceName || 'audio_file'}: ${af.aud
 
 **Audio Tracks:** ${avPreviewData.audioTracks?.length || 0}
 
-${avPreviewData.audioTracks?.map((track: any, idx: number) => `
+${avPreviewData.audioTracks?.map((track: AVPreviewTrack, idx: number) => `
 ## Track ${idx + 1}: ${track.name}
 
 **Type:** ${track.type}
@@ -741,7 +742,7 @@ ${avPreviewData.audioTracks?.map((track: any, idx: number) => `
 **Volume:** ${track.volume || 100}%
 **Clips:** ${track.clips?.length || 0}
 
-${track.clips?.map((clip: any, clipIdx: number) => `
+${track.clips?.map((clip: AVPreviewClip, clipIdx: number) => `
 ### Clip ${clipIdx + 1}
 - Name: ${clip.name}
 - URL: ${clip.url}
@@ -759,7 +760,7 @@ ${track.clips?.map((clip: any, clipIdx: number) => `
     previewFolder!.file('AV_Preview_Data.json', JSON.stringify(avPreviewData, null, 2));
   }
 
-  private async addScreenplayData(episodeFolder: JSZip, screenplayData: any): Promise<void> {
+  private async addScreenplayData(episodeFolder: JSZip, screenplayData: ScreenplayData): Promise<void> {
     const screenplayFolder = episodeFolder.folder('03_Screenplay');
     
     // Polish screenplay
@@ -788,7 +789,7 @@ ${track.clips?.map((clip: any, clipIdx: number) => `
     `);
   }
 
-  private formatScreenplay(elements: any[], title: string): string {
+  private formatScreenplay(elements: ScreenplayElement[] | undefined, title: string): string {
     let screenplay = `TITLE: ${title}\n\n`;
     
     for (const element of elements.sort((a, b) => a.position - b.position)) {
@@ -941,11 +942,11 @@ ${scene.script || 'No script available'}
     }
   }
 
-  private async addEpisodeIdeas(showFolder: JSZip, options: DownloadOptions): Promise<void> {
+  private async addEpisodeIdeas(showFolder: JSZip, _options: DownloadOptions): Promise<void> {
     const ideasFolder = showFolder.folder('04_Episode_Ideas');
     
     for (const idea of this.episodeIdeas) {
-      const ideaFile = ideasFolder!.file(`${idea.title.replace(/[^a-z0-9]/gi, '_')}.txt`, `
+      ideasFolder!.file(`${idea.title.replace(/[^a-z0-9]/gi, '_')}.txt`, `
 # ${idea.title}
 
 **Description:** ${idea.description || 'No description available'}
@@ -991,14 +992,14 @@ ${scene.script || 'No script available'}
     }
   }
 
-  private async addAssetDescription(assetFolder: JSZip, asset: GlobalAsset, options: DownloadOptions): Promise<void> {
+  private async addAssetDescription(assetFolder: JSZip, asset: GlobalAsset, _options: DownloadOptions): Promise<void> {
     const description = `
 # ${asset.name}
 
 **Category:** ${asset.category}
 **Description:** ${asset.description || 'No description available'}
 
-${asset.category === 'character' && (asset as any).isMainCharacter ? '**Main Character:** Yes\n' : ''}
+${asset.category === 'character' && (asset as Character).isMainCharacter ? '**Main Character:** Yes\n' : ''}
 
 **Created:** ${this.formatDate(asset.createdAt)}
 **Updated:** ${this.formatDate(asset.updatedAt)}
