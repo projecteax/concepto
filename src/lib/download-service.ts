@@ -792,6 +792,10 @@ ${track.clips?.map((clip: AVPreviewClip, clipIdx: number) => `
   private formatScreenplay(elements: ScreenplayElement[] | undefined, title: string): string {
     let screenplay = `TITLE: ${title}\n\n`;
     
+    if (!elements || elements.length === 0) {
+      return screenplay;
+    }
+    
     for (const element of elements.sort((a, b) => a.position - b.position)) {
       switch (element.type) {
         case 'scene-setting':
