@@ -571,6 +571,7 @@ export function ShowDashboard({
                       episodes={episodes}
                       episodeIdeas={episodeIdeas}
                       generalIdeas={generalIdeas}
+                      plotThemes={plotThemes}
                     />
                   </div>
                 )}

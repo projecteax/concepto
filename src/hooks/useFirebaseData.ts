@@ -26,9 +26,9 @@ export function useFirebaseData() {
       setLoading(true);
       setError(null);
       
-      // Add timeout to prevent infinite loading
+      // Add timeout to prevent infinite loading (increased to 60 seconds to handle demo data setup)
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Loading timeout')), 10000)
+        setTimeout(() => reject(new Error('Loading timeout - operation took longer than 60 seconds')), 60000)
       );
       
       const loadPromise = async () => {
@@ -45,11 +45,18 @@ export function useFirebaseData() {
         // If no shows exist, then set up demo data
         if (showsData.length === 0) {
           console.log('No shows found, setting up demo data...');
-          await setupDemoData();
-          // Reload shows after demo data setup
-          const updatedShowsData = await showService.getAll();
-          console.log('Loaded shows after demo setup:', updatedShowsData.length);
-          setShows(updatedShowsData);
+          try {
+            await setupDemoData();
+            console.log('Demo data setup completed');
+            // Reload shows after demo data setup
+            const updatedShowsData = await showService.getAll();
+            console.log('Loaded shows after demo setup:', updatedShowsData.length);
+            setShows(updatedShowsData);
+          } catch (demoError) {
+            console.error('Error setting up demo data:', demoError);
+            // Continue even if demo data setup fails - shows array will be empty
+            throw demoError;
+          }
         }
       };
       
