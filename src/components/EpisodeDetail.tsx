@@ -1278,7 +1278,23 @@ export default function EpisodeDetail({
             {tabs.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as 'overview' | 'av-script' | 'av-preview' | 'av-editing' | 'screenwriting' | 'characters' | 'locations' | 'gadgets')}
+                onClick={() => {
+                  if (tab.id === 'av-preview') {
+                    // Open AV Preview in a new popup window
+                    const basePath = isPublicMode ? '/public' : '/app';
+                    const url = `${basePath}/shows/${show.id}/episodes/${episode.id}/av-preview`;
+                    const popup = window.open(
+                      url,
+                      'AVPreview',
+                      'width=1920,height=1080,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=no'
+                    );
+                    if (popup) {
+                      popup.focus();
+                    }
+                  } else {
+                    setActiveTab(tab.id as 'overview' | 'av-script' | 'av-preview' | 'av-editing' | 'screenwriting' | 'characters' | 'locations' | 'gadgets');
+                  }
+                }}
                 className={`py-3 sm:py-4 px-1 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap ${
                   activeTab === tab.id
                     ? 'border-indigo-500 text-indigo-600'
@@ -1620,26 +1636,6 @@ export default function EpisodeDetail({
           </div>
         )}
 
-        {activeTab === 'av-preview' && (
-          <div className="bg-white rounded-lg shadow-sm">
-            <AVPreview
-              episodeId={episode.id}
-              avScript={localEpisode.avScript}
-              avPreviewData={localEpisode.avPreviewData}
-              globalAssets={globalAssets}
-              onSave={(avPreviewData, updatedAvScript) => {
-                let updatedEpisode = { ...localEpisode, avPreviewData };
-                
-                if (updatedAvScript) {
-                  updatedEpisode = { ...updatedEpisode, avScript: updatedAvScript };
-                }
-                
-                // Use updateEpisodeAndSave to immediately update localEpisode state
-                updateEpisodeAndSave(updatedEpisode, true); // Immediate save for manual save button
-              }}
-            />
-          </div>
-        )}
 
         {activeTab === 'av-editing' && (
           <div className="bg-white rounded-lg shadow-sm">
