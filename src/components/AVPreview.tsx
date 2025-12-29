@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import { Episode, AVScript, AVPreviewData, AVPreviewTrack, GlobalAsset, AVShot, AVSegment, AVPreviewClip } from '@/types';
-import { Play, Pause, Save, Upload, Plus, Trash2, Volume2, VolumeX, Music, Mic, Image as ImageIcon, Film, SkipBack, GripVertical, Video, Loader2, Download, Edit3, GripVertical as DragHandle } from 'lucide-react';
+import { Play, Pause, Save, Upload, Plus, Trash2, Volume2, VolumeX, Music, Mic, Image as ImageIcon, Film, SkipBack, GripVertical, Video, Loader2, Download, Edit3, GripVertical as DragHandle, ChevronLeft, ChevronRight, Maximize, Scissors } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { useSessionStorageState } from '@/hooks/useSessionStorageState';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
@@ -98,6 +99,7 @@ export function AVPreview({
     trackId: string;
     startX: number;
     originalStartTime: number;
+    targetTrackId?: string; // Track being dragged over
   } | null>(null);
 
   // Track renaming state
@@ -142,6 +144,10 @@ export function AVPreview({
 
   // Video clip selection and drag state
   const [selectedVideoClips, setSelectedVideoClips] = useState<Set<string>>(new Set());
+  
+  // Stable array representations for dependency arrays (Sets can't be used directly)
+  const selectedClipsArray = useMemo(() => Array.from(selectedClips).sort().join(','), [selectedClips]);
+  const selectedVideoClipsArray = useMemo(() => Array.from(selectedVideoClips).sort().join(','), [selectedVideoClips]);
   const [videoDragState, setVideoDragState] = useState<{
     clipId: string;
     startX: number;
@@ -152,7 +158,9 @@ export function AVPreview({
     originalStartTimes: {[clipId: string]: number};
   } | null>(null);
   // Store custom start times for video clips (overrides sequential calculation)
-  const [videoClipStartTimes, setVideoClipStartTimes] = useState<{[clipId: string]: number}>({});
+  const [videoClipStartTimes, setVideoClipStartTimes] = useState<{[clipId: string]: number}>(
+    avPreviewData?.videoClipStartTimes || {}
+  );
 
   // Track reordering state
   const [trackDragState, setTrackDragState] = useState<{
@@ -160,6 +168,27 @@ export function AVPreview({
     startY: number;
     originalIndex: number;
   } | null>(null);
+
+  // Rectangular selection state
+  const [selectionState, setSelectionState] = useState<{
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+  } | null>(null);
+
+  // Fullscreen state
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Razor tool state
+  const [isRazorMode, setIsRazorMode] = useState(false);
+  const [razorMouseX, setRazorMouseX] = useState<number | null>(null);
+
+  // Playhead drag state
+  const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false);
+
+  // Save notification state
+  const [saveNotification, setSaveNotification] = useState<{message: string; timestamp: Date} | null>(null);
 
   // Undo/Redo history
   interface HistoryState {
@@ -220,6 +249,52 @@ export function AVPreview({
       historyRef.current = { history: [initialState], index: 0 };
     }
   }, []);
+
+  // Periodic auto-save every minute
+  useEffect(() => {
+    const autoSaveInterval = setInterval(() => {
+      if (!avScript) return;
+      
+      // Construct updated AV Script with new durations and offsets
+      const updatedAvScript = {
+        ...avScript,
+        segments: avScript.segments.map(seg => ({
+          ...seg,
+          shots: seg.shots.map(shot => {
+            const edit = clipEdits[shot.id];
+            const newDuration = edit?.duration ?? shot.duration;
+            const newOffset = edit?.offset ?? shot.videoOffset ?? 0;
+            return {
+              ...shot,
+              duration: newDuration,
+              videoOffset: newOffset
+            };
+          })
+        })),
+        updatedAt: new Date()
+      };
+
+      const avPreviewData: AVPreviewData = {
+        audioTracks: tracks,
+        videoClipStartTimes: videoClipStartTimes
+      };
+
+      onSave(avPreviewData, updatedAvScript);
+      
+      // Show save notification
+      setSaveNotification({
+        message: 'Saved at:',
+        timestamp: new Date()
+      });
+      
+      // Hide notification after 3 seconds
+      setTimeout(() => {
+        setSaveNotification(null);
+      }, 3000);
+    }, 60000); // Auto-save every 60 seconds (1 minute)
+
+    return () => clearInterval(autoSaveInterval);
+  }, [avScript, tracks, clipEdits, videoClipStartTimes, onSave]);
 
   // Initialize history with current state on mount
   useEffect(() => {
@@ -537,7 +612,7 @@ export function AVPreview({
   }, [currentTime, isPlaying, currentVisualClip, tracks, mutedShots]);
 
   // Handlers
-  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement> | MouseEvent) => {
     // Don't seek if we're resizing or if the click is on a clip
     if (resizeState) return;
     if ((e.target as HTMLElement).closest('[data-resize-handle]')) return;
@@ -691,12 +766,24 @@ export function AVPreview({
       };
 
       const avPreviewData: AVPreviewData = {
-        audioTracks: tracks
+        audioTracks: tracks,
+        videoClipStartTimes: videoClipStartTimes
       };
 
       onSave(avPreviewData, updatedAvScript);
+      
+      // Show save notification
+      setSaveNotification({
+        message: 'Saved at:',
+        timestamp: new Date()
+      });
+      
+      // Hide notification after 3 seconds
+      setTimeout(() => {
+        setSaveNotification(null);
+      }, 3000);
     }, 1000); // Auto-save after 1 second of inactivity
-  }, [tracks, clipEdits, avScript, onSave]);
+  }, [tracks, clipEdits, avScript, onSave, videoClipStartTimes]);
 
   const handleRemoveClip = (trackId: string, clipId: string) => {
       setClipToDelete({ trackId, clipId });
@@ -870,9 +957,21 @@ export function AVPreview({
     }
   }, [triggerAutoSave]);
 
-  // Keyboard shortcuts for undo/redo
+  // Keyboard shortcuts for undo/redo and spacebar play/pause
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't handle if user is typing in an input field
+      if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
+        return;
+      }
+
+      // Spacebar for play/pause
+      if (e.key === ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        setIsPlaying(prev => !prev);
+        return;
+      }
+
       // Ctrl+Z or Cmd+Z for undo
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
@@ -883,15 +982,47 @@ export function AVPreview({
         e.preventDefault();
         handleRedo();
       }
-      // Escape to clear selection
-      if (e.key === 'Escape' && selectedClips.size > 0) {
-        setSelectedClips(new Set());
+      // C key for razor/cut tool toggle
+      if (e.key === 'c' || e.key === 'C') {
+        if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          setIsRazorMode(prev => !prev);
+          return;
+        }
+      }
+
+      // K key to split all clips at playhead (common in video editors)
+      if ((e.key === 'k' || e.key === 'K') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        // Split all audio clips that intersect with current time
+        tracks.forEach(track => {
+          track.clips.forEach(clip => {
+            if (currentTime > clip.startTime && currentTime < clip.startTime + clip.duration) {
+              handleSplitAudioClip(track.id, clip.id, currentTime);
+            }
+          });
+        });
+        return;
+      }
+
+      // Escape to clear selection and exit razor mode
+      if (e.key === 'Escape') {
+        if (selectedClips.size > 0 || selectedVideoClips.size > 0) {
+          setSelectedClips(new Set());
+          setSelectedVideoClips(new Set());
+        }
+        if (selectionState) {
+          setSelectionState(null);
+        }
+        if (isRazorMode) {
+          setIsRazorMode(false);
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo, selectedClips]);
+  }, [handleUndo, handleRedo, selectedClipsArray, selectedVideoClipsArray, selectionState, isRazorMode, currentTime, tracks]);
 
   // Start dragging audio clip
   const handleAudioClipMouseDown = (e: React.MouseEvent, clip: AVPreviewClip, trackId: string) => {
@@ -970,7 +1101,9 @@ export function AVPreview({
       });
       
       // Set up for mixed drag - both handlers will be active
-      // Video handler will track video clips, audio handler will track audio clips
+      // Audio handler initiated the drag, so it's the master
+      mixedDragMasterRef.current = 'audio';
+      
       setVideoMultiDragState({
         startX: e.clientX,
         originalStartTimes: videoOriginalStartTimes
@@ -1036,6 +1169,24 @@ export function AVPreview({
   useEffect(() => {
     audioDragStateRef.current = audioDragState;
   }, [audioDragState]);
+  
+  // Ref for video drag state to check in audio handler RAF callbacks
+  const videoDragStateRefForAudio = useRef(videoDragState);
+  useEffect(() => {
+    videoDragStateRefForAudio.current = videoDragState;
+  }, [videoDragState]);
+  
+  // Ref for audio drag state to check in video handler RAF callbacks
+  const audioDragStateRefForVideo = useRef(audioDragState);
+  useEffect(() => {
+    audioDragStateRefForVideo.current = audioDragState;
+  }, [audioDragState]);
+  
+  // Track which handler initiated the drag in mixed selection (for coordination)
+  const mixedDragMasterRef = useRef<'audio' | 'video' | null>(null);
+  
+  // Shared delta time for mixed selection - ensures perfect sync between video and audio
+  const sharedDeltaTimeRef = useRef<number>(0);
 
   useEffect(() => {
     if (!audioDragState) {
@@ -1050,27 +1201,53 @@ export function AVPreview({
     if (!currentDragState) return;
 
     // Get all clip DOM elements that need to be moved
+    // CRITICAL: Store element references immediately and keep them throughout drag
+    // This ensures clips don't disappear even if React re-renders
     const clipElements = new Map<string, HTMLElement>();
     const currentMultiDrag = multiDragState;
     
-    if (selectedClips.size > 1 && selectedClips.has(currentDragState.clipId) && currentMultiDrag) {
-      // Multi-select: get all selected clip elements
-      selectedClips.forEach(clipId => {
-        const el = document.querySelector(`[data-clip-id="${clipId}"]`) as HTMLElement;
+    // Function to find and store clip elements
+    // CRITICAL: For multi-select, we need to find ALL selected clips, not just the one being dragged
+    const findAndStoreClipElements = () => {
+      const isMultiSelect = selectedClips.size > 1 && selectedClips.has(currentDragState.clipId);
+      
+      if (isMultiSelect) {
+        // Multi-select: get all selected clip elements
+        // Don't require currentMultiDrag to be set - we'll find elements regardless
+        selectedClips.forEach(clipId => {
+          // Try to find element - check all tracks since clip might be in any track
+          const el = document.querySelector(`[data-clip-id="${clipId}"]`) as HTMLElement;
+          if (el) {
+            clipElements.set(clipId, el);
+            el.style.willChange = 'transform';
+            el.style.zIndex = '200';
+            el.style.pointerEvents = 'none'; // Prevent interference during drag
+          }
+        });
+      } else {
+        // Single clip: get just this clip element
+        const el = document.querySelector(`[data-clip-id="${currentDragState.clipId}"]`) as HTMLElement;
         if (el) {
-          clipElements.set(clipId, el);
+          clipElements.set(currentDragState.clipId, el);
           el.style.willChange = 'transform';
-          el.style.zIndex = '100';
+          el.style.zIndex = '200';
+          el.style.pointerEvents = 'none'; // Prevent interference during drag
         }
-      });
-    } else {
-      // Single clip: get just this clip element
-      const el = document.querySelector(`[data-clip-id="${currentDragState.clipId}"]`) as HTMLElement;
-      if (el) {
-        clipElements.set(currentDragState.clipId, el);
-        el.style.willChange = 'transform';
-        el.style.zIndex = '100';
       }
+    };
+    
+    // Initial element capture
+    findAndStoreClipElements();
+    
+    // If we didn't find all elements (especially for multi-select), try again
+    const expectedCount = selectedClips.size > 1 && selectedClips.has(currentDragState.clipId) 
+      ? selectedClips.size 
+      : 1;
+    if (clipElements.size < expectedCount) {
+      // Wait for next frame and try again
+      requestAnimationFrame(() => {
+        findAndStoreClipElements();
+      });
     }
 
     // Store original left positions (from computed styles, not getBoundingClientRect for better performance)
@@ -1093,6 +1270,32 @@ export function AVPreview({
       const currentDragState = audioDragStateRef.current;
       if (!currentDragState) return;
       
+      // Detect which track the mouse is over - use a more stable approach
+      // Check multiple points to avoid flickering when moving between tracks
+      let targetTrackId: string | undefined = undefined;
+      const checkPoints = [
+        { x: e.clientX, y: e.clientY },
+        { x: e.clientX, y: e.clientY - 5 },
+        { x: e.clientX, y: e.clientY + 5 }
+      ];
+      
+      for (const point of checkPoints) {
+        const elementUnderMouse = document.elementFromPoint(point.x, point.y);
+        const trackElement = elementUnderMouse?.closest('[data-track-id]') as HTMLElement;
+        if (trackElement?.dataset.trackId) {
+          targetTrackId = trackElement.dataset.trackId;
+          break; // Use first valid track found
+        }
+      }
+      
+      // Update target track if different (using ref to avoid re-renders)
+      // Only update if it actually changed to prevent unnecessary ref updates
+      if (targetTrackId && targetTrackId !== currentDragState.trackId && targetTrackId !== currentDragState.targetTrackId) {
+        audioDragStateRef.current = { ...currentDragState, targetTrackId };
+      } else if (!targetTrackId && currentDragState.targetTrackId !== undefined) {
+        audioDragStateRef.current = { ...currentDragState, targetTrackId: undefined };
+      }
+      
       const deltaX = e.clientX - currentDragState.startX;
       const deltaTime = deltaX / scaleRef.current;
       const newStartTime = Math.max(0, currentDragState.originalStartTime + deltaTime);
@@ -1104,47 +1307,200 @@ export function AVPreview({
 
       // Use RAF for smooth visual updates - NO React state updates during drag
       rafId = requestAnimationFrame(() => {
+        // Check if drag state is still valid (might have been cleared by other handler)
+        const currentDragStateCheck = audioDragStateRef.current;
+        if (!currentDragStateCheck) {
+          rafId = null;
+          return;
+        }
+        
         const hasMixedSelection = selectedVideoClips.size > 0 && selectedClips.size > 0;
-        const deltaTimeForAll = newStartTime - currentDragState.originalStartTime;
+        
+        // In mixed selection, check which handler is the master
+        // Only the master handler should update positions
+        if (hasMixedSelection) {
+          const master = mixedDragMasterRef.current;
+          if (master === 'video') {
+            // Video handler is master, so audio handler should NOT update anything
+            rafId = null;
+            return;
+          }
+          // Audio handler is master, continue with updates
+        }
+        
+        // Capture targetTrackId from current drag state to avoid stale ref values
+        const currentTargetTrackId = currentDragStateCheck.targetTrackId;
+        let deltaTimeForAll = newStartTime - currentDragStateCheck.originalStartTime;
+        
+        // CRITICAL: If mixed selection, constrain audio movement by video collision limits
+        // Audio can only move as far as video can move (video clips cannot overlap)
+        if (hasMixedSelection && videoMultiDragState && mixedDragMasterRef.current === 'audio') {
+          // Check video collision constraints first - find the maximum allowed delta
+          let maxAllowedDelta = deltaTimeForAll;
+          let videoCanMove = true;
+          
+          selectedVideoClips.forEach(clipId => {
+            const clip = visualPlaylist.find(c => c.id === clipId);
+            if (clip && videoMultiDragState.originalStartTimes[clipId] !== undefined) {
+              const originalTime = videoMultiDragState.originalStartTimes[clipId];
+              const proposedStart = Math.max(0, originalTime + deltaTimeForAll);
+              const proposedEnd = proposedStart + clip.duration;
+              
+              // Check collision with ALL other video clips (not in selected set)
+              for (const otherClip of visualPlaylist) {
+                if (selectedVideoClips.has(otherClip.id)) continue; // Skip selected clips
+                
+                const otherStart = otherClip.startTime;
+                const otherEnd = otherStart + otherClip.duration;
+                
+                // Check for overlap
+                if (!(proposedEnd <= otherStart || proposedStart >= otherEnd)) {
+                  videoCanMove = false;
+                  // Calculate maximum allowed delta to just touch the blocking clip
+                  const originalEnd = originalTime + clip.duration;
+                  if (deltaTimeForAll > 0) {
+                    // Moving right, blocked by clip on the right
+                    // Can only move until the end touches the start of the blocking clip
+                    const maxDelta = otherStart - originalEnd;
+                    maxAllowedDelta = Math.min(maxAllowedDelta, maxDelta);
+                  } else {
+                    // Moving left, blocked by clip on the left
+                    // Can only move until the start touches the end of the blocking clip
+                    const maxDelta = otherEnd - originalTime;
+                    maxAllowedDelta = Math.max(maxAllowedDelta, maxDelta);
+                  }
+                }
+              }
+            }
+          });
+          
+          // Constrain audio movement to what video can move
+          if (!videoCanMove) {
+            deltaTimeForAll = maxAllowedDelta;
+          }
+        }
         
         // Move audio clips
-        if ((selectedClips.size > 1 || hasMixedSelection) && selectedClips.has(currentDragState.clipId) && currentMultiDrag) {
-          clipElements.forEach((el, clipId) => {
-            if (selectedClips.has(clipId)) {
+        // CRITICAL: Always re-query for elements if they're missing from our map
+        // This handles cases where React re-renders and recreates DOM elements
+        if ((selectedClips.size > 1 || hasMixedSelection) && selectedClips.has(currentDragStateCheck.clipId) && currentMultiDrag) {
+          selectedClips.forEach(clipId => {
+            // Get element from map, or re-query if missing
+            let el = clipElements.get(clipId);
+            if (!el || !document.contains(el)) {
+              const foundEl = document.querySelector(`[data-clip-id="${clipId}"]`) as HTMLElement;
+              if (foundEl) {
+                el = foundEl;
+                clipElements.set(clipId, el);
+                el.style.willChange = 'transform';
+                el.style.zIndex = '200';
+                el.style.pointerEvents = 'none';
+                // Update original left position if we just found it
+                if (!originalLeftPositions.has(clipId)) {
+                  const computedStyle = window.getComputedStyle(el);
+                  const left = parseFloat(computedStyle.left) || 0;
+                  originalLeftPositions.set(clipId, left);
+                }
+              }
+            }
+            
+            if (el && document.contains(el)) {
               const originalTime = currentMultiDrag.originalStartTimes[clipId] ?? 0;
               const newTime = Math.max(0, originalTime + deltaTimeForAll);
               const newLeftPx = newTime * scaleRef.current;
               const originalLeft = originalLeftPositions.get(clipId) || 0;
               const translateX = newLeftPx - originalLeft;
-              el.style.transform = `translateX(${translateX}px)`;
+              
+              // If moving to different track, also adjust Y position
+              // For multi-select, each clip might be from a different source track
+              // Find which track this clip is actually in
+              let sourceTrackId = currentDragStateCheck.trackId;
+              const clipInTracks = tracks.find(t => t.clips.some(c => c.id === clipId));
+              if (clipInTracks) {
+                sourceTrackId = clipInTracks.id;
+              }
+              
+              if (currentTargetTrackId && currentTargetTrackId !== sourceTrackId) {
+                const sourceTrackEl = document.querySelector(`[data-track-id="${sourceTrackId}"]`) as HTMLElement;
+                const targetTrackEl = document.querySelector(`[data-track-id="${currentTargetTrackId}"]`) as HTMLElement;
+                if (sourceTrackEl && targetTrackEl) {
+                  const sourceRect = sourceTrackEl.getBoundingClientRect();
+                  const targetRect = targetTrackEl.getBoundingClientRect();
+                  const deltaY = targetRect.top - sourceRect.top;
+                  el.style.transform = `translateX(${translateX}px) translateY(${deltaY}px)`;
+                } else {
+                  el.style.transform = `translateX(${translateX}px)`;
+                }
+              } else {
+                el.style.transform = `translateX(${translateX}px)`;
+              }
               dragPositions.set(clipId, newTime);
             }
           });
         } else {
-          const el = clipElements.get(currentDragState.clipId);
-          if (el) {
+          // Single clip - get element from map or re-query
+          let el = clipElements.get(currentDragStateCheck.clipId);
+          if (!el || !document.contains(el)) {
+            el = document.querySelector(`[data-clip-id="${currentDragStateCheck.clipId}"]`) as HTMLElement;
+            if (el) {
+              clipElements.set(currentDragStateCheck.clipId, el);
+              el.style.willChange = 'transform';
+              el.style.zIndex = '200';
+              el.style.pointerEvents = 'none';
+              // Update original left position if we just found it
+              if (!originalLeftPositions.has(currentDragStateCheck.clipId)) {
+                const computedStyle = window.getComputedStyle(el);
+                const left = parseFloat(computedStyle.left) || 0;
+                originalLeftPositions.set(currentDragStateCheck.clipId, left);
+              }
+            }
+          }
+          
+          if (el && document.contains(el)) {
             const newLeftPx = newStartTime * scaleRef.current;
-            const originalLeft = originalLeftPositions.get(currentDragState.clipId) || 0;
+            const originalLeft = originalLeftPositions.get(currentDragStateCheck.clipId) || 0;
             const translateX = newLeftPx - originalLeft;
-            el.style.transform = `translateX(${translateX}px)`;
-            dragPositions.set(currentDragState.clipId, newStartTime);
+            
+            // If moving to different track, also adjust Y position
+            if (currentTargetTrackId && currentTargetTrackId !== currentDragStateCheck.trackId) {
+              const sourceTrackEl = document.querySelector(`[data-track-id="${currentDragStateCheck.trackId}"]`) as HTMLElement;
+              const targetTrackEl = document.querySelector(`[data-track-id="${currentTargetTrackId}"]`) as HTMLElement;
+              if (sourceTrackEl && targetTrackEl) {
+                const sourceRect = sourceTrackEl.getBoundingClientRect();
+                const targetRect = targetTrackEl.getBoundingClientRect();
+                const deltaY = targetRect.top - sourceRect.top;
+                el.style.transform = `translateX(${translateX}px) translateY(${deltaY}px)`;
+              } else {
+                el.style.transform = `translateX(${translateX}px)`;
+              }
+            } else {
+              el.style.transform = `translateX(${translateX}px)`;
+            }
+            dragPositions.set(currentDragStateCheck.clipId, newStartTime);
           }
         }
         
         // If mixed selection, also move video clips using the same delta
-        if (hasMixedSelection && videoMultiDragState) {
+        // Only update if audio handler is master (audio handler is primary)
+        // CRITICAL: Use the EXACT same deltaTimeForAll for both audio and video
+        // This ensures perfect synchronization - if audio moves 3s, video moves 3s
+        if (hasMixedSelection && videoMultiDragState && mixedDragMasterRef.current === 'audio') {
+          const syncDeltaTime = deltaTimeForAll; // Use the same delta calculated above
           selectedVideoClips.forEach(clipId => {
             const el = document.querySelector(`[data-clip-id="${clipId}"]`) as HTMLElement;
             if (el && videoMultiDragState.originalStartTimes[clipId] !== undefined) {
               const originalTime = videoMultiDragState.originalStartTimes[clipId];
-              const newTime = Math.max(0, originalTime + deltaTimeForAll);
+              // Use the exact same delta as audio clips - ensures perfect synchronization
+              const newTime = Math.max(0, originalTime + syncDeltaTime);
               const newLeftPx = newTime * scaleRef.current;
               const computedStyle = window.getComputedStyle(el);
               const originalLeft = parseFloat(computedStyle.left) || 0;
               const translateX = newLeftPx - originalLeft;
               el.style.transform = `translateX(${translateX}px)`;
               el.style.willChange = 'transform';
-              el.style.zIndex = '100';
+              el.style.zIndex = '200';
+              // Store position for later use in mouseUp
+              dragPositions.set(clipId, newTime);
             }
           });
         }
@@ -1167,67 +1523,339 @@ export function AVPreview({
       const currentDragState = audioDragStateRef.current;
       if (!currentDragState) return;
 
+      // Detect target track on drop - use the most recent targetTrackId from ref
+      // This ensures we use the track the user was hovering over, not just where they released
+      let finalTargetTrackId = currentDragState.targetTrackId || currentDragState.trackId;
+      
+      // Double-check with elementFromPoint as fallback - check multiple points for better accuracy
+      const checkPoints = [
+        { x: e.clientX, y: e.clientY },
+        { x: e.clientX, y: e.clientY - 10 },
+        { x: e.clientX, y: e.clientY + 10 },
+        { x: e.clientX - 10, y: e.clientY },
+        { x: e.clientX + 10, y: e.clientY }
+      ];
+      
+      for (const point of checkPoints) {
+        const elementUnderMouse = document.elementFromPoint(point.x, point.y);
+        const trackElement = elementUnderMouse?.closest('[data-track-id]') as HTMLElement;
+        if (trackElement?.dataset.trackId) {
+          finalTargetTrackId = trackElement.dataset.trackId;
+          break;
+        }
+      }
+      
+      const targetTrackId = finalTargetTrackId;
+
       const hasMixedSelection = selectedVideoClips.size > 0 && selectedClips.size > 0;
       const deltaX = e.clientX - currentDragState.startX;
       const deltaTime = deltaX / scaleRef.current;
       const newStartTime = Math.max(0, currentDragState.originalStartTime + deltaTime);
       const deltaTimeForAll = newStartTime - currentDragState.originalStartTime;
 
+      // Check if moving to different track
+      const isMovingToDifferentTrack = targetTrackId !== currentDragState.trackId;
+
       if ((selectedClips.size > 1 || hasMixedSelection) && selectedClips.has(currentDragState.clipId) && currentMultiDrag) {
-        // Use dragPositions map if available, otherwise calculate
-        setTracks(prev => prev.map(t => ({
-          ...t,
-          clips: t.clips.map(c => {
-            if (selectedClips.has(c.id)) {
-              const finalTime = dragPositions.get(c.id) ?? (currentMultiDrag.originalStartTimes[c.id] ?? c.startTime) + deltaTimeForAll;
-              return { ...c, startTime: Math.max(0, finalTime) };
+        // Multi-select: move all selected clips
+        // CRITICAL: Do this atomically - build new tracks structure without removing clips first
+        // This prevents clips from disappearing during the state update
+        flushSync(() => {
+          setTracks(prev => {
+            // Build a map of which clips are moving to which tracks
+            // For clips staying on same track, we just update their position
+            const clipsMovingToNewTrack = new Map<string, string>(); // clipId -> targetTrackId
+            const clipsStayingOnTrack = new Set<string>(); // clipId
+            
+            if (isMovingToDifferentTrack) {
+              // The dragged clip is moving to a different track
+              // Check all selected clips to see if they're also moving
+              prev.forEach(track => {
+                track.clips.forEach(clip => {
+                  if (selectedClips.has(clip.id)) {
+                    // Check if this clip's original track is different from targetTrackId
+                    if (track.id !== targetTrackId) {
+                      clipsMovingToNewTrack.set(clip.id, targetTrackId);
+                    } else {
+                      clipsStayingOnTrack.add(clip.id);
+                    }
+                  }
+                });
+              });
+            } else {
+              // All clips are staying on their original tracks, just updating positions
+              prev.forEach(track => {
+                track.clips.forEach(clip => {
+                  if (selectedClips.has(clip.id)) {
+                    clipsStayingOnTrack.add(clip.id);
+                  }
+                });
+              });
             }
-            return c;
-          })
-        })));
+            
+            // Build new tracks structure directly - don't remove clips first
+            return prev.map(t => {
+              if (clipsMovingToNewTrack.size > 0) {
+                // Some clips are moving to different tracks
+                if (t.id === targetTrackId) {
+                  // Target track: add all selected clips that are moving here
+                  const clipsToAdd: AVPreviewClip[] = [];
+                  prev.forEach(sourceTrack => {
+                    if (sourceTrack.id !== targetTrackId) {
+                      sourceTrack.clips.forEach(clip => {
+                        if (selectedClips.has(clip.id) && clipsMovingToNewTrack.has(clip.id)) {
+                          // CRITICAL: Get final time from dragPositions if available (most accurate)
+                          // Otherwise calculate from original time + delta
+                          const finalTime = dragPositions.get(clip.id);
+                          if (finalTime !== undefined) {
+                            clipsToAdd.push({ ...clip, startTime: Math.max(0, finalTime) });
+                          } else {
+                            const originalTime = currentMultiDrag.originalStartTimes[clip.id] ?? clip.startTime;
+                            clipsToAdd.push({ ...clip, startTime: Math.max(0, originalTime + deltaTimeForAll) });
+                          }
+                        }
+                      });
+                    }
+                  });
+                  // Also include clips that were already on this track (not selected or staying)
+                  const existingClips = t.clips.filter(c => !selectedClips.has(c.id) || clipsStayingOnTrack.has(c.id));
+                  // Update positions for clips staying on this track
+                  const updatedExistingClips = existingClips.map(c => {
+                    if (selectedClips.has(c.id) && clipsStayingOnTrack.has(c.id)) {
+                      const finalTime = dragPositions.get(c.id);
+                      if (finalTime !== undefined) {
+                        return { ...c, startTime: Math.max(0, finalTime) };
+                      } else {
+                        const originalTime = currentMultiDrag.originalStartTimes[c.id] ?? c.startTime;
+                        return { ...c, startTime: Math.max(0, originalTime + deltaTimeForAll) };
+                      }
+                    }
+                    return c;
+                  });
+                  return { ...t, clips: [...updatedExistingClips, ...clipsToAdd] };
+                } else {
+                  // Source track: remove clips that are moving away, update clips staying
+                  return {
+                    ...t,
+                    clips: t.clips
+                      .filter(c => !selectedClips.has(c.id) || !clipsMovingToNewTrack.has(c.id))
+                      .map(c => {
+                        if (selectedClips.has(c.id) && clipsStayingOnTrack.has(c.id)) {
+                          // Update position for clips staying on this track
+                          const finalTime = dragPositions.get(c.id);
+                          if (finalTime !== undefined) {
+                            return { ...c, startTime: Math.max(0, finalTime) };
+                          } else {
+                            const originalTime = currentMultiDrag.originalStartTimes[c.id] ?? c.startTime;
+                            return { ...c, startTime: Math.max(0, originalTime + deltaTimeForAll) };
+                          }
+                        }
+                        return c;
+                      })
+                  };
+                }
+              } else {
+                // All clips are staying on their original tracks, just update positions
+                // CRITICAL: Update ALL tracks that contain selected clips, not just targetTrackId
+                // This handles the case where clips are on different tracks
+                const hasSelectedClips = t.clips.some(c => selectedClips.has(c.id));
+                if (hasSelectedClips) {
+                  return {
+                    ...t,
+                    clips: t.clips.map(c => {
+                      if (selectedClips.has(c.id)) {
+                        // CRITICAL: Get final time from dragPositions if available (most accurate)
+                        // Otherwise calculate from original time + delta
+                        const finalTime = dragPositions.get(c.id);
+                        if (finalTime !== undefined) {
+                          return { ...c, startTime: Math.max(0, finalTime) };
+                        } else {
+                          const originalTime = currentMultiDrag.originalStartTimes[c.id] ?? c.startTime;
+                          return { ...c, startTime: Math.max(0, originalTime + deltaTimeForAll) };
+                        }
+                      }
+                      return c;
+                    })
+                  };
+                }
+              }
+              return t;
+            });
+          });
+        });
       } else {
-        const finalTime = dragPositions.get(currentDragState.clipId);
-        if (finalTime !== undefined) {
-          setTracks(prev => prev.map(t =>
-            t.id === currentDragState.trackId ? {
-              ...t,
-              clips: t.clips.map(c =>
-                c.id === currentDragState.clipId ? { ...c, startTime: finalTime } : c
-              )
-            } : t
-          ));
-        }
+        // Single clip
+        // Get final time from dragPositions, or calculate from delta if not available
+        const finalTime = dragPositions.get(currentDragState.clipId) ?? newStartTime;
+        
+        // Use flushSync to ensure synchronous state update so clip doesn't disappear
+        flushSync(() => {
+          setTracks(prev => {
+          if (isMovingToDifferentTrack) {
+            // Move clip to different track
+            const sourceTrack = prev.find(t => t.id === currentDragState.trackId);
+            const targetTrack = prev.find(t => t.id === targetTrackId);
+            
+            if (!sourceTrack || !targetTrack) {
+              console.warn('Source or target track not found', { sourceTrackId: currentDragState.trackId, targetTrackId });
+              return prev;
+            }
+            
+            const clipToMove = sourceTrack.clips.find(c => c.id === currentDragState.clipId);
+            if (!clipToMove) {
+              console.warn('Clip to move not found', { clipId: currentDragState.clipId });
+              return prev;
+            }
+            
+            // Check for collisions on target track (excluding the clip being moved)
+            const proposedEnd = finalTime + clipToMove.duration;
+            const hasCollision = targetTrack.clips.some(existingClip => {
+              // Skip the clip being moved (it might still be in target track if state is stale)
+              if (existingClip.id === currentDragState.clipId) return false;
+              const existingStart = existingClip.startTime;
+              const existingEnd = existingStart + existingClip.duration;
+              return !(proposedEnd <= existingStart || finalTime >= existingEnd);
+            });
+            
+            if (hasCollision) {
+              // Collision detected, don't move - just update position on source track
+              return prev.map(t =>
+                t.id === currentDragState.trackId ? {
+                  ...t,
+                  clips: t.clips.map(c =>
+                    c.id === currentDragState.clipId ? { ...c, startTime: finalTime } : c
+                  )
+                } : t
+              );
+            }
+            
+            // No collision, move the clip to target track
+            // IMPORTANT: Use functional update to ensure we're working with the latest state
+            // Remove from source track first, then add to target track in a single update
+            const newTracks = prev.map(t => {
+              if (t.id === currentDragState.trackId) {
+                // Remove from source track
+                const updatedClips = t.clips.filter(c => c.id !== currentDragState.clipId);
+                return { ...t, clips: updatedClips };
+              }
+              return t;
+            });
+            
+            // Now add to target track
+            return newTracks.map(t => {
+              if (t.id === targetTrackId) {
+                // Add to target track with updated startTime
+                const movedClip = { ...clipToMove, startTime: Math.max(0, finalTime) };
+                return { ...t, clips: [...t.clips, movedClip] };
+              }
+              return t;
+            });
+          } else {
+            // Same track, just update position
+            return prev.map(t =>
+              t.id === currentDragState.trackId ? {
+                ...t,
+                clips: t.clips.map(c =>
+                  c.id === currentDragState.clipId ? { ...c, startTime: finalTime } : c
+                )
+              } : t
+            );
+          }
+          });
+        });
       }
       
       // If mixed selection, also update video clip positions
-      if (hasMixedSelection && videoMultiDragState) {
-        setVideoClipStartTimes(prev => {
-          const updated = { ...prev };
-          selectedVideoClips.forEach(clipId => {
-            const finalTime = dragPositions.get(clipId);
-            if (finalTime !== undefined) {
-              updated[clipId] = finalTime;
-            } else if (videoMultiDragState.originalStartTimes[clipId] !== undefined) {
-              updated[clipId] = Math.max(0, videoMultiDragState.originalStartTimes[clipId] + deltaTimeForAll);
-            }
+      // Only update if audio handler is master (audio handler is primary)
+      if (hasMixedSelection && videoMultiDragState && mixedDragMasterRef.current === 'audio') {
+        // CRITICAL: Use flushSync to ensure state update happens synchronously
+        flushSync(() => {
+          setVideoClipStartTimes(prev => {
+            const updated = { ...prev };
+            selectedVideoClips.forEach(clipId => {
+              // Try to get from dragPositions first (most accurate)
+              const finalTime = dragPositions.get(clipId);
+              if (finalTime !== undefined) {
+                updated[clipId] = finalTime;
+              } else if (videoMultiDragState.originalStartTimes[clipId] !== undefined) {
+                // Fallback: calculate from original time + delta
+                updated[clipId] = Math.max(0, videoMultiDragState.originalStartTimes[clipId] + deltaTimeForAll);
+              }
+            });
+            return updated;
           });
-          return updated;
         });
       }
 
-      // Remove transforms and restore styles
-      clipElements.forEach(el => {
-        el.style.transform = '';
-        el.style.willChange = '';
-        el.style.zIndex = '';
-      });
+      // Remove transforms and restore styles AFTER state update completes
+      // This is especially important when moving clips between tracks
+      // Store clip IDs that were moved for cleanup
+      const movedClipIds = isMovingToDifferentTrack 
+        ? ((selectedClips.size > 1 || hasMixedSelection) && selectedClips.has(currentDragState.clipId) && currentMultiDrag
+            ? Array.from(selectedClips)
+            : [currentDragState.clipId])
+        : [];
+      
+      // Clear transforms and restore pointer events
+      // For clips moved between tracks, wait for React to re-render before clearing
+      if (isMovingToDifferentTrack && movedClipIds.length > 0) {
+        // Clear transforms on old elements (they're about to be removed from DOM)
+        clipElements.forEach(el => {
+          if (el && document.contains(el)) {
+            el.style.transform = '';
+            el.style.willChange = '';
+            el.style.zIndex = '';
+            el.style.pointerEvents = '';
+          }
+        });
+        
+        // After state update, clear transforms on new elements in their new track
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            movedClipIds.forEach(clipId => {
+              const el = document.querySelector(`[data-clip-id="${clipId}"]`) as HTMLElement;
+              if (el) {
+                el.style.transform = '';
+                el.style.willChange = '';
+                el.style.zIndex = '';
+                el.style.pointerEvents = '';
+              }
+            });
+          });
+        });
+      } else {
+        // Same track - clear transforms immediately
+        clipElements.forEach(el => {
+          if (el && document.contains(el)) {
+            el.style.transform = '';
+            el.style.willChange = '';
+            el.style.zIndex = '';
+            el.style.pointerEvents = '';
+          }
+        });
+      }
       
       // Restore text selection
       document.body.style.userSelect = '';
       document.body.style.cursor = '';
       
+      // Clear all drag states - if mixed selection, also clear video drag state
+      const hasMixedSelectionForCleanup = selectedVideoClips.size > 0 && selectedClips.size > 0;
+      if (hasMixedSelectionForCleanup) {
+        // In mixed selection, clear both handlers' states
+        setVideoDragState(null);
+        setVideoMultiDragState(null);
+      }
+      
+      // Clear all drag states
       setAudioDragState(null);
       setMultiDragState(null);
+      // Also clear video drag states if they were set (for mixed selection)
+      if (hasMixedSelection) {
+        setVideoDragState(null);
+        setVideoMultiDragState(null);
+      }
+      mixedDragMasterRef.current = null; // Clear master flag
       saveToHistory(); // Save to history when drag ends
       triggerAutoSave(); // Auto-save when drag ends
     };
@@ -1249,7 +1877,7 @@ export function AVPreview({
       document.body.style.userSelect = '';
       document.body.style.cursor = '';
     };
-  }, [audioDragState, selectedClips, multiDragState, triggerAutoSave, saveToHistory]);
+  }, [audioDragState, selectedClipsArray, multiDragState, triggerAutoSave, saveToHistory, videoDragState, videoMultiDragState, selectedVideoClipsArray]);
 
   // Track reordering handler
   const trackDragStateRef = useRef(trackDragState);
@@ -1608,60 +2236,65 @@ export function AVPreview({
 
       // Use RAF for smooth visual updates - NO React state updates during drag
       rafId = requestAnimationFrame(() => {
+        // Check if drag state is still valid (might have been cleared by other handler)
+        const currentDragStateCheck = videoDragStateRef.current;
+        if (!currentDragStateCheck) {
+          rafId = null;
+          return;
+        }
+        
         // Check if we have mixed selection
         const hasMixedSelection = selectedVideoClips.size > 0 && selectedClips.size > 0;
         
-        // Find all connected clips (chaining behavior for video clips)
-        // ONLY chain clips to the RIGHT of the dragged clip(s)
-        let allClipsToMove = new Set<string>();
-        
-        if (selectedVideoClips.size > 1 || hasMixedSelection) {
-          // Multi-select: find connected clips for each selected clip (only to the right)
-          selectedVideoClips.forEach(selectedClipId => {
-            allClipsToMove.add(selectedClipId);
-            const connected = findConnectedClips(selectedClipId, selectedVideoClips);
-            connected.forEach(id => allClipsToMove.add(id));
-          });
-        } else {
-          // Single clip: only chain to the right
-          allClipsToMove = findConnectedClips(currentDragState.clipId, selectedVideoClips);
+        // In mixed selection, check which handler is the master
+        // Only the master handler should update positions
+        if (hasMixedSelection) {
+          const master = mixedDragMasterRef.current;
+          if (master === 'audio') {
+            // Audio handler is master, so video handler should NOT update anything
+            rafId = null;
+            return;
+          }
+          // Video handler is master, continue with updates
         }
         
-        const deltaTimeForAll = newStartTime - currentDragState.originalStartTime;
+        // CRITICAL: Only move SELECTED clips - no automatic chaining
+        // Only selected clips should move, nothing else
+        const clipsToMove = new Set<string>(selectedVideoClips);
         
-        // Find clips that will be "reached" by the drag (ripple effect)
-        const originalStartTimes: {[clipId: string]: number} = {};
-        allClipsToMove.forEach(clipId => {
-          const clip = visualPlaylist.find(c => c.id === clipId);
-          if (clip) {
-            if (currentMultiDrag && currentMultiDrag.originalStartTimes[clipId] !== undefined) {
-              originalStartTimes[clipId] = currentMultiDrag.originalStartTimes[clipId];
-            } else {
-              originalStartTimes[clipId] = clip.startTime;
-            }
-          }
-        });
+        const deltaTimeForAll = newStartTime - currentDragStateCheck.originalStartTime;
         
-        const reachedClips = findClipsReachedByDrag(allClipsToMove, deltaTimeForAll, originalStartTimes);
-        reachedClips.forEach(id => allClipsToMove.add(id));
-        
-        // For multi-select or mixed-select, calculate delta for all clips
-        if ((selectedVideoClips.size > 1 || hasMixedSelection) && selectedVideoClips.has(currentDragState.clipId) && currentMultiDrag) {
-          // Check collisions for all clips to move (including connected and reached ones)
+        // For multi-select or mixed-select, calculate delta for all selected clips
+        if ((selectedVideoClips.size > 1 || hasMixedSelection) && selectedVideoClips.has(currentDragStateCheck.clipId) && currentMultiDrag) {
+          // Check collisions for all selected clips - prevent movement if there are unselected clips in the way
           let validMove = true;
-          allClipsToMove.forEach(clipId => {
+          clipsToMove.forEach(clipId => {
             const clip = visualPlaylist.find(c => c.id === clipId);
             if (clip) {
               const originalTime = currentMultiDrag.originalStartTimes[clipId] ?? clip.startTime;
               const proposedStart = Math.max(0, originalTime + deltaTimeForAll);
-              if (checkCollisions(proposedStart, clipId, clip.duration, allClipsToMove)) {
-                validMove = false;
+              const proposedEnd = proposedStart + clip.duration;
+              
+              // Check collision with ALL other clips (not in selected set)
+              for (const otherClip of visualPlaylist) {
+                if (clipsToMove.has(otherClip.id)) continue; // Skip selected clips
+                
+                const otherStart = otherClip.startTime;
+                const otherEnd = otherStart + otherClip.duration;
+                
+                // Check for overlap
+                if (!(proposedEnd <= otherStart || proposedStart >= otherEnd)) {
+                  validMove = false;
+                  break;
+                }
               }
+              
+              if (!validMove) return;
             }
           });
 
           if (validMove) {
-            // Move all selected clips
+            // Move all selected clips only
             selectedVideoClips.forEach(clipId => {
               const clip = visualPlaylist.find(c => c.id === clipId);
               const el = clipElements.get(clipId);
@@ -1674,96 +2307,102 @@ export function AVPreview({
                 dragPositions.set(clipId, proposedStart);
               }
             });
-            
-            // Move connected and reached clips that aren't selected
-            allClipsToMove.forEach(clipId => {
-              if (!selectedVideoClips.has(clipId)) {
-                const clip = visualPlaylist.find(c => c.id === clipId);
-                const el = findClipElement(clipId);
-                if (clip && el) {
-                  const originalTime = clip.startTime;
-                  const proposedStart = Math.max(0, originalTime + deltaTimeForAll);
-                  const newLeftPx = proposedStart * scaleRef.current;
-                  const computedStyle = window.getComputedStyle(el);
-                  const originalLeft = parseFloat(computedStyle.left) || 0;
-                  const translateX = newLeftPx - originalLeft;
-                  el.style.transform = `translateX(${translateX}px)`;
-                  el.style.willChange = 'transform';
-                  el.style.zIndex = '100';
-                  dragPositions.set(clipId, proposedStart);
-                }
+          } else {
+            // Collision detected - don't move visually, keep at original position
+            // This prevents the "snapping back" effect
+            selectedVideoClips.forEach(clipId => {
+              const el = clipElements.get(clipId);
+              if (el) {
+                el.style.transform = '';
               }
             });
+            // CRITICAL: If mixed selection, also prevent audio from moving
+            // Audio can only move as far as video can move
+            if (hasMixedSelection) {
+              selectedClips.forEach(clipId => {
+                const el = document.querySelector(`[data-clip-id="${clipId}"]`) as HTMLElement;
+                if (el) {
+                  el.style.transform = '';
+                }
+              });
+            }
+            rafId = null;
+            return; // Don't move audio if video can't move
           }
         } else {
-          // Single clip drag - find connected clips and move them too
-          const deltaTimeForAll = newStartTime - currentDragState.originalStartTime;
-          
-          // Check if we can move the dragged clip and all connected/reached clips
+          // Single clip drag - only move if no collision with unselected clips
           let validMove = true;
-          allClipsToMove.forEach(clipId => {
-            const clip = visualPlaylist.find(c => c.id === clipId);
-            if (clip) {
-              const originalTime = clipId === currentDragState.clipId ? currentDragState.originalStartTime : clip.startTime;
-              const proposedStart = Math.max(0, originalTime + deltaTimeForAll);
-              if (checkCollisions(proposedStart, clipId, clip.duration, allClipsToMove)) {
-                validMove = false;
-              }
+          
+          // Check collision with all other clips (not selected)
+          const proposedEnd = newStartTime + draggedClip.duration;
+          for (const otherClip of visualPlaylist) {
+            if (otherClip.id === currentDragStateCheck.clipId) continue; // Skip self
+            if (selectedVideoClips.has(otherClip.id)) continue; // Skip other selected clips
+            
+            const otherStart = otherClip.startTime;
+            const otherEnd = otherStart + otherClip.duration;
+            
+            // Check for overlap
+            if (!(proposedEnd <= otherStart || newStartTime >= otherEnd)) {
+              validMove = false;
+              break;
             }
-          });
+          }
           
           if (validMove) {
-            // Move the dragged clip
-            const el = clipElements.get(currentDragState.clipId);
+            // Move only the dragged clip
+            const el = clipElements.get(currentDragStateCheck.clipId);
             if (el) {
               const newLeftPx = newStartTime * scaleRef.current;
-              const originalLeft = originalLeftPositions.get(currentDragState.clipId) || 0;
+              const originalLeft = originalLeftPositions.get(currentDragStateCheck.clipId) || 0;
               const translateX = newLeftPx - originalLeft;
               el.style.transform = `translateX(${translateX}px)`;
-              dragPositions.set(currentDragState.clipId, newStartTime);
+              dragPositions.set(currentDragStateCheck.clipId, newStartTime);
             }
-            
-            // Move all connected and reached clips
-            allClipsToMove.forEach(clipId => {
-              if (clipId !== currentDragState.clipId) {
-                const clip = visualPlaylist.find(c => c.id === clipId);
-                const el = findClipElement(clipId);
-                if (clip && el) {
-                  const originalTime = clip.startTime;
-                  const proposedStart = Math.max(0, originalTime + deltaTimeForAll);
-                  const newLeftPx = proposedStart * scaleRef.current;
-                  const computedStyle = window.getComputedStyle(el);
-                  const originalLeft = parseFloat(computedStyle.left) || 0;
-                  const translateX = newLeftPx - originalLeft;
-                  el.style.transform = `translateX(${translateX}px)`;
-                  el.style.willChange = 'transform';
-                  el.style.zIndex = '100';
-                  dragPositions.set(clipId, proposedStart);
+          } else {
+            // Collision detected - don't move visually, keep at original position
+            const el = clipElements.get(currentDragStateCheck.clipId);
+            if (el) {
+              el.style.transform = '';
+            }
+            // CRITICAL: If mixed selection, also prevent audio from moving
+            // Audio can only move as far as video can move
+            if (hasMixedSelection) {
+              selectedClips.forEach(clipId => {
+                const el = document.querySelector(`[data-clip-id="${clipId}"]`) as HTMLElement;
+                if (el) {
+                  el.style.transform = '';
                 }
-              }
-            });
+              });
+            }
+            rafId = null;
+            return; // Don't move audio if video can't move
           }
         }
         
         // If mixed selection, also move audio clips using the same delta
-        if (hasMixedSelection && currentAudioMultiDrag) {
-          // Calculate deltaTime - use the one from the appropriate branch
-          const deltaTimeForAudio = (selectedVideoClips.size > 1 || hasMixedSelection) && currentMultiDrag
-            ? (newStartTime - currentDragState.originalStartTime)
-            : (newStartTime - currentDragState.originalStartTime);
-          
+        // Video handler is primary when dragging from video, so it controls both video and audio
+        // BUT only if video handler is master (to prevent double updates)
+        // CRITICAL: Only move audio if video can move (validMove check above passed)
+        if (hasMixedSelection && currentAudioMultiDrag && mixedDragMasterRef.current === 'video') {
+          // CRITICAL: Use the EXACT same deltaTimeForAll that's used for video clips
+          // This ensures video and audio move in perfect sync - if video moves 3s, audio moves 3s
+          const syncDeltaTime = deltaTimeForAll; // Use the same delta calculated above
           selectedClips.forEach(clipId => {
             const el = document.querySelector(`[data-clip-id="${clipId}"]`) as HTMLElement;
             if (el && currentAudioMultiDrag.originalStartTimes[clipId] !== undefined) {
               const originalTime = currentAudioMultiDrag.originalStartTimes[clipId];
-              const newTime = Math.max(0, originalTime + deltaTimeForAudio);
+              // Use the exact same delta as video clips - ensures perfect synchronization
+              const newTime = Math.max(0, originalTime + syncDeltaTime);
               const newLeftPx = newTime * scaleRef.current;
               const computedStyle = window.getComputedStyle(el);
               const originalLeft = parseFloat(computedStyle.left) || 0;
               const translateX = newLeftPx - originalLeft;
               el.style.transform = `translateX(${translateX}px)`;
               el.style.willChange = 'transform';
-              el.style.zIndex = '100';
+              el.style.zIndex = '200';
+              // CRITICAL: Store audio clip positions in dragPositions so mouseUp can use them
+              dragPositions.set(clipId, newTime);
             }
           });
         }
@@ -1793,48 +2432,35 @@ export function AVPreview({
           const newStartTime = Math.max(0, currentDragState.originalStartTime + deltaTime);
           const deltaTimeForAll = newStartTime - currentDragState.originalStartTime;
           
-          // Find all connected clips that were moved (only to the right)
-          let allClipsToUpdate = new Set<string>();
-          
-          if (selectedVideoClips.size > 1 || hasMixedSelection) {
-            // Multi-select: find connected clips for each selected clip (only to the right)
-            selectedVideoClips.forEach(selectedClipId => {
-              allClipsToUpdate.add(selectedClipId);
-              const connected = findConnectedClips(selectedClipId, selectedVideoClips);
-              connected.forEach(id => allClipsToUpdate.add(id));
-            });
-          } else {
-            // Single clip: only chain to the right
-            allClipsToUpdate = findConnectedClips(currentDragState.clipId, selectedVideoClips);
-          }
-          
-          // Also include clips that were reached during drag
-          const originalStartTimesForReach: {[clipId: string]: number} = {};
-          allClipsToUpdate.forEach(clipId => {
-            const clip = visualPlaylist.find(c => c.id === clipId);
-            if (clip) {
-              if (currentMultiDrag && currentMultiDrag.originalStartTimes[clipId] !== undefined) {
-                originalStartTimesForReach[clipId] = currentMultiDrag.originalStartTimes[clipId];
-              } else {
-                originalStartTimesForReach[clipId] = clip.startTime;
-              }
-            }
-          });
-          const reachedClips = findClipsReachedByDrag(allClipsToUpdate, deltaTimeForAll, originalStartTimesForReach);
-          reachedClips.forEach(id => allClipsToUpdate.add(id));
+          // CRITICAL: Only update SELECTED clips - no automatic chaining
+          const clipsToUpdate = new Set<string>(selectedVideoClips);
           
           if ((selectedVideoClips.size > 1 || hasMixedSelection) && selectedVideoClips.has(currentDragState.clipId) && currentMultiDrag) {
+            // Final collision check for all selected clips
             let validMove = true;
             
-            // Final collision check for all clips (including connected ones)
-            allClipsToUpdate.forEach(clipId => {
+            clipsToUpdate.forEach(clipId => {
               const clip = visualPlaylist.find(c => c.id === clipId);
               if (clip) {
                 const originalTime = currentMultiDrag.originalStartTimes[clipId] ?? clip.startTime;
                 const proposedStart = Math.max(0, originalTime + deltaTimeForAll);
-                if (checkCollisions(proposedStart, clipId, clip.duration, allClipsToUpdate)) {
-                  validMove = false;
+                const proposedEnd = proposedStart + clip.duration;
+                
+                // Check collision with ALL other clips (not in selected set)
+                for (const otherClip of visualPlaylist) {
+                  if (clipsToUpdate.has(otherClip.id)) continue; // Skip selected clips
+                  
+                  const otherStart = otherClip.startTime;
+                  const otherEnd = otherStart + otherClip.duration;
+                  
+                  // Check for overlap
+                  if (!(proposedEnd <= otherStart || proposedStart >= otherEnd)) {
+                    validMove = false;
+                    break;
+                  }
                 }
+                
+                if (!validMove) return;
               }
             });
 
@@ -1842,7 +2468,7 @@ export function AVPreview({
               // Use dragPositions map if available, otherwise calculate
               setVideoClipStartTimes(prev => {
                 const updated = { ...prev };
-                allClipsToUpdate.forEach(clipId => {
+                clipsToUpdate.forEach(clipId => {
                   const finalTime = dragPositions.get(clipId);
                   if (finalTime !== undefined) {
                     updated[clipId] = finalTime;
@@ -1858,72 +2484,89 @@ export function AVPreview({
               });
             }
           } else {
-            // Single clip - update connected clips too (only to the right)
+            // Single clip - only update if no collision
             const finalTime = dragPositions.get(currentDragState.clipId);
-            const connectedClips = findConnectedClips(currentDragState.clipId, selectedVideoClips);
-            if (finalTime !== undefined && !checkCollisions(finalTime, draggedClip.id, draggedClip.duration, connectedClips)) {
-              setVideoClipStartTimes(prev => {
-                const updated = { ...prev };
-                connectedClips.forEach(clipId => {
-                  const clip = visualPlaylist.find(c => c.id === clipId);
-                  if (clip) {
-                    const finalTimeForClip = dragPositions.get(clipId);
-                    if (finalTimeForClip !== undefined) {
-                      updated[clipId] = finalTimeForClip;
-                    } else {
-                      const originalTime = clipId === currentDragState.clipId ? currentDragState.originalStartTime : clip.startTime;
-                      updated[clipId] = Math.max(0, originalTime + deltaTimeForAll);
-                    }
-                  }
-                });
-                return updated;
-              });
+            if (finalTime !== undefined) {
+              // Check collision with all other clips (not selected)
+              let validMove = true;
+              const proposedEnd = finalTime + draggedClip.duration;
+              
+              for (const otherClip of visualPlaylist) {
+                if (otherClip.id === currentDragState.clipId) continue; // Skip self
+                if (selectedVideoClips.has(otherClip.id)) continue; // Skip other selected clips
+                
+                const otherStart = otherClip.startTime;
+                const otherEnd = otherStart + otherClip.duration;
+                
+                // Check for overlap
+                if (!(proposedEnd <= otherStart || finalTime >= otherEnd)) {
+                  validMove = false;
+                  break;
+                }
+              }
+              
+              if (validMove) {
+                setVideoClipStartTimes(prev => ({
+                  ...prev,
+                  [currentDragState.clipId]: finalTime
+                }));
+              }
             }
           }
           
           // If mixed selection, also update audio clip positions
-          if (hasMixedSelection && multiDragState) {
-            setTracks(prev => prev.map(t => ({
-              ...t,
-              clips: t.clips.map(c => {
-                if (selectedClips.has(c.id)) {
-                  // Try to get from dragPositions first, but we need to calculate it
-                  const originalTime = multiDragState.originalStartTimes[c.id];
-                  if (originalTime !== undefined) {
-                    const finalTime = Math.max(0, originalTime + deltaTimeForAll);
-                    return { ...c, startTime: finalTime };
-                  }
-                }
-                return c;
-              })
-            })));
+          // Video handler is primary when dragging from video, so it controls both video and audio
+          // BUT only if video handler is master (to prevent conflicts with audio handler)
+          if (hasMixedSelection && multiDragState && mixedDragMasterRef.current === 'video') {
+            // CRITICAL: Use flushSync to ensure state update happens synchronously
+            flushSync(() => {
+              setTracks(prev => {
+                // Update positions on current tracks - use dragPositions if available
+                return prev.map(t => ({
+                  ...t,
+                  clips: t.clips.map(c => {
+                    if (selectedClips.has(c.id)) {
+                      // CRITICAL: Try to get from dragPositions first (most accurate)
+                      // dragPositions should have been set during drag in the RAF callback
+                      const finalTimeFromDrag = dragPositions.get(c.id);
+                      if (finalTimeFromDrag !== undefined) {
+                        return { ...c, startTime: finalTimeFromDrag };
+                      }
+                      // Fallback: calculate from original time + delta
+                      const originalTime = multiDragState.originalStartTimes[c.id];
+                      if (originalTime !== undefined) {
+                        // Use the exact same deltaTimeForAll as video clips for perfect sync
+                        const finalTime = Math.max(0, originalTime + deltaTimeForAll);
+                        return { ...c, startTime: finalTime };
+                      }
+                    }
+                    return c;
+                  })
+                }));
+              });
+            });
           }
         }
 
-        // Remove transforms and restore styles for all moved clips (including connected ones)
+        // Remove transforms and restore styles for all moved clips (only selected ones)
         clipElements.forEach((el) => {
           el.style.transform = '';
           el.style.willChange = '';
           el.style.zIndex = '';
-        });
-        
-        // Also clean up connected clips that weren't in clipElements
-        const connectedClips = findConnectedClips(currentDragState.clipId, selectedVideoClips);
-        connectedClips.forEach(clipId => {
-          if (!clipElements.has(clipId)) {
-            const el = findClipElement(clipId);
-            if (el) {
-              el.style.transform = '';
-              el.style.willChange = '';
-              el.style.zIndex = '';
-            }
-          }
         });
       }
       
       // Restore text selection
       document.body.style.userSelect = '';
       document.body.style.cursor = '';
+      
+      // Clear all drag states - if mixed selection, also clear audio drag state
+      const hasMixedSelection = selectedVideoClips.size > 0 && selectedClips.size > 0;
+      if (hasMixedSelection) {
+        // In mixed selection, clear both handlers' states
+        setAudioDragState(null);
+        setMultiDragState(null);
+      }
       
       setVideoDragState(null);
       setVideoMultiDragState(null);
@@ -1948,7 +2591,7 @@ export function AVPreview({
       document.body.style.userSelect = '';
       document.body.style.cursor = '';
     };
-  }, [videoDragState, videoMultiDragState, selectedVideoClips, visualPlaylist, scaleRef, triggerAutoSave, saveToHistory, videoClipStartTimes]);
+  }, [videoDragState, videoMultiDragState, selectedVideoClipsArray, visualPlaylist, scaleRef, triggerAutoSave, saveToHistory, videoClipStartTimes, audioDragState, multiDragState, selectedClipsArray]);
 
   // Handle audio clip volume change
   const handleClipVolumeChange = (trackId: string, clipId: string, volume: number) => {
@@ -2273,10 +2916,104 @@ export function AVPreview({
     const handleMouseUp = (e: MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      const wasAudioResize = resizeStateRef.current?.trackId !== undefined;
+      const currentResizeState = resizeStateRef.current;
+      const wasAudioResize = currentResizeState?.trackId !== undefined;
+      
+      // If resizing right edge of video clip, shift all following clips
+      if (currentResizeState && 
+          !wasAudioResize && 
+          currentResizeState.edge === 'right' && 
+          currentResizeState.clipType === 'video') {
+        
+        // Calculate the final duration (same logic as in handleMouseMove)
+        const deltaX = e.clientX - currentResizeState.startX;
+        const deltaSeconds = deltaX / scaleRef.current;
+        let finalDuration = Math.max(0.1, currentResizeState.originalDuration + deltaSeconds);
+        
+        // Enforce max duration if available
+        let maxDuration: number | undefined = undefined;
+        if (currentResizeState.clipType === 'video' && currentResizeState.sourceDuration) {
+          maxDuration = currentResizeState.sourceDuration - currentResizeState.originalOffset;
+        }
+        if (maxDuration !== undefined) {
+          finalDuration = Math.min(finalDuration, maxDuration);
+        }
+        
+        const durationDelta = finalDuration - currentResizeState.originalDuration;
+        
+        if (Math.abs(durationDelta) > 0.01) { // Only shift if there's a meaningful change
+          // Ensure clipEdits is updated with final duration
+          setClipEdits(prev => ({
+            ...prev,
+            [currentResizeState.shotId]: {
+              ...(prev[currentResizeState.shotId] || { duration: currentResizeState.originalDuration, offset: currentResizeState.originalOffset }),
+              duration: finalDuration
+            }
+          }));
+          
+          // Find the clip being resized to get its current start time
+          const resizedClip = visualPlaylist.find(c => c.id === currentResizeState.clipId);
+          if (resizedClip) {
+            // Get the current start time (may be from videoClipStartTimes override)
+            const resizedClipStartTime = videoClipStartTimes[resizedClip.id] !== undefined 
+              ? videoClipStartTimes[resizedClip.id] 
+              : resizedClip.startTime;
+            
+            // Calculate the new end time of the resized clip
+            const resizedClipEndTime = resizedClipStartTime + finalDuration;
+            
+            // Find all clips that come after this clip (sorted by startTime)
+            const sortedClips = [...visualPlaylist].sort((a, b) => {
+              const aStart = videoClipStartTimes[a.id] !== undefined ? videoClipStartTimes[a.id] : a.startTime;
+              const bStart = videoClipStartTimes[b.id] !== undefined ? videoClipStartTimes[b.id] : b.startTime;
+              return aStart - bStart;
+            });
+            const resizedClipIndex = sortedClips.findIndex(c => c.id === currentResizeState.clipId);
+            
+            if (resizedClipIndex !== -1) {
+              // Get all clips after the resized clip
+              const followingClips = sortedClips.slice(resizedClipIndex + 1);
+              
+              if (followingClips.length > 0) {
+                // Get the first following clip's current start time
+                const firstFollowingClip = followingClips[0];
+                const firstFollowingStartTime = videoClipStartTimes[firstFollowingClip.id] !== undefined 
+                  ? videoClipStartTimes[firstFollowingClip.id] 
+                  : firstFollowingClip.startTime;
+                
+                // CRITICAL: Always snap following clips to resized clip's end, even if there's a gap
+                // Calculate shift needed to align first following clip to resized clip's end
+                const shiftNeeded = resizedClipEndTime - firstFollowingStartTime;
+                
+                // Always shift to snap, regardless of whether there's a gap or not
+                // If there's a gap (shiftNeeded < 0), we still snap to eliminate it
+                // If clip is overlapping (shiftNeeded > 0), we snap to eliminate overlap
+                if (Math.abs(shiftNeeded) > 0.01) {
+                  // Shift all following clips to snap to resized clip's end
+                  setVideoClipStartTimes(prev => {
+                    const updated = { ...prev };
+                    followingClips.forEach(clip => {
+                      const currentStartTime = prev[clip.id] !== undefined ? prev[clip.id] : clip.startTime;
+                      const newStartTime = Math.max(resizedClipEndTime, currentStartTime + shiftNeeded);
+                      // Ensure clips don't overlap with the resized clip - snap to end if needed
+                      updated[clip.id] = newStartTime;
+                    });
+                    return updated;
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+      
       setResizeState(null);
       if (wasAudioResize) {
         triggerAutoSave(); // Auto-save after audio clip resize
+      } else {
+        // Save to history for video resize
+        saveToHistory();
+        triggerAutoSave();
       }
     };
 
@@ -2288,7 +3025,7 @@ export function AVPreview({
       document.removeEventListener('mousemove', handleMouseMove, { capture: true });
       document.removeEventListener('mouseup', handleMouseUp, { capture: true });
     };
-  }, [resizeState]);
+  }, [resizeState, visualPlaylist, saveToHistory, triggerAutoSave]);
 
   const handleResizeStart = (e: React.MouseEvent, clip: VisualClip, edge: 'left' | 'right') => {
     e.stopPropagation();
@@ -2395,7 +3132,9 @@ export function AVPreview({
     
     if (hasMixedSelection) {
       // Set up for mixed drag - both handlers will be active
-      // Video handler will track video clips, audio handler will track audio clips
+      // Video handler initiated the drag, so it's the master
+      mixedDragMasterRef.current = 'video';
+      
       const originalStartTimes: {[clipId: string]: number} = {};
       visualPlaylist.forEach(c => {
         if (selectedVideoClips.has(c.id)) {
@@ -2420,6 +3159,20 @@ export function AVPreview({
         startX: e.clientX,
         originalStartTimes: audioOriginalStartTimes
       });
+      
+      // Also set up audio drag state so audio handler knows about the drag
+      const firstAudioClip = tracks.flatMap(t => t.clips).find(c => selectedClips.has(c.id));
+      if (firstAudioClip) {
+        const audioTrack = tracks.find(t => t.clips.some(c => c.id === firstAudioClip.id));
+        if (audioTrack) {
+          setAudioDragState({
+            clipId: firstAudioClip.id,
+            trackId: audioTrack.id,
+            startX: e.clientX,
+            originalStartTime: firstAudioClip.startTime
+          });
+        }
+      }
     } else if (selectedVideoClips.size > 1 && selectedVideoClips.has(clip.id)) {
       // Multiple video clips only
       const originalStartTimes: {[clipId: string]: number} = {};
@@ -2439,6 +3192,304 @@ export function AVPreview({
       startX: e.clientX,
       originalStartTime: clip.startTime
     });
+  };
+
+  // Snap to nearest left/right video clip
+  const handleSnapToNearest = (direction: 'left' | 'right', clipId: string) => {
+    const clip = visualPlaylist.find(c => c.id === clipId);
+    if (!clip) return;
+
+    const sortedClips = [...visualPlaylist].sort((a, b) => a.startTime - b.startTime);
+    const currentIndex = sortedClips.findIndex(c => c.id === clipId);
+    
+    if (direction === 'left') {
+      // Find nearest clip to the left
+      for (let i = currentIndex - 1; i >= 0; i--) {
+        const leftClip = sortedClips[i];
+        const snapTime = leftClip.startTime + leftClip.duration;
+        setVideoClipStartTimes(prev => {
+          const newTimes = {
+            ...prev,
+            [clipId]: snapTime
+          };
+          // Update all selected clips if this one is selected
+          if (selectedVideoClips.has(clipId)) {
+            const deltaTime = snapTime - clip.startTime;
+            selectedVideoClips.forEach(id => {
+              const c = visualPlaylist.find(cl => cl.id === id);
+              if (c) {
+                newTimes[id] = Math.max(0, c.startTime + deltaTime);
+              }
+            });
+          }
+          return newTimes;
+        });
+        saveToHistory(); // Save to history after snapping
+        break;
+      }
+    } else {
+      // Find nearest clip to the right
+      for (let i = currentIndex + 1; i < sortedClips.length; i++) {
+        const rightClip = sortedClips[i];
+        const snapTime = rightClip.startTime - clip.duration;
+        setVideoClipStartTimes(prev => {
+          const newTimes = {
+            ...prev,
+            [clipId]: Math.max(0, snapTime)
+          };
+          // Update all selected clips if this one is selected
+          if (selectedVideoClips.has(clipId)) {
+            const deltaTime = Math.max(0, snapTime) - clip.startTime;
+            selectedVideoClips.forEach(id => {
+              const c = visualPlaylist.find(cl => cl.id === id);
+              if (c) {
+                newTimes[id] = Math.max(0, c.startTime + deltaTime);
+              }
+            });
+          }
+          return newTimes;
+        });
+        saveToHistory(); // Save to history after snapping
+        break;
+      }
+    }
+    triggerAutoSave();
+  };
+
+  // Fullscreen handler
+  const handleFullscreen = async () => {
+    const videoContainer = videoRef.current?.parentElement;
+    if (!videoContainer) return;
+
+    try {
+      if (!document.fullscreenElement) {
+        await videoContainer.requestFullscreen();
+        setIsFullscreen(true);
+      } else {
+        await document.exitFullscreen();
+        setIsFullscreen(false);
+      }
+    } catch (error) {
+      console.error('Fullscreen error:', error);
+    }
+  };
+
+  // Listen for fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  // Rectangular selection handler
+  const handleTimelineMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Don't start selection if clicking on clips, resize handles, or buttons
+    if ((e.target as HTMLElement).closest('[data-clip-container]') ||
+        (e.target as HTMLElement).closest('[data-resize-handle]') ||
+        (e.target as HTMLElement).closest('button')) {
+      return;
+    }
+
+    // Don't start selection if Ctrl/Cmd is held (for deselect)
+    if (e.ctrlKey || e.metaKey) {
+      return;
+    }
+
+    if (!timelineRef.current) return;
+    const rect = timelineRef.current.getBoundingClientRect();
+    const startX = e.clientX - rect.left;
+    const startY = e.clientY - rect.top;
+
+    setSelectionState({
+      startX,
+      startY,
+      currentX: startX,
+      currentY: startY
+    });
+
+    // Clear previous selection
+    setSelectedVideoClips(new Set());
+    setSelectedClips(new Set());
+  };
+
+  const handleTimelineMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!selectionState || !timelineRef.current) return;
+
+    const rect = timelineRef.current.getBoundingClientRect();
+    const currentX = e.clientX - rect.left;
+    const currentY = e.clientY - rect.top;
+
+    setSelectionState(prev => prev ? {
+      ...prev,
+      currentX,
+      currentY
+    } : null);
+
+    // Find clips within selection rectangle
+    const minX = Math.min(selectionState.startX, currentX);
+    const maxX = Math.max(selectionState.startX, currentX);
+    const minY = Math.min(selectionState.startY, currentY);
+    const maxY = Math.max(selectionState.startY, currentY);
+
+    const selectedVideo = new Set<string>();
+    const selectedAudio = new Set<string>();
+
+    // Calculate track Y positions - need to account for "Add Track" row and video track
+    const addTrackRowHeight = 48; // Height of the "Add Track" button row
+    const videoTrackHeight = isCompactMode ? 48 : 112; // h-12 = 48px, h-28 = 112px
+    const videoTrackTop = addTrackRowHeight;
+    const videoTrackBottom = videoTrackTop + videoTrackHeight;
+
+    // Check video clips - clips are positioned relative to their track container (after sidebar)
+    visualPlaylist.forEach(clip => {
+      const clipLeft = clip.startTime * scale + 192; // 192 is the left sidebar width
+      const clipRight = clipLeft + clip.duration * scale;
+      const clipTop = videoTrackTop + 2; // Account for top-2 padding
+      const clipBottom = videoTrackBottom - 2; // Account for bottom-2 padding
+
+      // Check if selection rectangle overlaps with clip (touching counts as overlap)
+      // Selection only needs to touch the clip, not fully cover it
+      if (clipRight > minX && clipLeft < maxX && clipBottom > minY && clipTop < maxY) {
+        selectedVideo.add(clip.id);
+      }
+    });
+
+    // Check audio clips - calculate Y position for each track
+    let trackY = videoTrackBottom; // Start after video track
+    tracks.forEach(track => {
+      const trackHeight = isCompactMode ? 40 : 96; // h-10 = 40px, h-24 = 96px
+      track.clips.forEach(clip => {
+        const clipLeft = clip.startTime * scale + 192; // Account for sidebar
+        const clipRight = clipLeft + clip.duration * scale;
+        const clipTop = trackY + 2; // Account for top-2 padding
+        const clipBottom = trackY + trackHeight - 2; // Account for bottom-2 padding
+
+        // Check if selection rectangle overlaps with clip (touching counts as overlap)
+        // Selection only needs to touch the clip, not fully cover it
+        if (clipRight > minX && clipLeft < maxX && clipBottom > minY && clipTop < maxY) {
+          selectedAudio.add(clip.id);
+        }
+      });
+      trackY += trackHeight;
+    });
+
+    setSelectedVideoClips(selectedVideo);
+    setSelectedClips(selectedAudio);
+  };
+
+  const handleTimelineMouseUp = () => {
+    setSelectionState(null);
+    setIsDraggingPlayhead(false);
+  };
+
+  // Playhead drag handler
+  useEffect(() => {
+    if (!isDraggingPlayhead) {
+      return;
+    }
+
+    const handleMouseMove = (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      if (!timelineRef.current) return;
+      const rect = timelineRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left - 192; 
+      const time = Math.max(0, Math.min(duration, x / scale));
+      setCurrentTime(time);
+      if (isPlaying) {
+        playStartOffsetRef.current = time;
+        playStartTimeRef.current = performance.now();
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingPlayhead(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove, { capture: true, passive: false });
+    document.addEventListener('mouseup', handleMouseUp, { capture: true });
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove, { capture: true });
+      document.removeEventListener('mouseup', handleMouseUp, { capture: true });
+    };
+  }, [isDraggingPlayhead, duration, scale, isPlaying]);
+
+  // Razor tool - split audio clip at specified time
+  const handleSplitAudioClip = (trackId: string, clipId: string, splitTime: number) => {
+    const track = tracks.find(t => t.id === trackId);
+    if (!track) return;
+
+    const clip = track.clips.find(c => c.id === clipId);
+    if (!clip) return;
+
+    // Check if split time is within clip bounds
+    if (splitTime <= clip.startTime || splitTime >= clip.startTime + clip.duration) {
+      return; // Can't split outside clip bounds
+    }
+
+    // Calculate split point relative to clip start
+    const timeInClip = splitTime - clip.startTime;
+    
+    // First clip: from start to split point
+    const firstClip: AVPreviewClip = {
+      ...clip,
+      id: `${clip.id}-split-1-${Date.now()}`,
+      duration: timeInClip,
+      // offset stays the same
+    };
+
+    // Second clip: from split point to end
+    const secondClip: AVPreviewClip = {
+      ...clip,
+      id: `${clip.id}-split-2-${Date.now()}`,
+      startTime: splitTime,
+      duration: clip.duration - timeInClip,
+      offset: clip.offset + timeInClip, // Adjust offset to account for split
+    };
+
+    // Copy waveform data if available (we'll need to split it too)
+    const originalWaveform = waveformData[clip.id];
+    if (originalWaveform) {
+      const samplesPerSecond = originalWaveform.length / clip.duration;
+      const splitIndex = Math.floor(timeInClip * samplesPerSecond);
+      
+      setWaveformData(prev => {
+        const newData = { ...prev };
+        newData[firstClip.id] = originalWaveform.slice(0, splitIndex);
+        newData[secondClip.id] = originalWaveform.slice(splitIndex);
+        return newData;
+      });
+    }
+
+    // Update tracks - replace original clip with two new clips
+    setTracks(prev => prev.map(t => {
+      if (t.id !== trackId) return t;
+      
+      const clipIndex = t.clips.findIndex(c => c.id === clipId);
+      if (clipIndex === -1) return t;
+
+      const newClips = [...t.clips];
+      newClips.splice(clipIndex, 1, firstClip, secondClip);
+      
+      return {
+        ...t,
+        clips: newClips
+      };
+    }));
+
+    // Remove waveform data for original clip
+    setWaveformData(prev => {
+      const newData = { ...prev };
+      delete newData[clip.id];
+      return newData;
+    });
+
+    saveToHistory();
+    triggerAutoSave();
   };
 
   const handleSaveProject = () => {
@@ -2473,7 +3524,24 @@ export function AVPreview({
     };
 
     console.log('Saving project with updated AV Script:', updatedAvScript);
-    onSave({ audioTracks: tracks }, updatedAvScript);
+    
+    const avPreviewData: AVPreviewData = {
+      audioTracks: tracks,
+      videoClipStartTimes: videoClipStartTimes
+    };
+    
+    onSave(avPreviewData, updatedAvScript);
+    
+    // Show save notification
+    setSaveNotification({
+      message: 'Saved at:',
+      timestamp: new Date()
+    });
+    
+    // Hide notification after 3 seconds
+    setTimeout(() => {
+      setSaveNotification(null);
+    }, 3000);
   };
 
   // Format timecode for FCP XML (HH:MM:SS:FF at 24fps)
@@ -3440,6 +4508,13 @@ export function AVPreview({
              >
                 {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current" />}
              </button>
+             <button
+                onClick={() => setIsRazorMode(!isRazorMode)}
+                className={`ml-1 p-2 rounded-md transition-all ${isRazorMode ? 'bg-yellow-500/20 text-yellow-500' : 'bg-gray-700/20 text-gray-400'} hover:bg-opacity-30`}
+                title="Razor Tool (C) - Split audio clips"
+             >
+                <Scissors className="w-4 h-4" />
+             </button>
           </div>
           
           <div className="text-base sm:text-xl font-mono text-indigo-400 bg-gray-800 px-3 py-1 rounded border border-gray-700 min-w-[140px] text-center">
@@ -3540,6 +4615,14 @@ export function AVPreview({
                       <span className="ml-2 text-yellow-400">Offset: {formatTime(currentVisualClip.offset)}</span>
                     )}
                  </div>
+                 {/* Fullscreen Button */}
+                 <button
+                   onClick={handleFullscreen}
+                   className="absolute bottom-4 right-4 bg-black/50 hover:bg-black/70 backdrop-blur-sm p-2 rounded border border-white/10 transition-colors z-10"
+                   title="Toggle Fullscreen"
+                 >
+                   <Maximize className="w-5 h-5 text-white" />
+                 </button>
                </>
              ) : (
                 <p className="text-gray-700">End of Preview</p>
@@ -3564,10 +4647,17 @@ export function AVPreview({
         </div>
 
         {/* Timeline Area (Bottom Half) */}
-        <div className="flex-1 flex flex-col bg-gray-950 overflow-hidden relative min-h-0">
+        <div className="flex-1 flex flex-col bg-gray-950 overflow-visible relative min-h-0">
           
-          {/* Time Ruler */}
-          <div className="h-8 flex-shrink-0 bg-gray-900 border-b border-gray-800 flex items-end overflow-hidden sticky top-0 z-20 shadow-sm ml-48">
+          {/* Time Ruler - Clickable for seeking */}
+          <div 
+            className="h-8 flex-shrink-0 bg-gray-900 border-b border-gray-800 flex items-end overflow-hidden sticky top-0 z-20 shadow-sm ml-48 cursor-pointer"
+            onClick={(e) => {
+              if (!isDraggingPlayhead) {
+                handleSeek(e);
+              }
+            }}
+          >
              {Array.from({ length: Math.ceil(duration / 5) + 1 }).map((_, i) => (
                 <div 
                     key={i} 
@@ -3583,16 +4673,80 @@ export function AVPreview({
           <div 
             className="flex-1 overflow-y-auto overflow-x-auto relative scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-gray-900" 
             ref={timelineRef}
-            onClick={(e) => {
-              // Don't seek if clicking on resize handles or clips
+            onMouseDown={(e) => {
+              // Don't start selection if clicking on resize handles, clips, or buttons
               if ((e.target as HTMLElement).closest('[data-resize-handle]') || 
-                  (e.target as HTMLElement).closest('[data-clip-container]')) {
+                  (e.target as HTMLElement).closest('[data-clip-container]') ||
+                  (e.target as HTMLElement).closest('button')) {
                 return;
               }
-              handleSeek(e);
+              // Start rectangular selection
+              handleTimelineMouseDown(e);
+            }}
+            onMouseMove={(e) => {
+              if (selectionState) {
+                handleTimelineMouseMove(e);
+              }
+              // Track mouse position for razor tool indicator
+              if (isRazorMode && timelineRef.current) {
+                const rect = timelineRef.current.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                // Only show indicator when over audio tracks area (not video track)
+                const addTrackRowHeight = 48;
+                const videoTrackHeight = isCompactMode ? 48 : 112;
+                const audioTracksStartY = addTrackRowHeight + videoTrackHeight;
+                if (e.clientY - rect.top >= audioTracksStartY) {
+                  setRazorMouseX(mouseX);
+                } else {
+                  setRazorMouseX(null);
+                }
+              } else {
+                setRazorMouseX(null);
+              }
+            }}
+            onMouseUp={(e) => {
+              if (selectionState) {
+                handleTimelineMouseUp();
+              } else if (!isDraggingPlayhead) {
+                // Only seek if not selecting, not dragging playhead, and clicking on empty area
+                if ((e.target as HTMLElement).closest('[data-resize-handle]') || 
+                    (e.target as HTMLElement).closest('[data-clip-container]') ||
+                    (e.target as HTMLElement).closest('[data-playhead]')) {
+                  return;
+                }
+                handleSeek(e);
+              }
+            }}
+            onMouseLeave={(e) => {
+              handleTimelineMouseUp();
+              setRazorMouseX(null);
             }}
             style={{ maxHeight: '100%' }}
           >
+                  {/* Selection rectangle overlay */}
+                  {selectionState && timelineRef.current && (
+                    <div
+                      className="absolute border-2 border-blue-400 bg-blue-400/20 pointer-events-none z-50"
+                      style={{
+                        left: `${Math.min(selectionState.startX, selectionState.currentX)}px`,
+                        top: `${Math.min(selectionState.startY, selectionState.currentY)}px`,
+                        width: `${Math.abs(selectionState.currentX - selectionState.startX)}px`,
+                        height: `${Math.abs(selectionState.currentY - selectionState.startY)}px`,
+                      }}
+                    />
+                  )}
+                  
+                  {/* Razor tool indicator - dotted red vertical line */}
+                  {isRazorMode && razorMouseX !== null && (
+                    <div
+                      className="absolute top-0 bottom-0 w-px pointer-events-none z-40"
+                      style={{
+                        left: `${razorMouseX}px`,
+                        background: 'repeating-linear-gradient(to bottom, transparent, transparent 4px, #ef4444 4px, #ef4444 8px)',
+                        boxShadow: '0 0 8px rgba(239, 68, 68, 0.5)',
+                      }}
+                    />
+                  )}
             <div className="relative min-w-full" style={{ width: `${Math.max(window.innerWidth - 192, duration * scale)}px` }}>
               
               {/* Add Track Button and Compact Mode Toggle */}
@@ -3630,7 +4784,9 @@ export function AVPreview({
                   <Film className="w-4 h-4 mr-2 text-indigo-500" />
                   VISUAL
                 </div>
-                <div className="flex-1 relative h-full bg-gray-900/50">
+                <div 
+                  className="flex-1 relative h-full bg-gray-900/50"
+                >
                   {visualPlaylist.map((clip) => (
                     <div 
                         key={clip.id}
@@ -3692,6 +4848,34 @@ export function AVPreview({
                                 {clip.label}
                             </div>
                         </div>
+                        
+                        {/* Snap buttons - only for video clips, positioned above resize handles */}
+                        {clip.type === 'video' && (
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                handleSnapToNearest('left', clip.id);
+                              }}
+                              className="absolute top-1 left-1 p-0.5 rounded bg-black/60 hover:bg-black/80 border border-white/20 pointer-events-auto z-[70] transition-colors"
+                              title="Snap to nearest left video"
+                            >
+                              <ChevronLeft className="w-3 h-3 text-white" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                handleSnapToNearest('right', clip.id);
+                              }}
+                              className="absolute top-1 right-1 p-0.5 rounded bg-black/60 hover:bg-black/80 border border-white/20 pointer-events-auto z-[70] transition-colors"
+                              title="Snap to nearest right video"
+                            >
+                              <ChevronRight className="w-3 h-3 text-white" />
+                            </button>
+                          </>
+                        )}
                         
                         {/* Mute button for video clips - positioned on left side to avoid resize handles */}
                         {clip.type === 'video' && (
@@ -3779,7 +4963,7 @@ export function AVPreview({
                 <div 
                   key={track.id}
                   data-track-id={track.id}
-                  className={`${isCompactMode ? 'h-10' : 'h-24'} flex-shrink-0 border-b border-gray-800 bg-gray-900/20 flex relative group ${
+                  className={`${isCompactMode ? 'h-10' : 'h-24'} flex-shrink-0 border-b border-gray-800 bg-gray-900/20 flex relative group overflow-visible ${
                     trackDragState?.trackId === track.id ? 'opacity-50' : ''
                   }`}
                 >
@@ -3862,7 +5046,7 @@ export function AVPreview({
                   </div>
 
                   {/* Track Timeline */}
-                  <div className="flex-1 relative h-full bg-gray-900/30">
+                  <div className="flex-1 relative h-full bg-gray-900/30 overflow-visible">
                      {/* Grid Lines */}
                      {Array.from({ length: Math.ceil(duration / 1) }).map((_, i) => (
                         <div 
@@ -3877,21 +5061,46 @@ export function AVPreview({
                             key={clip.id}
                             data-clip-id={clip.id}
                             data-clip-container="true"
-                            className={`absolute top-2 bottom-2 bg-emerald-900/60 border border-emerald-700/50 rounded-md overflow-visible group/clip hover:bg-emerald-800/70 transition-none cursor-move ${
+                            className={`absolute top-2 bottom-2 bg-emerald-900/60 border border-emerald-700/50 rounded-md overflow-visible group/clip hover:bg-emerald-800/70 transition-none ${
+                                isRazorMode ? 'cursor-crosshair' : 'cursor-move'
+                            } ${
                                 currentTime >= clip.startTime && currentTime < clip.startTime + clip.duration
                                 ? 'ring-1 ring-emerald-400'
                                 : ''
-                            } ${audioDragState?.clipId === clip.id ? 'ring-2 ring-yellow-500 z-10' : ''} ${
+                            } ${audioDragState?.clipId === clip.id ? 'ring-2 ring-yellow-500 z-[200]' : ''} ${
                                 selectedClips.has(clip.id) ? 'ring-2 ring-blue-400 bg-emerald-800/80' : ''
                             }`}
                             style={{
                                 left: `${clip.startTime * scale}px`,
-                                width: `${clip.duration * scale}px`
+                                width: `${clip.duration * scale}px`,
+                                // Ensure dragged clips stay visible even when moved between tracks
+                                ...(audioDragState?.clipId === clip.id || selectedClips.has(clip.id) ? { 
+                                  willChange: 'transform',
+                                  zIndex: 200 
+                                } : {})
                             }}
                             onMouseDown={(e) => {
                               // Don't handle if clicking on volume line or resize handles
                               if ((e.target as HTMLElement).closest('[data-volume-line]') ||
                                   (e.target as HTMLElement).closest('[data-resize-handle]')) {
+                                return;
+                              }
+                              
+                              // Razor tool: split clip at click position
+                              if (isRazorMode) {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                
+                                // Calculate split time from click position
+                                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                const clickX = e.clientX - rect.left;
+                                const timeInClip = clickX / scale;
+                                const splitTime = clip.startTime + timeInClip;
+                                
+                                // Ensure split is within clip bounds
+                                if (splitTime > clip.startTime && splitTime < clip.startTime + clip.duration) {
+                                  handleSplitAudioClip(track.id, clip.id, splitTime);
+                                }
                                 return;
                               }
                               
@@ -4132,13 +5341,22 @@ export function AVPreview({
                 </div>
               ))}
               
-              {/* Playhead */}
+              {/* Playhead - Draggable */}
               <div 
-                className="absolute top-0 bottom-0 w-px bg-yellow-500 z-30 pointer-events-none shadow-[0_0_10px_rgba(234,179,8,0.5)]"
+                data-playhead="true"
+                className="absolute top-0 bottom-0 w-px bg-yellow-500 z-30 shadow-[0_0_10px_rgba(234,179,8,0.5)] cursor-ew-resize"
                 style={{ left: `${currentTime * scale + 192}px` }}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  setIsDraggingPlayhead(true);
+                }}
+                title="Drag to scrub timeline"
               >
-                <div className="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] border-t-yellow-500 -ml-[6px] -mt-[1px]" />
-                <div className="absolute top-0 bottom-0 w-[1px] bg-yellow-500/50"></div>
+                <div className="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] border-t-yellow-500 -ml-[6px] -mt-[1px] pointer-events-none" />
+                <div className="absolute top-0 bottom-0 w-[1px] bg-yellow-500/50 pointer-events-none"></div>
+                {/* Wider hit area for easier dragging */}
+                <div className="absolute top-0 bottom-0 -left-2 -right-2 cursor-ew-resize" />
               </div>
             </div>
           </div>
@@ -4167,6 +5385,19 @@ export function AVPreview({
             >
               Delete
             </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Save Notification */}
+    {saveNotification && (
+      <div className="fixed bottom-4 right-4 bg-green-600 text-white px-4 py-3 rounded-lg shadow-lg z-[200] flex items-center space-x-2 transform transition-all duration-300 ease-out">
+        <Save className="w-4 h-4" />
+        <div>
+          <div className="text-sm font-medium">{saveNotification.message}</div>
+          <div className="text-xs opacity-90">
+            {saveNotification.timestamp.toLocaleTimeString()}
           </div>
         </div>
       </div>

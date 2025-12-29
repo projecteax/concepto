@@ -567,4 +567,5 @@ export interface AVPreviewTrack {
 
 export interface AVPreviewData {
   audioTracks: AVPreviewTrack[];
+  videoClipStartTimes?: {[clipId: string]: number}; // Custom start times for video clips (timeline positions)
 }
