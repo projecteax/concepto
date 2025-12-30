@@ -4669,13 +4669,13 @@ export function AVPreview({
                 const isVideo = !!selectedVideoClip;
                 const clipType = isVideo ? 'video' : 'audio';
                 const fileLength = isVideo 
-                  ? (selectedVideoClip.sourceDuration || videoDurations[selectedVideoClip.url || ''] || selectedVideoClip.duration)
-                  : (audioDurations[selectedClip.url] || selectedClip.duration);
+                  ? (selectedVideoClip.sourceDuration || (selectedVideoClip.url ? videoDurations[selectedVideoClip.url] : undefined) || selectedVideoClip.duration)
+                  : (selectedClip.url ? audioDurations[selectedClip.url] : undefined) || selectedClip.duration;
                 const offset = selectedClip.offset || 0;
                 const clipLength = selectedClip.duration;
                 const volume = isVideo 
                   ? (videoClipVolumes[selectedClip.id] ?? 1) // Get video volume from state, default to 1
-                  : (selectedClip.volume ?? 1); // Audio volume from clip
+                  : ('volume' in selectedClip ? selectedClip.volume ?? 1 : 1); // Audio volume from clip
                 
                 // Get generation model info if available
                 let generationModel: string | null = null;
@@ -4839,8 +4839,8 @@ export function AVPreview({
                       {/* Clip Name */}
                       <div>
                         <label className="text-xs text-gray-400 mb-1 block">File Name</label>
-                        <div className="text-xs text-gray-300 bg-gray-800 px-3 py-2 rounded border border-gray-700 truncate" title={selectedClip.name || selectedClip.url}>
-                          {selectedClip.name || selectedClip.url?.split('/').pop() || 'Unknown'}
+                        <div className="text-xs text-gray-300 bg-gray-800 px-3 py-2 rounded border border-gray-700 truncate" title={('name' in selectedClip ? selectedClip.name : undefined) || selectedClip.url}>
+                          {('name' in selectedClip ? selectedClip.name : undefined) || selectedClip.url?.split('/').pop() || 'Unknown'}
                         </div>
                       </div>
                     </div>
