@@ -80,6 +80,9 @@ export function AVPreview({
   // Muted shots - track which video shots have muted audio
   const [mutedShots, setMutedShots] = useState<Set<string>>(new Set());
   
+  // Video clip volumes - track volume for each video clip (0-1, default 1)
+  const [videoClipVolumes, setVideoClipVolumes] = useState<{[clipId: string]: number}>({});
+  
   // Resizing State - simpler approach
   const [resizeState, setResizeState] = useState<{
     clipId: string;
@@ -556,6 +559,10 @@ export function AVPreview({
       // Check if this shot is muted
       const isMuted = mutedShots.has(currentVisualClip.shotId);
       video.muted = isMuted;
+      
+      // Apply volume from videoClipVolumes state
+      const clipVolume = videoClipVolumes[currentVisualClip.id] ?? 1;
+      video.volume = isMuted ? 0 : clipVolume;
       
       if (video.src !== currentVisualClip.url) {
         video.src = currentVisualClip.url;
@@ -3117,8 +3124,10 @@ export function AVPreview({
     }
     
     // Single click: clear selection if clicking outside, or select this clip
+    // CRITICAL: When clicking on video, deselect all audio clips
     if (!selectedVideoClips.has(clip.id)) {
       setSelectedVideoClips(new Set([clip.id]));
+      setSelectedClips(new Set()); // Clear audio selection when selecting video
     }
     
     // Start dragging
@@ -3299,8 +3308,9 @@ export function AVPreview({
 
     if (!timelineRef.current) return;
     const rect = timelineRef.current.getBoundingClientRect();
-    const startX = e.clientX - rect.left;
-    const startY = e.clientY - rect.top;
+    // Account for scroll position - coordinates should be relative to scrolled content, not viewport
+    const startX = e.clientX - rect.left + timelineRef.current.scrollLeft;
+    const startY = e.clientY - rect.top + timelineRef.current.scrollTop;
 
     setSelectionState({
       startX,
@@ -3318,8 +3328,9 @@ export function AVPreview({
     if (!selectionState || !timelineRef.current) return;
 
     const rect = timelineRef.current.getBoundingClientRect();
-    const currentX = e.clientX - rect.left;
-    const currentY = e.clientY - rect.top;
+    // Account for scroll position - coordinates should be relative to scrolled content, not viewport
+    const currentX = e.clientX - rect.left + timelineRef.current.scrollLeft;
+    const currentY = e.clientY - rect.top + timelineRef.current.scrollTop;
 
     setSelectionState(prev => prev ? {
       ...prev,
@@ -4581,52 +4592,262 @@ export function AVPreview({
       <div className="flex-1 flex flex-col overflow-hidden">
         
         {/* Video Preview Area (Top Half) */}
-        <div className="h-[45%] bg-black flex items-center justify-center relative border-b border-gray-800">
-          <div className="aspect-video h-full max-h-[400px] w-full max-w-[800px] bg-gray-900 flex items-center justify-center relative shadow-2xl">
-             {currentVisualClip ? (
-               <>
-                 {currentVisualClip.type === 'video' ? (
-                   <video 
-                     ref={videoRef}
-                     className="w-full h-full object-contain"
-                     playsInline
-                   />
-                 ) : currentVisualClip.type === 'image' ? (
-                   <img 
-                     src={currentVisualClip.url} 
-                     alt="Scene Visual" 
-                     className="w-full h-full object-contain"
-                   />
-                 ) : (
-                   <div className="text-center p-8">
-                     <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-800 mb-4">
-                        <ImageIcon className="w-8 h-8 text-gray-600" />
+        <div className="h-[45%] bg-black flex items-center relative border-b border-gray-800">
+          <div className="w-full h-full flex items-center">
+            {/* Video Player - Left Side (Centered) */}
+            <div className="flex-1 flex items-center justify-center">
+              <div className="aspect-video h-full max-h-[400px] w-full max-w-[800px] bg-gray-900 flex items-center justify-center relative shadow-2xl">
+               {currentVisualClip ? (
+                 <>
+                   {currentVisualClip.type === 'video' ? (
+                     <video 
+                       ref={videoRef}
+                       className="w-full h-full object-contain"
+                       playsInline
+                     />
+                   ) : currentVisualClip.type === 'image' ? (
+                     <img 
+                       src={currentVisualClip.url} 
+                       alt="Scene Visual" 
+                       className="w-full h-full object-contain"
+                     />
+                   ) : (
+                     <div className="text-center p-8">
+                       <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-800 mb-4">
+                          <ImageIcon className="w-8 h-8 text-gray-600" />
+                       </div>
+                       <p className="text-gray-500 font-medium">{currentVisualClip.label || 'No visual content'}</p>
+                       <p className="text-gray-700 text-sm mt-2">Take {currentVisualClip.take}</p>
                      </div>
-                     <p className="text-gray-500 font-medium">{currentVisualClip.label || 'No visual content'}</p>
-                     <p className="text-gray-700 text-sm mt-2">Take {currentVisualClip.take}</p>
+                   )}
+                   
+                   {/* Overlay Info */}
+                   <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-sm px-3 py-1 rounded text-xs font-mono border border-white/10">
+                      Take {currentVisualClip.take}
+                      <span className="ml-2 text-gray-400">Length: {formatTime(currentVisualClip.duration)}</span>
+                      {currentVisualClip.type === 'video' && currentVisualClip.offset > 0 && (
+                        <span className="ml-2 text-yellow-400">Offset: {formatTime(currentVisualClip.offset)}</span>
+                      )}
                    </div>
-                 )}
-                 
-                 {/* Overlay Info */}
-                 <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-sm px-3 py-1 rounded text-xs font-mono border border-white/10">
-                    Take {currentVisualClip.take}
-                    <span className="ml-2 text-gray-400">Length: {formatTime(currentVisualClip.duration)}</span>
-                    {currentVisualClip.type === 'video' && currentVisualClip.offset > 0 && (
-                      <span className="ml-2 text-yellow-400">Offset: {formatTime(currentVisualClip.offset)}</span>
-                    )}
-                 </div>
-                 {/* Fullscreen Button */}
-                 <button
-                   onClick={handleFullscreen}
-                   className="absolute bottom-4 right-4 bg-black/50 hover:bg-black/70 backdrop-blur-sm p-2 rounded border border-white/10 transition-colors z-10"
-                   title="Toggle Fullscreen"
-                 >
-                   <Maximize className="w-5 h-5 text-white" />
-                 </button>
-               </>
-             ) : (
-                <p className="text-gray-700">End of Preview</p>
-             )}
+                   {/* Fullscreen Button */}
+                   <button
+                     onClick={handleFullscreen}
+                     className="absolute bottom-4 right-4 bg-black/50 hover:bg-black/70 backdrop-blur-sm p-2 rounded border border-white/10 transition-colors z-10"
+                     title="Toggle Fullscreen"
+                   >
+                     <Maximize className="w-5 h-5 text-white" />
+                   </button>
+                 </>
+               ) : (
+                  <p className="text-gray-700">End of Preview</p>
+               )}
+              </div>
+            </div>
+            {/* File Data Panel - Right Side (Snapped to Right Edge) */}
+            <div className="w-80 h-full max-h-[400px] bg-gray-900 border-l border-gray-800 flex flex-col overflow-hidden flex-shrink-0">
+              {(() => {
+                // Get selected clip (video or audio)
+                const selectedVideoClip = selectedVideoClips.size > 0 
+                  ? visualPlaylist.find(c => selectedVideoClips.has(c.id))
+                  : null;
+                
+                const selectedAudioClip = selectedClips.size > 0
+                  ? tracks.flatMap(t => t.clips).find(c => selectedClips.has(c.id))
+                  : null;
+
+                const selectedClip = selectedVideoClip || selectedAudioClip;
+                
+                if (!selectedClip) {
+                  return (
+                    <div className="flex-1 flex items-center justify-center p-6">
+                      <p className="text-gray-500 text-sm text-center">Select a clip on the timeline to view file data</p>
+                    </div>
+                  );
+                }
+
+                // Determine clip type and get data
+                const isVideo = !!selectedVideoClip;
+                const clipType = isVideo ? 'video' : 'audio';
+                const fileLength = isVideo 
+                  ? (selectedVideoClip.sourceDuration || videoDurations[selectedVideoClip.url || ''] || selectedVideoClip.duration)
+                  : (audioDurations[selectedClip.url] || selectedClip.duration);
+                const offset = selectedClip.offset || 0;
+                const clipLength = selectedClip.duration;
+                const volume = isVideo 
+                  ? (videoClipVolumes[selectedClip.id] ?? 1) // Get video volume from state, default to 1
+                  : (selectedClip.volume ?? 1); // Audio volume from clip
+                
+                // Get generation model info if available
+                let generationModel: string | null = null;
+                
+                if (isVideo && selectedVideoClip) {
+                  // For video clips, check the AVShot's imageGenerationThread for model info
+                  const shot = avScript?.segments
+                    .flatMap(seg => seg.shots)
+                    .find(s => s.id === selectedVideoClip.shotId);
+                  
+                  if (shot?.imageGenerationThread && selectedClip.url) {
+                    const thread = shot.imageGenerationThread;
+                    
+                    // Check if mainVideoId points to a generated video
+                    if (thread.mainVideoId && thread.mainVideoId !== 'referenceVideo') {
+                      const generatedVideo = thread.generatedVideos?.find(
+                        v => v.id === thread.mainVideoId
+                      );
+                      
+                      if (generatedVideo?.modelName) {
+                        // Format model name for display
+                        const modelName = generatedVideo.modelName.toLowerCase();
+                        if (modelName.includes('kling')) {
+                          generationModel = `Kling AI${generatedVideo.klingMode ? ` (${generatedVideo.klingMode.toUpperCase()})` : ''}`;
+                        } else if (modelName.includes('gemini')) {
+                          generationModel = 'Gemini';
+                        } else if (modelName.includes('veo')) {
+                          generationModel = 'Google Veo';
+                        } else {
+                          // Use the model name as-is, but format it nicely
+                          generationModel = generatedVideo.modelName
+                            .split('-')
+                            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                            .join(' ');
+                        }
+                      }
+                    }
+                    
+                    // Also check if URL directly matches any generated video
+                    if (!generationModel && thread.generatedVideos) {
+                      const generatedVideo = thread.generatedVideos.find(
+                        v => v.videoUrl === selectedClip.url
+                      );
+                      
+                      if (generatedVideo?.modelName) {
+                        const modelName = generatedVideo.modelName.toLowerCase();
+                        if (modelName.includes('kling')) {
+                          generationModel = `Kling AI${generatedVideo.klingMode ? ` (${generatedVideo.klingMode.toUpperCase()})` : ''}`;
+                        } else if (modelName.includes('gemini')) {
+                          generationModel = 'Gemini';
+                        } else if (modelName.includes('veo')) {
+                          generationModel = 'Google Veo';
+                        } else {
+                          generationModel = generatedVideo.modelName
+                            .split('-')
+                            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                            .join(' ');
+                        }
+                      }
+                    }
+                  }
+                  
+                  // Fallback: check URL patterns if no modelName found
+                  if (!generationModel && selectedClip.url) {
+                    if (selectedClip.url.includes('elevenlabs')) {
+                      generationModel = 'ElevenLabs';
+                    } else if (selectedClip.url.includes('gemini')) {
+                      generationModel = 'Gemini';
+                    } else if (selectedClip.url.includes('kling')) {
+                      generationModel = 'Kling AI';
+                    }
+                  }
+                } else {
+                  // For audio clips, check URL patterns
+                  if (selectedClip.url) {
+                    if (selectedClip.url.includes('elevenlabs')) {
+                      generationModel = 'ElevenLabs';
+                    } else if (selectedClip.url.includes('gemini')) {
+                      generationModel = 'Gemini';
+                    }
+                  }
+                }
+
+                return (
+                  <div className="flex-1 flex flex-col p-4 overflow-y-auto">
+                    <h3 className="text-sm font-semibold text-gray-300 mb-4 border-b border-gray-700 pb-2">
+                      {isVideo ? 'Video' : 'Audio'} Clip Data
+                    </h3>
+                    
+                    <div className="space-y-4">
+                      {/* File Length */}
+                      <div>
+                        <label className="text-xs text-gray-400 mb-1 block">File Length</label>
+                        <div className="text-sm font-mono text-gray-200 bg-gray-800 px-3 py-2 rounded border border-gray-700">
+                          {formatTime(fileLength)}
+                        </div>
+                      </div>
+
+                      {/* Offset */}
+                      <div>
+                        <label className="text-xs text-gray-400 mb-1 block">Offset</label>
+                        <div className="text-sm font-mono text-gray-200 bg-gray-800 px-3 py-2 rounded border border-gray-700">
+                          {formatTime(offset)}
+                        </div>
+                      </div>
+
+                      {/* Clip Length */}
+                      <div>
+                        <label className="text-xs text-gray-400 mb-1 block">Clip Length</label>
+                        <div className="text-sm font-mono text-gray-200 bg-gray-800 px-3 py-2 rounded border border-gray-700">
+                          {formatTime(clipLength)}
+                        </div>
+                      </div>
+
+                      {/* Volume Control - Available for both video and audio */}
+                      <div>
+                        <label className="text-xs text-gray-400 mb-2 block">
+                          Volume: {Math.round(volume * 100)}%
+                        </label>
+                        <input
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.01"
+                          value={volume}
+                          onChange={(e) => {
+                            const newVolume = parseFloat(e.target.value);
+                            if (isVideo) {
+                              // Update video clip volume
+                              setVideoClipVolumes(prev => ({
+                                ...prev,
+                                [selectedClip.id]: newVolume
+                              }));
+                            } else {
+                              // Update audio clip volume
+                              setTracks(prev => prev.map(track => ({
+                                ...track,
+                                clips: track.clips.map(clip => 
+                                  clip.id === selectedClip.id 
+                                    ? { ...clip, volume: newVolume }
+                                    : clip
+                                )
+                              })));
+                            }
+                            triggerAutoSave();
+                          }}
+                          className="w-full accent-indigo-500 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Generation Model */}
+                      {generationModel && (
+                        <div>
+                          <label className="text-xs text-gray-400 mb-1 block">Generation Model</label>
+                          <div className="text-sm text-indigo-400 bg-gray-800 px-3 py-2 rounded border border-gray-700">
+                            {generationModel}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Clip Name */}
+                      <div>
+                        <label className="text-xs text-gray-400 mb-1 block">File Name</label>
+                        <div className="text-xs text-gray-300 bg-gray-800 px-3 py-2 rounded border border-gray-700 truncate" title={selectedClip.name || selectedClip.url}>
+                          {selectedClip.name || selectedClip.url?.split('/').pop() || 'Unknown'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
           </div>
         </div>
 
@@ -4706,14 +4927,42 @@ export function AVPreview({
             }}
             onMouseUp={(e) => {
               if (selectionState) {
-                handleTimelineMouseUp();
+                // Check if this was a click (no drag) vs a drag selection
+                // If currentX/currentY are not set, it means mouse didn't move, so it's a click
+                const dragDistance = selectionState && selectionState.currentX !== undefined && selectionState.currentY !== undefined
+                  ? Math.sqrt(
+                      Math.pow(selectionState.currentX - selectionState.startX, 2) +
+                      Math.pow(selectionState.currentY - selectionState.startY, 2)
+                    )
+                  : 0;
+                
+                // If drag distance is very small (< 5px), treat it as a click and seek instead
+                if (dragDistance < 5) {
+                  // This was a click, not a drag - seek to position instead
+                  handleTimelineMouseUp(); // Clear selection state first
+                  // Don't seek if clicking on resize handles, clips, playhead, buttons, or time ruler
+                  if (!(e.target as HTMLElement).closest('[data-resize-handle]') && 
+                      !(e.target as HTMLElement).closest('[data-clip-container]') &&
+                      !(e.target as HTMLElement).closest('[data-playhead]') &&
+                      !(e.target as HTMLElement).closest('button') &&
+                      !(e.target as HTMLElement).closest('.h-8')) { // Time ruler has its own handler
+                    handleSeek(e);
+                  }
+                } else {
+                  // This was a drag - complete the selection
+                  handleTimelineMouseUp();
+                }
               } else if (!isDraggingPlayhead) {
                 // Only seek if not selecting, not dragging playhead, and clicking on empty area
+                // Don't seek if clicking on resize handles, clips, playhead, buttons, or time ruler
                 if ((e.target as HTMLElement).closest('[data-resize-handle]') || 
                     (e.target as HTMLElement).closest('[data-clip-container]') ||
-                    (e.target as HTMLElement).closest('[data-playhead]')) {
+                    (e.target as HTMLElement).closest('[data-playhead]') ||
+                    (e.target as HTMLElement).closest('button') ||
+                    (e.target as HTMLElement).closest('.h-8')) { // Time ruler has its own handler
                   return;
                 }
+                // Seek to clicked position on timeline
                 handleSeek(e);
               }
             }}
@@ -4728,6 +4977,7 @@ export function AVPreview({
                     <div
                       className="absolute border-2 border-blue-400 bg-blue-400/20 pointer-events-none z-50"
                       style={{
+                        // Coordinates already include scroll offset, so use them directly for absolute positioning
                         left: `${Math.min(selectionState.startX, selectionState.currentX)}px`,
                         top: `${Math.min(selectionState.startY, selectionState.currentY)}px`,
                         width: `${Math.abs(selectionState.currentX - selectionState.startX)}px`,
@@ -5146,8 +5396,10 @@ export function AVPreview({
                               }
                               
                               // Single click: clear selection if clicking outside, or select this clip
+                              // CRITICAL: When clicking on audio, deselect all video clips
                               if (!selectedClips.has(clip.id)) {
                                 setSelectedClips(new Set([clip.id]));
+                                setSelectedVideoClips(new Set()); // Clear video selection when selecting audio
                               }
                               
                               handleAudioClipMouseDown(e, clip, track.id);
