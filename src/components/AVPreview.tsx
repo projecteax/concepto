@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import { Episode, AVScript, AVPreviewData, AVPreviewTrack, GlobalAsset, AVShot, AVSegment, AVPreviewClip } from '@/types';
-import { Play, Pause, Save, Upload, Plus, Trash2, Volume2, VolumeX, Music, Mic, Image as ImageIcon, Film, SkipBack, GripVertical, Video, Loader2, Download, Edit3, GripVertical as DragHandle, ChevronLeft, ChevronRight, Maximize, Scissors } from 'lucide-react';
+import { Play, Pause, Save, Upload, Plus, Trash2, Volume2, VolumeX, Music, Mic, Image as ImageIcon, Film, SkipBack, GripVertical, Video, Loader2, Download, Edit3, GripVertical as DragHandle, ChevronLeft, ChevronRight, Maximize, Scissors, RefreshCw } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { useSessionStorageState } from '@/hooks/useSessionStorageState';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
@@ -3504,6 +3504,61 @@ export function AVPreview({
     triggerAutoSave();
   };
 
+  const handleRefresh = useCallback(async () => {
+    if (!avScript) {
+      console.warn('No AV Script to refresh');
+      return;
+    }
+
+    // Force reload all video durations (even if already cached)
+    const durations: {[url: string]: number} = {};
+    const videoUrls = new Set<string>();
+    
+    // Collect all unique video URLs from the current AV script
+    avScript.segments.forEach(seg => {
+      seg.shots.forEach(shot => {
+        if (shot.videoUrl) {
+          videoUrls.add(shot.videoUrl);
+        }
+      });
+    });
+    
+    // Load duration for each video (force reload by not checking cache)
+    const promises = Array.from(videoUrls).map(url => {
+      return new Promise<void>((resolve) => {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        video.onloadedmetadata = () => {
+          durations[url] = video.duration;
+          resolve();
+        };
+        video.onerror = () => {
+          console.warn(`Could not load duration for video: ${url}`);
+          resolve();
+        };
+        video.src = url;
+      });
+    });
+    
+    await Promise.all(promises);
+    
+    // Update video durations (this will trigger visualPlaylist to update)
+    if (Object.keys(durations).length > 0) {
+      setVideoDurations(prev => ({ ...prev, ...durations }));
+    }
+
+    // Show refresh notification
+    setSaveNotification({
+      message: 'Timeline refreshed at:',
+      timestamp: new Date()
+    });
+    
+    // Hide notification after 3 seconds
+    setTimeout(() => {
+      setSaveNotification(null);
+    }, 3000);
+  }, [avScript]);
+
   const handleSaveProject = () => {
     if (!avScript) {
       console.warn('No AV Script to save');
@@ -4563,6 +4618,13 @@ export function AVPreview({
         </div>
 
         <div className="flex flex-wrap items-center justify-start sm:justify-end gap-2 sm:gap-3">
+          <button
+            onClick={handleRefresh}
+            className="flex items-center space-x-1 sm:space-x-2 px-3 py-2 sm:px-4 bg-blue-600 hover:bg-blue-700 rounded-md transition-all text-xs sm:text-sm font-medium shadow-sm active:transform active:scale-95"
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span>Refresh</span>
+          </button>
           <button
             onClick={handleSaveProject}
             className="flex items-center space-x-1 sm:space-x-2 px-3 py-2 sm:px-4 bg-green-600 hover:bg-green-700 rounded-md transition-all text-xs sm:text-sm font-medium shadow-sm active:transform active:scale-95"
