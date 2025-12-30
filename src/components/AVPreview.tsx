@@ -634,7 +634,8 @@ export function AVPreview({
     
     if (!timelineRef.current) return;
     const rect = timelineRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left - 192; 
+    const scrollLeft = timelineRef.current.scrollLeft;
+    const x = e.clientX - rect.left + scrollLeft - 192; 
     const time = Math.max(0, Math.min(duration, x / scale));
     setCurrentTime(time);
     if (isPlaying) {
