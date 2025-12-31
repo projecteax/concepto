@@ -461,6 +461,20 @@ export interface AVScript {
   totalWords: number; // Sum of all segments
   createdAt: Date;
   updatedAt: Date;
+  stableVersions?: AVScriptStableVersion[];
+}
+
+export interface AVScriptStableVersion {
+  id: string;
+  name: string;
+  createdAt: Date;
+  data: {
+    title: string;
+    version: string;
+    segments: AVSegment[];
+    totalRuntime: number;
+    totalWords: number;
+  };
 }
 
 // Screenplay System
@@ -496,6 +510,19 @@ export interface ScreenplayData {
   titleEN?: string;
   elements: ScreenplayElement[];
   elementsEN?: ScreenplayElement[];
+  stableVersions?: ScreenplayStableVersion[];
+}
+
+export interface ScreenplayStableVersion {
+  id: string;
+  name: string;
+  createdAt: Date;
+  data: {
+    title: string;
+    titleEN?: string;
+    elements: ScreenplayElement[];
+    elementsEN?: ScreenplayElement[];
+  };
 }
 
 export interface ScreenplayComment {

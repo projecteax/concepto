@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { AVScript, AVSegment, AVShot, AVShotImageGenerationThread, GlobalAsset, ScreenplayData } from '@/types';
+import { AVScript, AVSegment, AVShot, AVShotImageGenerationThread, GlobalAsset, ScreenplayData, AVScriptStableVersion } from '@/types';
 import { 
   Plus, 
   Image as ImageIcon,
@@ -26,7 +26,9 @@ import {
   Video,
   PlusCircle,
   Info,
-  Menu
+  Menu,
+  History,
+  Check
 } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { useSessionStorageState } from '@/hooks/useSessionStorageState';
@@ -80,6 +82,29 @@ export function AVScriptEditor({
     createdAt: new Date(),
     updatedAt: new Date(),
   });
+  
+  // Stable versions state
+  // Helper to convert createdAt to Date (handles Firestore Timestamp, string, number, or Date)
+  const convertToDateForState = (date: unknown): Date => {
+    if (date instanceof Date) return date;
+    if (typeof date === 'number') return new Date(date);
+    if (typeof date === 'string') return new Date(date);
+    if (date && typeof date === 'object' && 'toDate' in date) {
+      return (date as { toDate: () => Date }).toDate();
+    }
+    return new Date();
+  };
+  
+  const [stableVersions, setStableVersions] = useState<AVScriptStableVersion[]>(() => {
+    if (!avScript?.stableVersions) return [];
+    return avScript.stableVersions.map(v => ({
+      ...v,
+      createdAt: convertToDateForState(v.createdAt)
+    }));
+  });
+  const [editingVersionName, setEditingVersionName] = useState<string | null>(null);
+  const [tempVersionName, setTempVersionName] = useState('');
+  const [versionToRestore, setVersionToRestore] = useState<AVScriptStableVersion | null>(null);
 
   const [showAddSegment, setShowAddSegment] = useState(false);
   const [newSegmentTitle, setNewSegmentTitle] = useState('');
@@ -143,6 +168,24 @@ export function AVScriptEditor({
       const stateHash = JSON.stringify(script);
       if (propHash !== stateHash) {
         setScript(avScript);
+        if (avScript.stableVersions) {
+          // Process versions to convert createdAt to Date
+          const convertToDate = (date: unknown): Date => {
+            if (date instanceof Date) return date;
+            if (typeof date === 'number') return new Date(date);
+            if (typeof date === 'string') return new Date(date);
+            if (date && typeof date === 'object' && 'toDate' in date) {
+              return (date as { toDate: () => Date }).toDate();
+            }
+            return new Date();
+          };
+          setStableVersions(avScript.stableVersions.map(v => ({
+            ...v,
+            createdAt: convertToDate(v.createdAt)
+          })));
+        } else {
+          setStableVersions([]);
+        }
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -309,17 +352,138 @@ export function AVScriptEditor({
   const handleManualSave = async () => {
     setIsSaving(true);
     try {
+      const scriptToSave = { ...script, stableVersions };
       // Use immediate save if available (for real-time sync), otherwise use regular save
       if (onSaveImmediately) {
         console.log('💾 Manual save using immediate save (real-time sync)');
-        await onSaveImmediately(script);
+        await onSaveImmediately(scriptToSave);
       } else {
         console.log('💾 Manual save using regular save');
-        await onSave(script);
+        await onSave(scriptToSave);
       }
       setLastSavedAt(Date.now());
     } catch (error) {
       console.error('Error saving script:', error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Stable versions functions
+  const handleSaveVersion = async () => {
+    const nextVersionNumber = stableVersions.length + 1;
+    const defaultName = `AVScript_stable_v${nextVersionNumber}`;
+
+    const newVersion: AVScriptStableVersion = {
+      id: `version-${Date.now()}`,
+      name: defaultName,
+      createdAt: new Date(),
+      data: {
+        title: script.title,
+        version: script.version,
+        segments: JSON.parse(JSON.stringify(script.segments)),
+        totalRuntime: script.totalRuntime,
+        totalWords: script.totalWords,
+      },
+    };
+
+    const updatedVersions = [...stableVersions, newVersion];
+    setStableVersions(updatedVersions);
+    setEditingVersionName(newVersion.id);
+    setTempVersionName(newVersion.name);
+    
+    // Save the new stable version
+    setIsSaving(true);
+    try {
+      const scriptToSave = { ...script, stableVersions: updatedVersions };
+      if (onSaveImmediately) {
+        await onSaveImmediately(scriptToSave);
+      } else {
+        await onSave(scriptToSave);
+      }
+      setLastSavedAt(Date.now());
+    } catch (error) {
+      console.error('Error saving stable version:', error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleRestoreVersion = async () => {
+    if (!versionToRestore) return;
+
+    const restoredScript = {
+      ...script,
+      title: versionToRestore.data.title,
+      version: versionToRestore.data.version,
+      segments: JSON.parse(JSON.stringify(versionToRestore.data.segments)),
+      totalRuntime: versionToRestore.data.totalRuntime,
+      totalWords: versionToRestore.data.totalWords,
+      stableVersions: stableVersions, // Keep stable versions as is
+    };
+
+    setScript(restoredScript);
+    setVersionToRestore(null);
+    
+    // Save the restored version
+    setIsSaving(true);
+    try {
+      if (onSaveImmediately) {
+        await onSaveImmediately(restoredScript);
+      } else {
+        await onSave(restoredScript);
+      }
+      setLastSavedAt(Date.now());
+    } catch (error) {
+      console.error('Error restoring version:', error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleUpdateVersionName = async (versionId: string, newName: string) => {
+    if (!newName.trim()) return;
+    
+    const updatedVersions = stableVersions.map(v => 
+      v.id === versionId ? { ...v, name: newName.trim() } : v
+    );
+    setStableVersions(updatedVersions);
+    setEditingVersionName(null);
+    setTempVersionName('');
+    
+    // Save the updated name
+    setIsSaving(true);
+    try {
+      const scriptToSave = { ...script, stableVersions: updatedVersions };
+      if (onSaveImmediately) {
+        await onSaveImmediately(scriptToSave);
+      } else {
+        await onSave(scriptToSave);
+      }
+      setLastSavedAt(Date.now());
+    } catch (error) {
+      console.error('Error updating version name:', error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteVersion = async (versionId: string) => {
+    const updatedVersions = stableVersions.filter(v => v.id !== versionId);
+    setStableVersions(updatedVersions);
+    
+    // Save after deletion
+    setIsSaving(true);
+    try {
+      const scriptToSave = { ...script, stableVersions: updatedVersions };
+      if (onSaveImmediately) {
+        await onSaveImmediately(scriptToSave);
+      } else {
+        await onSave(scriptToSave);
+      }
+      setLastSavedAt(Date.now());
+    } catch (error) {
+      console.error('Error deleting version:', error);
     } finally {
       setIsSaving(false);
     }
@@ -476,7 +640,7 @@ export function AVScriptEditor({
       });
       setIsSaving(true);
       try {
-        await onSave(script);
+        await onSave({ ...script, stableVersions });
         lastSavedScriptHashRef.current = currentHash; // Update saved hash
         setLastSavedAt(Date.now());
       } catch (error) {
@@ -928,9 +1092,9 @@ export function AVScriptEditor({
     // Save immediately for deletions (critical operation)
     try {
       if (onSaveImmediately) {
-        await onSaveImmediately(updatedScript);
+        await onSaveImmediately({ ...updatedScript, stableVersions });
       } else {
-        await onSave(updatedScript);
+        await onSave({ ...updatedScript, stableVersions });
       }
       setLastSavedAt(Date.now());
     } catch (error) {
@@ -956,9 +1120,9 @@ export function AVScriptEditor({
     // Save immediately for deletions (critical operation)
     try {
       if (onSaveImmediately) {
-        await onSaveImmediately(updatedScript);
+        await onSaveImmediately({ ...updatedScript, stableVersions });
       } else {
-        await onSave(updatedScript);
+        await onSave({ ...updatedScript, stableVersions });
       }
       setLastSavedAt(Date.now());
     } catch (error) {
@@ -1255,6 +1419,22 @@ export function AVScriptEditor({
               </div>
 
               <div className="ml-auto flex items-center gap-2">
+                {/* Stable Versions Button */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    const panel = document.getElementById('av-script-stable-versions-panel');
+                    if (panel) {
+                      panel.classList.toggle('hidden');
+                    }
+                  }}
+                  title="Toggle Stable Versions"
+                >
+                  <History className="h-4 w-4" />
+                </Button>
+
                 {/* Save icon (always visible) */}
                 <Button
                   type="button"
@@ -1316,6 +1496,188 @@ export function AVScriptEditor({
             </div>
           </div>
         </div>
+
+        {/* Stable Versions Panel */}
+        <div
+          id="av-script-stable-versions-panel"
+          className="hidden fixed right-4 top-20 w-80 bg-gray-900 border border-gray-800 rounded-lg shadow-lg h-fit max-h-[80vh] overflow-hidden flex flex-col z-50"
+        >
+          <div className="flex items-center justify-between p-4 border-b border-gray-800">
+            <h3 className="text-sm font-semibold text-gray-300">Stable Versions</h3>
+            <button
+              onClick={handleSaveVersion}
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-xs font-medium flex items-center space-x-1"
+              title="Save current state as a stable version"
+            >
+              <Save className="w-3 h-3" />
+              <span>Save</span>
+            </button>
+          </div>
+          <div className="flex-1 flex flex-col p-4 overflow-y-auto custom-scrollbar">
+            {stableVersions.length === 0 ? (
+              <div className="flex-1 flex items-center justify-center">
+                <p className="text-gray-500 text-xs text-center">No stable versions saved yet.<br />Click &quot;Save&quot; to create one.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {stableVersions
+                  .sort((a, b) => {
+                    const getDate = (d: unknown): Date => {
+                      if (d instanceof Date) return d;
+                      if (typeof d === 'number') return new Date(d);
+                      if (typeof d === 'string') return new Date(d);
+                      if (d && typeof d === 'object' && 'toDate' in d) {
+                        return (d as { toDate: () => Date }).toDate();
+                      }
+                      return new Date();
+                    };
+                    return getDate(b.createdAt).getTime() - getDate(a.createdAt).getTime();
+                  })
+                  .map((version) => (
+                    <div key={version.id} className="bg-gray-800 border border-gray-700 rounded-md p-3 shadow-sm">
+                      {editingVersionName === version.id ? (
+                        <div className="flex items-center space-x-1">
+                          <input
+                            type="text"
+                            value={tempVersionName}
+                            onChange={(e) => setTempVersionName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                handleUpdateVersionName(version.id, tempVersionName);
+                              } else if (e.key === 'Escape') {
+                                setEditingVersionName(null);
+                                setTempVersionName('');
+                              }
+                            }}
+                            onBlur={() => {
+                              if (tempVersionName.trim()) {
+                                handleUpdateVersionName(version.id, tempVersionName);
+                              } else {
+                                setEditingVersionName(null);
+                                setTempVersionName('');
+                              }
+                            }}
+                            className="flex-1 px-2 py-1 text-xs bg-gray-900 border border-gray-600 rounded text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            autoFocus
+                          />
+                          <button
+                            onClick={() => handleUpdateVersionName(version.id, tempVersionName)}
+                            className="p-1 text-green-500 hover:text-green-400"
+                            title="Save name"
+                          >
+                            <Check className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingVersionName(null);
+                              setTempVersionName('');
+                            }}
+                            className="p-1 text-red-500 hover:text-red-400"
+                            title="Cancel"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex items-start justify-between mb-1">
+                            <div className="flex-1 min-w-0">
+                              <p
+                                className="text-xs font-medium text-gray-200 truncate cursor-pointer hover:text-indigo-400"
+                                onClick={() => {
+                                  setEditingVersionName(version.id);
+                                  setTempVersionName(version.name);
+                                }}
+                                title="Click to rename"
+                              >
+                                {version.name}
+                              </p>
+                              <p className="text-[10px] text-gray-500 mt-0.5">
+                                Saved: {(() => {
+                                  let date: Date;
+                                  if (version.createdAt instanceof Date) {
+                                    date = version.createdAt;
+                                  } else if (typeof version.createdAt === 'number') {
+                                    date = new Date(version.createdAt);
+                                  } else if (typeof version.createdAt === 'string') {
+                                    date = new Date(version.createdAt);
+                                  } else if (version.createdAt && typeof version.createdAt === 'object' && 'toDate' in version.createdAt) {
+                                    date = (version.createdAt as { toDate: () => Date }).toDate();
+                                  } else {
+                                    date = new Date();
+                                  }
+                                  return date.toLocaleDateString('en-US', { 
+                                    month: 'short', 
+                                    day: 'numeric', 
+                                    year: 'numeric' 
+                                  }) + ' ' + date.toLocaleTimeString('en-US', { 
+                                    hour: '2-digit', 
+                                    minute: '2-digit' 
+                                  });
+                                })()}
+                              </p>
+                            </div>
+                            <div className="flex items-center space-x-1 ml-2">
+                              <button
+                                onClick={() => {
+                                  setEditingVersionName(version.id);
+                                  setTempVersionName(version.name);
+                                }}
+                                className="p-1 text-gray-400 hover:text-white"
+                                title="Rename version"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={() => setVersionToRestore(version)}
+                                className="p-1 bg-blue-600 hover:bg-blue-700 text-white rounded-sm"
+                                title="Restore this version"
+                              >
+                                <History className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteVersion(version.id)}
+                                className="p-1 text-red-500 hover:text-red-400"
+                                title="Delete version"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Restore Version Confirmation Dialog */}
+        {versionToRestore && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg max-w-md w-full mx-4 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Restore Stable Version</h3>
+              <p className="text-gray-600 mb-6">
+                Are you sure you want to restore &quot;{versionToRestore.name}&quot;? This will override your current AV script state.
+              </p>
+              <div className="flex space-x-3">
+                <button
+                  onClick={handleRestoreVersion}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Restore
+                </button>
+                <button
+                  onClick={() => setVersionToRestore(null)}
+                  className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Segments */}
         <div className="p-6">
@@ -1588,9 +1950,9 @@ export function AVScriptEditor({
                           // Save immediately to ensure image is persisted
                           try {
                             if (onSaveImmediately) {
-                              await onSaveImmediately(updatedScript);
+                              await onSaveImmediately({ ...updatedScript, stableVersions });
                             } else {
-                              await onSave(updatedScript);
+                              await onSave({ ...updatedScript, stableVersions });
                             }
                             setLastSavedAt(Date.now());
                           } catch (error) {
@@ -1657,9 +2019,9 @@ export function AVScriptEditor({
                           // Save immediately to ensure video is persisted
                           try {
                             if (onSaveImmediately) {
-                              await onSaveImmediately(updatedScript);
+                              await onSaveImmediately({ ...updatedScript, stableVersions });
                             } else {
-                              await onSave(updatedScript);
+                              await onSave({ ...updatedScript, stableVersions });
                             }
                             setLastSavedAt(Date.now());
                           } catch (error) {
@@ -2058,9 +2420,9 @@ export function AVScriptEditor({
                 console.log('Saving image and video to AV script:', { imageUrl, videoUrl, shotId: shot.id });
                 // Use immediate save if available, otherwise use regular save
                 if (onSaveImmediately) {
-                  await onSaveImmediately(updatedScript);
+                  await onSaveImmediately({ ...updatedScript, stableVersions });
                 } else {
-                  await onSave(updatedScript);
+                  await onSave({ ...updatedScript, stableVersions });
                 }
                 setLastSavedAt(Date.now());
                 console.log('Image and video saved successfully');

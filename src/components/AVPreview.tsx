@@ -140,10 +140,39 @@ export function AVPreview({
   const [clipToDelete, setClipToDelete] = useState<{trackId: string; clipId: string} | null>(null);
 
   // Stable Versions
-  const [stableVersions, setStableVersions] = useState<StableVersion[]>(avPreviewData?.stableVersions || []);
+  // Helper to convert createdAt to Date (handles Firestore Timestamp, string, number, or Date)
+  const convertToDate = (date: unknown): Date => {
+    if (date instanceof Date) return date;
+    if (typeof date === 'number') return new Date(date);
+    if (typeof date === 'string') return new Date(date);
+    if (date && typeof date === 'object' && 'toDate' in date) {
+      return (date as { toDate: () => Date }).toDate();
+    }
+    return new Date();
+  };
+
+  // Process stable versions to ensure createdAt is a Date object
+  const processStableVersions = (versions: StableVersion[] | undefined): StableVersion[] => {
+    if (!versions) return [];
+    return versions.map(v => ({
+      ...v,
+      createdAt: convertToDate(v.createdAt)
+    }));
+  };
+
+  const [stableVersions, setStableVersions] = useState<StableVersion[]>(processStableVersions(avPreviewData?.stableVersions));
   const [editingVersionName, setEditingVersionName] = useState<string | null>(null);
   const [tempVersionName, setTempVersionName] = useState<string>('');
   const [versionToRestore, setVersionToRestore] = useState<StableVersion | null>(null);
+
+  // Update stable versions when avPreviewData changes
+  useEffect(() => {
+    if (avPreviewData?.stableVersions) {
+      setStableVersions(processStableVersions(avPreviewData.stableVersions));
+    } else if (!avPreviewData?.stableVersions) {
+      setStableVersions([]);
+    }
+  }, [avPreviewData?.stableVersions]);
 
   // Compact mode toggle
   const [isCompactMode, setIsCompactMode] = useState(false);
@@ -5150,13 +5179,19 @@ export function AVPreview({
                                     {version.name}
                                   </p>
                                   <p className="text-[10px] text-gray-500 mt-1">
-                                    Saved: {version.createdAt.toLocaleDateString('en-US', { 
-                                      year: 'numeric', 
-                                      month: 'short', 
-                                      day: 'numeric',
-                                      hour: '2-digit',
-                                      minute: '2-digit'
-                                    })}
+                                    Saved: {(() => {
+                                      const date = version.createdAt instanceof Date 
+                                        ? version.createdAt 
+                                        : convertToDate(version.createdAt);
+                                      return date.toLocaleDateString('en-US', { 
+                                        month: 'short', 
+                                        day: 'numeric', 
+                                        year: 'numeric' 
+                                      }) + ' ' + date.toLocaleTimeString('en-US', { 
+                                        hour: '2-digit', 
+                                        minute: '2-digit' 
+                                      });
+                                    })()}
                                   </p>
                                 </div>
                                 <div className="flex items-center space-x-1 ml-2">

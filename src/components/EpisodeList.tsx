@@ -75,6 +75,43 @@ export function EpisodeList({
     }).format(date);
   };
 
+  // Get available script languages
+  const getAvailableScriptLanguages = (episode: Episode): string[] => {
+    const languages: string[] = [];
+    
+    // Check legacy script
+    if (episode.script) {
+      languages.push('Legacy');
+    }
+    
+    // Check screenplayData for PL and EN
+    if (episode.screenplayData) {
+      if (episode.screenplayData.elements && episode.screenplayData.elements.length > 0) {
+        languages.push('PL');
+      }
+      if (episode.screenplayData.elementsEN && episode.screenplayData.elementsEN.length > 0) {
+        languages.push('EN');
+      }
+    }
+    
+    return languages;
+  };
+
+  // Format script indicator text
+  const getScriptIndicatorText = (episode: Episode): string => {
+    const languages = getAvailableScriptLanguages(episode);
+    
+    if (languages.length === 0) {
+      return 'No script';
+    }
+    
+    if (languages.length === 1) {
+      return `Script (${languages[0]})`;
+    }
+    
+    return `Scripts (${languages.join(', ')})`;
+  };
+
   const getNextEpisodeNumber = () => {
     if (episodes.length === 0) return 1;
     return Math.max(...episodes.map(e => e.episodeNumber)) + 1;
@@ -187,7 +224,7 @@ export function EpisodeList({
                         </div>
                         <div className="flex items-center space-x-1">
                           <FileText className="w-4 h-4" />
-                          <span>{episode.script ? 'Script' : 'No script'}</span>
+                          <span>{getScriptIndicatorText(episode)}</span>
                         </div>
                       </div>
                       
@@ -226,7 +263,7 @@ export function EpisodeList({
                             </div>
                             <div className="flex items-center space-x-1">
                               <FileText className="w-4 h-4" />
-                              <span>{episode.script ? 'Script ready' : 'No script'}</span>
+                              <span>{getScriptIndicatorText(episode)}</span>
                             </div>
                           </div>
                         </div>

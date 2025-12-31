@@ -18,9 +18,12 @@ import {
   Download,
   Wand2,
   Check,
-  Sparkles
+  Sparkles,
+  History,
+  Edit3,
+  X
 } from 'lucide-react';
-import { ScreenplayElement, ScreenplayData, ScreenplayComment } from '@/types';
+import { ScreenplayElement, ScreenplayData, ScreenplayComment, ScreenplayStableVersion } from '@/types';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { TranslationDialog } from './TranslationDialog';
 import { EnhanceDialog } from './EnhanceDialog';
@@ -72,6 +75,29 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   const [enhanceElementId, setEnhanceElementId] = useState<string | null>(null);
   const [originalContent, setOriginalContent] = useState<{ [key: string]: string }>({});
   const [isMobile, setIsMobile] = useState(false);
+  
+  // Stable versions state
+  // Helper to convert createdAt to Date (handles Firestore Timestamp, string, number, or Date)
+  const convertToDateForState = (date: unknown): Date => {
+    if (date instanceof Date) return date;
+    if (typeof date === 'number') return new Date(date);
+    if (typeof date === 'string') return new Date(date);
+    if (date && typeof date === 'object' && 'toDate' in date) {
+      return (date as { toDate: () => Date }).toDate();
+    }
+    return new Date();
+  };
+  
+  const [stableVersions, setStableVersions] = useState<ScreenplayStableVersion[]>(() => {
+    if (!screenplayData.stableVersions) return [];
+    return screenplayData.stableVersions.map(v => ({
+      ...v,
+      createdAt: convertToDateForState(v.createdAt)
+    }));
+  });
+  const [editingVersionName, setEditingVersionName] = useState<string | null>(null);
+  const [tempVersionName, setTempVersionName] = useState('');
+  const [versionToRestore, setVersionToRestore] = useState<ScreenplayStableVersion | null>(null);
 
   // Track window size for responsive styles
   useEffect(() => {
@@ -132,6 +158,25 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
         }
         return prev;
       });
+      
+      // Sync stable versions
+      if (screenplayData.stableVersions) {
+        const convertToDate = (date: unknown): Date => {
+          if (date instanceof Date) return date;
+          if (typeof date === 'number') return new Date(date);
+          if (typeof date === 'string') return new Date(date);
+          if (date && typeof date === 'object' && 'toDate' in date) {
+            return (date as { toDate: () => Date }).toDate();
+          }
+          return new Date();
+        };
+        setStableVersions(screenplayData.stableVersions.map(v => ({
+          ...v,
+          createdAt: convertToDate(v.createdAt)
+        })));
+      } else {
+        setStableVersions([]);
+      }
     }
   }, [screenplayData]);
 
@@ -727,12 +772,102 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await onSave(localData);
+      await onSave({ ...localData, stableVersions });
       setLastSavedAt(Date.now());
     } finally {
       setIsSaving(false);
     }
   };
+
+  // Stable versions functions
+  const handleSaveVersion = useCallback(async () => {
+    const nextVersionNumber = stableVersions.length + 1;
+    const defaultName = `Screenplay_stable_v${nextVersionNumber}`;
+
+    const newVersion: ScreenplayStableVersion = {
+      id: `version-${Date.now()}`,
+      name: defaultName,
+      createdAt: new Date(),
+      data: {
+        title: localData.title,
+        titleEN: localData.titleEN,
+        elements: JSON.parse(JSON.stringify(localData.elements)),
+        elementsEN: localData.elementsEN ? JSON.parse(JSON.stringify(localData.elementsEN)) : undefined,
+      },
+    };
+
+    const updatedVersions = [...stableVersions, newVersion];
+    setStableVersions(updatedVersions);
+    setEditingVersionName(newVersion.id);
+    setTempVersionName(newVersion.name);
+    
+    // Save the new stable version
+    setIsSaving(true);
+    try {
+      await onSave({ ...localData, stableVersions: updatedVersions });
+      setLastSavedAt(Date.now());
+    } finally {
+      setIsSaving(false);
+    }
+  }, [stableVersions, localData, onSave]);
+
+  const handleRestoreVersion = useCallback(async () => {
+    if (!versionToRestore) return;
+
+    const restoredData = {
+      title: versionToRestore.data.title,
+      titleEN: versionToRestore.data.titleEN,
+      elements: JSON.parse(JSON.stringify(versionToRestore.data.elements)),
+      elementsEN: versionToRestore.data.elementsEN ? JSON.parse(JSON.stringify(versionToRestore.data.elementsEN)) : undefined,
+      stableVersions: stableVersions, // Keep stable versions as is
+    };
+
+    setLocalData(restoredData);
+    setVersionToRestore(null);
+    
+    // Save the restored version
+    setIsSaving(true);
+    try {
+      await onSave(restoredData);
+      setLastSavedAt(Date.now());
+    } finally {
+      setIsSaving(false);
+    }
+  }, [versionToRestore, stableVersions, onSave]);
+
+  const handleUpdateVersionName = useCallback(async (versionId: string, newName: string) => {
+    if (!newName.trim()) return;
+    
+    const updatedVersions = stableVersions.map(v => 
+      v.id === versionId ? { ...v, name: newName.trim() } : v
+    );
+    setStableVersions(updatedVersions);
+    setEditingVersionName(null);
+    setTempVersionName('');
+    
+    // Save the updated name
+    setIsSaving(true);
+    try {
+      await onSave({ ...localData, stableVersions: updatedVersions });
+      setLastSavedAt(Date.now());
+    } finally {
+      setIsSaving(false);
+    }
+  }, [stableVersions, localData, onSave]);
+
+  const handleDeleteVersion = useCallback(async (versionId: string) => {
+    const updatedVersions = stableVersions.filter(v => v.id !== versionId);
+    setStableVersions(updatedVersions);
+    
+    // Save after deletion
+    setIsSaving(true);
+    try {
+      await onSave({ ...localData, stableVersions: updatedVersions });
+      setLastSavedAt(Date.now());
+    } finally {
+      setIsSaving(false);
+    }
+  }, [stableVersions, localData, onSave]);
 
   // Autosave on changes with debounce (30 seconds - backup save only)
   useEffect(() => {
@@ -1732,6 +1867,22 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                 )}
                 <div className="hidden lg:block w-full border-t border-gray-300 my-2"></div>
                 
+                {/* Stable Versions Panel Toggle */}
+                <button
+                  onClick={() => {
+                    // Toggle stable versions panel visibility
+                    const panel = document.getElementById('stable-versions-panel');
+                    if (panel) {
+                      panel.classList.toggle('hidden');
+                    }
+                  }}
+                  className="w-12 h-12 rounded-md bg-indigo-600 hover:bg-indigo-700 shadow text-white flex items-center justify-center"
+                  title="Stable Versions"
+                  aria-label="Toggle stable versions panel"
+                >
+                  <History className="w-5 h-5" />
+                </button>
+                
                 <button
                   onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); addElement('scene-setting', selectedElementIdRef.current || undefined); }}
                   className="w-12 h-12 rounded-md bg-red-600 hover:bg-red-700 shadow text-white flex items-center justify-center"
@@ -1842,6 +1993,190 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
               </div>
             </div>
           </div>
+
+          {/* Stable Versions Panel */}
+          {!isPreviewMode && (
+            <div
+              id="stable-versions-panel"
+              className="hidden lg:block w-full mt-4 lg:mt-0 lg:w-80 lg:ml-6 lg:sticky top-4 self-start bg-gray-900 border border-gray-800 rounded-lg shadow-sm h-fit max-h-[80vh] overflow-hidden flex flex-col"
+            >
+              <div className="flex items-center justify-between p-4 border-b border-gray-800">
+                <h3 className="text-sm font-semibold text-gray-300">Stable Versions</h3>
+                <button
+                  onClick={handleSaveVersion}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-xs font-medium flex items-center space-x-1"
+                  title="Save current state as a stable version"
+                >
+                  <Save className="w-3 h-3" />
+                  <span>Save</span>
+                </button>
+              </div>
+              <div className="flex-1 flex flex-col p-4 overflow-y-auto custom-scrollbar">
+                {stableVersions.length === 0 ? (
+                  <div className="flex-1 flex items-center justify-center">
+                    <p className="text-gray-500 text-xs text-center">No stable versions saved yet.<br />Click &quot;Save&quot; to create one.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {stableVersions
+                      .sort((a, b) => {
+                        const getDate = (d: unknown): Date => {
+                          if (d instanceof Date) return d;
+                          if (typeof d === 'number') return new Date(d);
+                          if (typeof d === 'string') return new Date(d);
+                          if (d && typeof d === 'object' && 'toDate' in d) {
+                            return (d as { toDate: () => Date }).toDate();
+                          }
+                          return new Date();
+                        };
+                        return getDate(b.createdAt).getTime() - getDate(a.createdAt).getTime();
+                      })
+                      .map((version) => (
+                        <div key={version.id} className="bg-gray-800 border border-gray-700 rounded-md p-3 shadow-sm">
+                          {editingVersionName === version.id ? (
+                            <div className="flex items-center space-x-1">
+                              <input
+                                type="text"
+                                value={tempVersionName}
+                                onChange={(e) => setTempVersionName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    handleUpdateVersionName(version.id, tempVersionName);
+                                  } else if (e.key === 'Escape') {
+                                    setEditingVersionName(null);
+                                    setTempVersionName('');
+                                  }
+                                }}
+                                onBlur={() => {
+                                  if (tempVersionName.trim()) {
+                                    handleUpdateVersionName(version.id, tempVersionName);
+                                  } else {
+                                    setEditingVersionName(null);
+                                    setTempVersionName('');
+                                  }
+                                }}
+                                className="flex-1 px-2 py-1 text-xs bg-gray-900 border border-gray-600 rounded text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                autoFocus
+                              />
+                              <button
+                                onClick={() => handleUpdateVersionName(version.id, tempVersionName)}
+                                className="p-1 text-green-500 hover:text-green-400"
+                                title="Save name"
+                              >
+                                <Check className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setEditingVersionName(null);
+                                  setTempVersionName('');
+                                }}
+                                className="p-1 text-red-500 hover:text-red-400"
+                                title="Cancel"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex items-start justify-between mb-1">
+                                <div className="flex-1 min-w-0">
+                                  <p
+                                    className="text-xs font-medium text-gray-200 truncate cursor-pointer hover:text-indigo-400"
+                                    onClick={() => {
+                                      setEditingVersionName(version.id);
+                                      setTempVersionName(version.name);
+                                    }}
+                                    title="Click to rename"
+                                  >
+                                    {version.name}
+                                  </p>
+                                  <p className="text-[10px] text-gray-500 mt-0.5">
+                                    Saved: {(() => {
+                                      let date: Date;
+                                      if (version.createdAt instanceof Date) {
+                                        date = version.createdAt;
+                                      } else if (typeof version.createdAt === 'number') {
+                                        date = new Date(version.createdAt);
+                                      } else if (typeof version.createdAt === 'string') {
+                                        date = new Date(version.createdAt);
+                                      } else if (version.createdAt && typeof version.createdAt === 'object' && 'toDate' in version.createdAt) {
+                                        date = (version.createdAt as { toDate: () => Date }).toDate();
+                                      } else {
+                                        date = new Date();
+                                      }
+                                      return date.toLocaleDateString('en-US', { 
+                                        month: 'short', 
+                                        day: 'numeric', 
+                                        year: 'numeric' 
+                                      }) + ' ' + date.toLocaleTimeString('en-US', { 
+                                        hour: '2-digit', 
+                                        minute: '2-digit' 
+                                      });
+                                    })()}
+                                  </p>
+                                </div>
+                                <div className="flex items-center space-x-1 ml-2">
+                                  <button
+                                    onClick={() => {
+                                      setEditingVersionName(version.id);
+                                      setTempVersionName(version.name);
+                                    }}
+                                    className="p-1 text-gray-400 hover:text-white"
+                                    title="Rename version"
+                                  >
+                                    <Edit3 className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={() => setVersionToRestore(version)}
+                                    className="p-1 bg-blue-600 hover:bg-blue-700 text-white rounded-sm"
+                                    title="Restore this version"
+                                  >
+                                    <History className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteVersion(version.id)}
+                                    className="p-1 text-red-500 hover:text-red-400"
+                                    title="Delete version"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Restore Version Confirmation Dialog */}
+          {versionToRestore && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg max-w-md w-full mx-4 p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Restore Stable Version</h3>
+                <p className="text-gray-600 mb-6">
+                  Are you sure you want to restore &quot;{versionToRestore.name}&quot;? This will override your current screenplay state.
+                </p>
+                <div className="flex space-x-3">
+                  <button
+                    onClick={handleRestoreVersion}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Restore
+                  </button>
+                  <button
+                    onClick={() => setVersionToRestore(null)}
+                    className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Right comments panel */}
           {!isPreviewMode && activeCommentElementId && (
