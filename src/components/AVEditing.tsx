@@ -94,6 +94,12 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
   const lastSavedDataRef = useRef<string>('');
   const isInitializingRef = useRef<boolean>(true);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  
+  // Tab visibility tracking - prevent autosave when tab is inactive
+  const isTabVisibleRef = useRef(true);
+  const lastKnownAvScriptHashRef = useRef<string>('');
+  const [syncNotification, setSyncNotification] = useState<{message: string; timestamp: Date} | null>(null);
+  
   const { uploadFile } = useS3Upload();
   
   // Keep refs in sync with state
@@ -1674,8 +1680,99 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
     
     }, [avScript, editingData?.id, episodeId, firebaseLoadComplete]); // Sync when AV script, editing data, episode, or Firebase load completes
 
+  // Track tab visibility and check for changes when tab becomes active
+  useEffect(() => {
+    // Helper function to safely get timestamp from updatedAt
+    const getUpdatedAtTimestamp = (updatedAt: Date | string | number | undefined): number => {
+      if (!updatedAt) return 0;
+      if (updatedAt instanceof Date) return updatedAt.getTime();
+      if (typeof updatedAt === 'number') return updatedAt;
+      if (typeof updatedAt === 'string') return new Date(updatedAt).getTime();
+      // Handle Firestore Timestamp
+      if (updatedAt && typeof updatedAt === 'object' && 'toDate' in updatedAt) {
+        return (updatedAt as { toDate: () => Date }).toDate().getTime();
+      }
+      return 0;
+    };
+
+    const handleVisibilityChange = () => {
+      const isVisible = !document.hidden;
+      isTabVisibleRef.current = isVisible;
+
+      if (isVisible && avScript) {
+        // Tab became visible - check for changes
+        const currentHash = JSON.stringify({
+          segmentsCount: avScript.segments.length,
+          totalShots: avScript.segments.reduce((sum, seg) => sum + (seg.shots?.length || 0), 0),
+          segmentIds: avScript.segments.map(s => s.id).sort().join(','),
+          shotIds: avScript.segments.flatMap(seg => seg.shots.map(s => s.id)).sort().join(','),
+          updatedAt: getUpdatedAtTimestamp(avScript.updatedAt)
+        });
+
+        if (lastKnownAvScriptHashRef.current && lastKnownAvScriptHashRef.current !== currentHash) {
+          // Changes detected - show sync notification
+          setSyncNotification({
+            message: 'New changes from AV script synced',
+            timestamp: new Date()
+          });
+          setTimeout(() => {
+            setSyncNotification(null);
+          }, 3000);
+        } else if (lastKnownAvScriptHashRef.current) {
+          // No changes
+          setSyncNotification({
+            message: 'No changes made',
+            timestamp: new Date()
+          });
+          setTimeout(() => {
+            setSyncNotification(null);
+          }, 2000);
+        }
+
+        // Update hash for next comparison
+        lastKnownAvScriptHashRef.current = currentHash;
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // Initialize hash on mount
+    if (avScript) {
+      // Helper function to safely get timestamp from updatedAt
+      const getUpdatedAtTimestamp = (updatedAt: Date | string | number | undefined): number => {
+        if (!updatedAt) return 0;
+        if (updatedAt instanceof Date) return updatedAt.getTime();
+        if (typeof updatedAt === 'number') return updatedAt;
+        if (typeof updatedAt === 'string') return new Date(updatedAt).getTime();
+        // Handle Firestore Timestamp
+        if (updatedAt && typeof updatedAt === 'object' && 'toDate' in updatedAt) {
+          return (updatedAt as { toDate: () => Date }).toDate().getTime();
+        }
+        return 0;
+      };
+
+      lastKnownAvScriptHashRef.current = JSON.stringify({
+        segmentsCount: avScript.segments.length,
+        totalShots: avScript.segments.reduce((sum, seg) => sum + (seg.shots?.length || 0), 0),
+        segmentIds: avScript.segments.map(s => s.id).sort().join(','),
+        shotIds: avScript.segments.flatMap(seg => seg.shots.map(s => s.id)).sort().join(','),
+        updatedAt: getUpdatedAtTimestamp(avScript.updatedAt)
+      });
+    }
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [avScript]);
+
   // Auto-save when slides or audio tracks change (30-second debounce)
   useEffect(() => {
+    // Don't autosave if tab is not visible
+    if (!isTabVisibleRef.current) {
+      console.log('⏸️ Skipping autosave - tab is not visible');
+      return;
+    }
+
     // CRITICAL: Skip auto-save during sync operations
     if (skipAutoSaveRef.current) {
       console.log('⏸️ Auto-save skipped - sync in progress');
@@ -1732,6 +1829,11 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
 
     // Debounce: wait 30 seconds before saving
     autosaveDebounceRef.current = setTimeout(() => {
+      // Double-check visibility before saving
+      if (!isTabVisibleRef.current) {
+        console.log('⏸️ Skipping autosave - tab became inactive during debounce');
+        return;
+      }
       // Helper function to safely convert any date-like value to a Date object
       const safeToDate = (dateValue: unknown): Date => {
         const now = new Date();
@@ -3625,6 +3727,12 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
 
   // CRITICAL: Auto-save when slides or audio tracks change (after user edits)
   useEffect(() => {
+    // Don't autosave if tab is not visible
+    if (!isTabVisibleRef.current) {
+      console.log('⏸️ Skipping autosave - tab is not visible');
+      return;
+    }
+
     // Skip if not initialized yet
     if (isInitializingRef.current) {
       console.log('⏸️ Skipping autosave - initialization in progress');
@@ -3684,6 +3792,12 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
     // Schedule autosave with 30-second debounce (backup save, not primary)
     // This is a backup in case user forgets to manually save
     autosaveDebounceRef.current = setTimeout(() => {
+      // Double-check visibility before saving
+      if (!isTabVisibleRef.current) {
+        console.log('⏸️ Skipping autosave - tab became inactive during debounce');
+        return;
+      }
+
       console.log('💾 Auto-saving changes (backup save)...');
       const totalDuration = Math.max(
         ...(slides.length > 0 ? slides.map(s => s.startTime + s.duration) : [0]),
@@ -4780,6 +4894,19 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
               >
                 Delete
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sync Notification */}
+      {syncNotification && (
+        <div className="fixed bottom-4 right-4 bg-blue-600 text-white px-4 py-3 rounded-lg shadow-lg z-[200] flex items-center space-x-2 transform transition-all duration-300 ease-out">
+          <Save className="w-4 h-4" />
+          <div>
+            <div className="text-sm font-medium">{syncNotification.message}</div>
+            <div className="text-xs opacity-90">
+              {syncNotification.timestamp.toLocaleTimeString()}
             </div>
           </div>
         </div>

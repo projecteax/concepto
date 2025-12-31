@@ -568,4 +568,18 @@ export interface AVPreviewTrack {
 export interface AVPreviewData {
   audioTracks: AVPreviewTrack[];
   videoClipStartTimes?: {[clipId: string]: number}; // Custom start times for video clips (timeline positions)
+  stableVersions?: StableVersion[]; // Saved stable versions of the preview state
+}
+
+export interface StableVersion {
+  id: string;
+  name: string;
+  createdAt: Date;
+  data: {
+    audioTracks: AVPreviewTrack[];
+    videoClipStartTimes?: {[clipId: string]: number};
+    clipEdits?: {[shotId: string]: {duration: number; offset: number}};
+    videoClipVolumes?: {[clipId: string]: number};
+    mutedShots?: string[];
+  };
 }

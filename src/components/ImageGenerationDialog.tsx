@@ -359,15 +359,20 @@ export function ImageGenerationDialog({
       existing.totalCost += cost;
     });
     
-    // Add uploaded videos with manual costs
-    const uploadedWithCost = uploadedVideos.filter(v => (v.manualCost || 0) > 0);
-    if (uploadedWithCost.length > 0) {
-      const totalUploadedCost = uploadedWithCost.reduce((sum, v) => sum + (v.manualCost || 0), 0);
-      modelMap.set('Uploaded Videos', { 
-        count: uploadedWithCost.length, 
-        totalCost: totalUploadedCost 
-      });
-    }
+    // Add uploaded videos - group by model if they have one, otherwise group as "Uploaded Videos"
+    uploadedVideos.forEach(video => {
+      if ((video.manualCost || 0) > 0) {
+        const modelDisplayName = video.modelName ? formatModelName(video.modelName) : 'Uploaded Videos';
+        
+        if (!modelMap.has(modelDisplayName)) {
+          modelMap.set(modelDisplayName, { count: 0, totalCost: 0 });
+        }
+        
+        const existing = modelMap.get(modelDisplayName)!;
+        existing.count += 1;
+        existing.totalCost += video.manualCost || 0;
+      }
+    });
     
     return Array.from(modelMap.entries()).map(([modelName, data]) => ({
       modelName,
@@ -437,8 +442,9 @@ export function ImageGenerationDialog({
   const [omniType, setOmniType] = useState<'base' | 'feature'>('base'); // base=editing, feature=video reference
   const [enlargedContent, setEnlargedContent] = useState<{ type: 'image' | 'video'; url: string } | null>(null);
   const [uploadedImages, setUploadedImages] = useState<Array<{ id: string; imageUrl: string; createdAt: Date }>>([]);
-  const [uploadedVideos, setUploadedVideos] = useState<Array<{ id: string; videoUrl: string; createdAt: Date; manualCost?: number }>>([]);
+  const [uploadedVideos, setUploadedVideos] = useState<Array<{ id: string; videoUrl: string; createdAt: Date; manualCost?: number; modelName?: string }>>([]);
   const [editingVideoCost, setEditingVideoCost] = useState<{id: string; cost: number} | null>(null);
+  const [editingVideoModel, setEditingVideoModel] = useState<{id: string; modelName: string} | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'image' | 'video'; id: string; url: string } | null>(null);
   const [showMobilePromptPanel, setShowMobilePromptPanel] = useState(false);
   const [mobilePanelType, setMobilePanelType] = useState<'image' | 'video' | 'upload' | null>(null);
@@ -1092,11 +1098,12 @@ export function ImageGenerationDialog({
           createdAt: toDate(img.createdAt),
         })));
         setUploadedVideos(uploadedVids.map(vid => {
-          const vidWithExtras = vid as typeof vid & { manualCost?: number };
+          const vidWithExtras = vid as typeof vid & { manualCost?: number; modelName?: string };
           return {
             ...vid,
             createdAt: toDate(vid.createdAt),
             manualCost: vidWithExtras.manualCost,
+            modelName: vidWithExtras.modelName,
           };
         }));
         // Load uploaded images/videos from initialImageUrl if present and not already loaded
@@ -2291,6 +2298,7 @@ export function ImageGenerationDialog({
         prompt: 'Uploaded video',
         createdAt: vid.createdAt,
         manualCost: vid.manualCost,
+        modelName: vid.modelName,
       })),
       ...generatedVideos.map(vid => ({
         id: vid.id,
@@ -3095,87 +3103,232 @@ export function ImageGenerationDialog({
                       </div>
                       {/* Metadata below thumbnail */}
                       <div className="mt-1 px-1 space-y-0.5">
-                        <div className="text-xs text-gray-600">
-                          <span className="font-medium">Type:</span>{' '}
-                          <span className="text-gray-800">Uploaded</span>
-                        </div>
                         {editingVideoCost?.id === vid.id ? (
-                          <div className="flex items-center gap-1">
-                            <span className="text-xs font-medium text-gray-700">Cost: $</span>
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={editingVideoCost.cost}
-                              onChange={(e) => {
-                                const value = parseFloat(e.target.value) || 0;
-                                setEditingVideoCost({ id: vid.id, cost: value });
-                              }}
-                              onBlur={() => {
-                                if (editingVideoCost) {
-                                  setUploadedVideos(prev => prev.map(v => 
-                                    v.id === vid.id ? { ...v, manualCost: editingVideoCost.cost } : v
-                                  ));
-                                  setEditingVideoCost(null);
-                                }
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs font-medium text-gray-700">Cost: $</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={editingVideoCost.cost}
+                                onChange={(e) => {
+                                  const value = parseFloat(e.target.value) || 0;
+                                  setEditingVideoCost({ id: vid.id, cost: value });
+                                }}
+                                onBlur={() => {
                                   if (editingVideoCost) {
                                     setUploadedVideos(prev => prev.map(v => 
                                       v.id === vid.id ? { ...v, manualCost: editingVideoCost.cost } : v
                                     ));
                                     setEditingVideoCost(null);
                                   }
-                                } else if (e.key === 'Escape') {
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    if (editingVideoCost) {
+                                      setUploadedVideos(prev => prev.map(v => 
+                                        v.id === vid.id ? { ...v, manualCost: editingVideoCost.cost } : v
+                                      ));
+                                      setEditingVideoCost(null);
+                                    }
+                                  } else if (e.key === 'Escape') {
+                                    setEditingVideoCost(null);
+                                  }
+                                }}
+                                className="w-16 px-1 py-0.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                autoFocus
+                              />
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (editingVideoCost) {
+                                    setUploadedVideos(prev => prev.map(v => 
+                                      v.id === vid.id ? { ...v, manualCost: editingVideoCost.cost } : v
+                                    ));
+                                    setEditingVideoCost(null);
+                                  }
+                                }}
+                                className="text-green-600 hover:text-green-800"
+                                title="Save cost"
+                              >
+                                <Check className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   setEditingVideoCost(null);
-                                }
-                              }}
-                              className="w-16 px-1 py-0.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                              autoFocus
-                            />
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (editingVideoCost) {
-                                  setUploadedVideos(prev => prev.map(v => 
-                                    v.id === vid.id ? { ...v, manualCost: editingVideoCost.cost } : v
-                                  ));
-                                  setEditingVideoCost(null);
-                                }
-                              }}
-                              className="text-green-600 hover:text-green-800"
-                              title="Save cost"
-                            >
-                              <Check className="w-3 h-3" />
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingVideoCost(null);
-                              }}
-                              className="text-red-600 hover:text-red-800"
-                              title="Cancel"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
+                                }}
+                                className="text-red-600 hover:text-red-800"
+                                title="Cancel"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        ) : editingVideoModel?.id === vid.id ? (
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs font-medium text-gray-700">Model:</span>
+                              <select
+                                value={editingVideoModel.modelName}
+                                onChange={(e) => {
+                                  setEditingVideoModel({ id: vid.id, modelName: e.target.value });
+                                }}
+                                onBlur={() => {
+                                  if (editingVideoModel) {
+                                    setUploadedVideos(prev => prev.map(v => 
+                                      v.id === vid.id ? { ...v, modelName: editingVideoModel.modelName || undefined } : v
+                                    ));
+                                    setEditingVideoModel(null);
+                                  }
+                                }}
+                                className="w-32 px-1 py-0.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                autoFocus
+                              >
+                                <option value="">None</option>
+                                <optgroup label="Veo (Google Gemini)">
+                                  <option value="veo-3-1-flash">Veo 3.1 Flash</option>
+                                  <option value="veo-3-1-pro">Veo 3.1 Pro</option>
+                                </optgroup>
+                                <optgroup label="SORA (OpenAI)">
+                                  <option value="sora-2">SORA 2</option>
+                                </optgroup>
+                                <optgroup label="Runway ML">
+                                  <option value="runway-gen4-turbo">Gen-4 Turbo</option>
+                                  <option value="runway-act-two">Act Two</option>
+                                </optgroup>
+                                <optgroup label="Kling AI">
+                                  <option value="kling-v2-5-turbo">Kling v2.5 Turbo</option>
+                                  <option value="kling-v2-6">Kling v2.6</option>
+                                  <option value="kling-omni-video">Kling O1 (Omni)</option>
+                                </optgroup>
+                              </select>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (editingVideoModel) {
+                                    setUploadedVideos(prev => prev.map(v => 
+                                      v.id === vid.id ? { ...v, modelName: editingVideoModel.modelName || undefined } : v
+                                    ));
+                                    setEditingVideoModel(null);
+                                  }
+                                }}
+                                className="text-green-600 hover:text-green-800"
+                                title="Save model"
+                              >
+                                <Check className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingVideoModel(null);
+                                }}
+                                className="text-red-600 hover:text-red-800"
+                                title="Cancel"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
                           </div>
                         ) : (
-                          <div className="flex items-center gap-1">
-                            <div className="text-xs font-semibold text-blue-700">
-                              <span className="font-medium">Cost:</span>{' '}
-                              ${(vid.manualCost || 0).toFixed(2)}
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1">
+                              <div className="text-xs font-semibold text-blue-700">
+                                <span className="font-medium">Cost:</span>{' '}
+                                ${(vid.manualCost || 0).toFixed(2)}
+                              </div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingVideoCost({ id: vid.id, cost: vid.manualCost || 0 });
+                                }}
+                                className="text-gray-500 hover:text-gray-700"
+                                title="Edit cost"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                              </button>
                             </div>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingVideoCost({ id: vid.id, cost: vid.manualCost || 0 });
-                              }}
-                              className="text-gray-500 hover:text-gray-700"
-                              title="Edit cost"
-                            >
-                              <Edit3 className="w-3 h-3" />
-                            </button>
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs font-medium text-gray-700">Model:</span>
+                              {editingVideoModel?.id === vid.id ? (
+                                <>
+                                  <select
+                                    value={editingVideoModel.modelName}
+                                    onChange={(e) => {
+                                      setEditingVideoModel({ id: vid.id, modelName: e.target.value });
+                                    }}
+                                    onBlur={() => {
+                                      if (editingVideoModel) {
+                                        setUploadedVideos(prev => prev.map(v => 
+                                          v.id === vid.id ? { ...v, modelName: editingVideoModel.modelName || undefined } : v
+                                        ));
+                                        setEditingVideoModel(null);
+                                      }
+                                    }}
+                                    className="w-40 px-1 py-0.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                    autoFocus
+                                  >
+                                    <option value="">None</option>
+                                    <optgroup label="Veo (Google Gemini)">
+                                      <option value="veo-3-1-flash">Veo 3.1 Flash</option>
+                                      <option value="veo-3-1-pro">Veo 3.1 Pro</option>
+                                    </optgroup>
+                                    <optgroup label="SORA (OpenAI)">
+                                      <option value="sora-2">SORA 2</option>
+                                    </optgroup>
+                                    <optgroup label="Runway ML">
+                                      <option value="runway-gen4-turbo">Gen-4 Turbo</option>
+                                      <option value="runway-act-two">Act Two</option>
+                                    </optgroup>
+                                    <optgroup label="Kling AI">
+                                      <option value="kling-v2-5-turbo">Kling v2.5 Turbo</option>
+                                      <option value="kling-v2-6">Kling v2.6</option>
+                                      <option value="kling-omni-video">Kling O1 (Omni)</option>
+                                    </optgroup>
+                                  </select>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (editingVideoModel) {
+                                        setUploadedVideos(prev => prev.map(v => 
+                                          v.id === vid.id ? { ...v, modelName: editingVideoModel.modelName || undefined } : v
+                                        ));
+                                        setEditingVideoModel(null);
+                                      }
+                                    }}
+                                    className="text-green-600 hover:text-green-800"
+                                    title="Save model"
+                                  >
+                                    <Check className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingVideoModel(null);
+                                    }}
+                                    className="text-red-600 hover:text-red-800"
+                                    title="Cancel"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="text-xs text-gray-800">{vid.modelName ? formatModelName(vid.modelName) : 'Not set'}</span>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingVideoModel({ id: vid.id, modelName: vid.modelName || '' });
+                                    }}
+                                    className="text-gray-500 hover:text-gray-700"
+                                    title="Select model"
+                                  >
+                                    <Edit3 className="w-3 h-3" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -4105,95 +4258,168 @@ export function ImageGenerationDialog({
                       </div>
                       {/* Metadata below thumbnail */}
                       <div className="mt-1 px-1 space-y-0.5">
-                        <div className="text-xs text-gray-600">
-                          <span className="font-medium">Type:</span>{' '}
-                          <span className="text-gray-800">Uploaded</span>
-                        </div>
-                        {(() => {
-                          if (editingVideoCost?.id === vid.id) {
-                            return (
-                          <div className="flex items-center gap-1">
-                            <span className="text-xs font-medium text-gray-700">Cost: $</span>
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={editingVideoCost.cost}
-                              onChange={(e) => {
-                                const value = parseFloat(e.target.value) || 0;
-                                setEditingVideoCost({ id: vid.id, cost: value });
-                              }}
-                              onBlur={() => {
-                                if (editingVideoCost) {
-                                  setUploadedVideos(prev => prev.map(v => 
-                                    v.id === vid.id ? { ...v, manualCost: editingVideoCost.cost } : v
-                                  ));
-                                  setEditingVideoCost(null);
-                                }
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
+                        {editingVideoCost?.id === vid.id ? (
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs font-medium text-gray-700">Cost: $</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={editingVideoCost.cost}
+                                onChange={(e) => {
+                                  const value = parseFloat(e.target.value) || 0;
+                                  setEditingVideoCost({ id: vid.id, cost: value });
+                                }}
+                                onBlur={() => {
                                   if (editingVideoCost) {
                                     setUploadedVideos(prev => prev.map(v => 
                                       v.id === vid.id ? { ...v, manualCost: editingVideoCost.cost } : v
                                     ));
                                     setEditingVideoCost(null);
                                   }
-                                } else if (e.key === 'Escape') {
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    if (editingVideoCost) {
+                                      setUploadedVideos(prev => prev.map(v => 
+                                        v.id === vid.id ? { ...v, manualCost: editingVideoCost.cost } : v
+                                      ));
+                                      setEditingVideoCost(null);
+                                    }
+                                  } else if (e.key === 'Escape') {
+                                    setEditingVideoCost(null);
+                                  }
+                                }}
+                                className="w-16 px-1 py-0.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                autoFocus
+                              />
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (editingVideoCost) {
+                                    setUploadedVideos(prev => prev.map(v => 
+                                      v.id === vid.id ? { ...v, manualCost: editingVideoCost.cost } : v
+                                    ));
+                                    setEditingVideoCost(null);
+                                  }
+                                }}
+                                className="text-green-600 hover:text-green-800"
+                                title="Save cost"
+                              >
+                                <Check className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   setEditingVideoCost(null);
-                                }
-                              }}
-                              className="w-16 px-1 py-0.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                              autoFocus
-                            />
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (editingVideoCost) {
-                                  setUploadedVideos(prev => prev.map(v => 
-                                    v.id === vid.id ? { ...v, manualCost: editingVideoCost.cost } : v
-                                  ));
-                                  setEditingVideoCost(null);
-                                }
-                              }}
-                              className="text-green-600 hover:text-green-800"
-                              title="Save cost"
-                            >
-                              <Check className="w-3 h-3" />
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingVideoCost(null);
-                              }}
-                              className="text-red-600 hover:text-red-800"
-                              title="Cancel"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </div>
-                            );
-                          } else {
-                            return (
-                          <div className="flex items-center gap-1">
-                            <div className="text-xs font-semibold text-blue-700">
-                              <span className="font-medium">Cost:</span>{' '}
-                              ${(vid.manualCost || 0).toFixed(2)}
+                                }}
+                                className="text-red-600 hover:text-red-800"
+                                title="Cancel"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
                             </div>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingVideoCost({ id: vid.id, cost: vid.manualCost || 0 });
-                              }}
-                              className="text-gray-500 hover:text-gray-700"
-                              title="Edit cost"
-                            >
-                              <Edit3 className="w-3 h-3" />
-                            </button>
                           </div>
-                            );
-                          }
-                        })()}
+                        ) : editingVideoModel?.id === vid.id ? (
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs font-medium text-gray-700">Model:</span>
+                              <select
+                                value={editingVideoModel.modelName}
+                                onChange={(e) => {
+                                  setEditingVideoModel({ id: vid.id, modelName: e.target.value });
+                                }}
+                                onBlur={() => {
+                                  if (editingVideoModel) {
+                                    setUploadedVideos(prev => prev.map(v => 
+                                      v.id === vid.id ? { ...v, modelName: editingVideoModel.modelName || undefined } : v
+                                    ));
+                                    setEditingVideoModel(null);
+                                  }
+                                }}
+                                className="w-40 px-1 py-0.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                autoFocus
+                              >
+                                <option value="">None</option>
+                                <optgroup label="Veo (Google Gemini)">
+                                  <option value="veo-3-1-flash">Veo 3.1 Flash</option>
+                                  <option value="veo-3-1-pro">Veo 3.1 Pro</option>
+                                </optgroup>
+                                <optgroup label="SORA (OpenAI)">
+                                  <option value="sora-2">SORA 2</option>
+                                </optgroup>
+                                <optgroup label="Runway ML">
+                                  <option value="runway-gen4-turbo">Gen-4 Turbo</option>
+                                  <option value="runway-act-two">Act Two</option>
+                                </optgroup>
+                                <optgroup label="Kling AI">
+                                  <option value="kling-v2-5-turbo">Kling v2.5 Turbo</option>
+                                  <option value="kling-v2-6">Kling v2.6</option>
+                                  <option value="kling-omni-video">Kling O1 (Omni)</option>
+                                </optgroup>
+                              </select>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (editingVideoModel) {
+                                    setUploadedVideos(prev => prev.map(v => 
+                                      v.id === vid.id ? { ...v, modelName: editingVideoModel.modelName || undefined } : v
+                                    ));
+                                    setEditingVideoModel(null);
+                                  }
+                                }}
+                                className="text-green-600 hover:text-green-800"
+                                title="Save model"
+                              >
+                                <Check className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingVideoModel(null);
+                                }}
+                                className="text-red-600 hover:text-red-800"
+                                title="Cancel"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1">
+                              <div className="text-xs font-semibold text-blue-700">
+                                <span className="font-medium">Cost:</span>{' '}
+                                ${(vid.manualCost || 0).toFixed(2)}
+                              </div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingVideoCost({ id: vid.id, cost: vid.manualCost || 0 });
+                                }}
+                                className="text-gray-500 hover:text-gray-700"
+                                title="Edit cost"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs font-medium text-gray-700">Model:</span>
+                              <span className="text-xs text-gray-800">{vid.modelName ? formatModelName(vid.modelName) : 'Not set'}</span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingVideoModel({ id: vid.id, modelName: vid.modelName || '' });
+                                }}
+                                className="text-gray-500 hover:text-gray-700"
+                                title="Select model"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -4781,6 +5007,7 @@ export function ImageGenerationDialog({
                                 prompt: 'Uploaded video',
                                 createdAt: vid.createdAt,
                                 manualCost: vid.manualCost,
+                                modelName: vid.modelName,
                               })),
                               ...generatedVideos,
                             ];
@@ -4822,6 +5049,7 @@ export function ImageGenerationDialog({
                               videoUrl: result.url,
                               createdAt: new Date(),
                               manualCost: 0, // Default to 0, user can edit it
+                              modelName: undefined, // User can select model
                             };
                             
                             const shouldSetAsMainVideo = !mainVideoId;
@@ -4863,6 +5091,7 @@ export function ImageGenerationDialog({
                                 prompt: 'Uploaded video',
                                 createdAt: vid.createdAt,
                                 manualCost: vid.manualCost,
+                                modelName: vid.modelName,
                               })),
                               {
                                 id: newVideo.id,
@@ -6918,6 +7147,7 @@ export function ImageGenerationDialog({
                           prompt: 'Uploaded video',
                           createdAt: vid.createdAt,
                           manualCost: vid.manualCost,
+                          modelName: vid.modelName,
                         })),
                         ...generatedVideos.map(vid => ({
                           id: vid.id,
@@ -7064,6 +7294,7 @@ export function ImageGenerationDialog({
                           prompt: 'Uploaded video',
                           createdAt: vid.createdAt,
                           manualCost: vid.manualCost,
+                          modelName: vid.modelName,
                         })),
                         ...generatedVideos.map(vid => ({
                           id: vid.id,
@@ -7141,6 +7372,7 @@ export function ImageGenerationDialog({
                             prompt: 'Uploaded video',
                             createdAt: vid.createdAt,
                             manualCost: vid.manualCost,
+                            modelName: vid.modelName,
                           })),
                           ...newGeneratedVideos.map(vid => ({
                             id: vid.id,

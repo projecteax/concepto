@@ -7,6 +7,7 @@ import { Episode, Show, AVScript, AVPreviewData, GlobalAsset } from '@/types';
 import { episodeService, globalAssetService } from '@/lib/firebase-services';
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
+import { useRealtimeEpisode } from '@/hooks/useRealtimeEpisode';
 
 export default function AVPreviewPage() {
   const params = useParams();
@@ -19,21 +20,83 @@ export default function AVPreviewPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Load initial data (show and global assets)
   useEffect(() => {
-    const loadData = async () => {
+    const loadInitialData = async () => {
       try {
         setIsLoading(true);
         
-        // Get episode by ID
+        // Get show
+        const showRef = doc(db, 'shows', showId);
+        const showSnap = await getDoc(showRef);
+        if (!showSnap.exists()) {
+          setError('Show not found');
+          return;
+        }
+        const showData = {
+          id: showSnap.id,
+          ...showSnap.data(),
+          createdAt: showSnap.data().createdAt?.toDate?.() || new Date(),
+          updatedAt: showSnap.data().updatedAt?.toDate?.() || new Date(),
+        } as Show;
+        
+        // Get global assets
+        const assets = await globalAssetService.getByShow(showId);
+        
+        setShow(showData);
+        setGlobalAssets(assets);
+      } catch (err) {
+        console.error('Error loading initial data:', err);
+        setError('Failed to load data');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (episodeId && showId) {
+      loadInitialData();
+    }
+  }, [episodeId, showId]);
+
+  // Use real-time sync for episode data to automatically update when new shots are added
+  useRealtimeEpisode({
+    episodeId,
+    onUpdate: (updatedEpisode) => {
+      console.log('🔄 AV Preview: Episode updated via real-time sync', updatedEpisode);
+      setEpisode(updatedEpisode);
+      setIsLoading(false);
+      setError(null);
+    },
+    enabled: !!episodeId
+  });
+
+  // Also do an initial load for faster first render
+  useEffect(() => {
+    const loadInitialEpisode = async () => {
+      if (!episodeId || episode) return; // Skip if already loaded or loading
+      
+      try {
         const episodeRef = doc(db, 'episodes', episodeId);
         const episodeSnap = await getDoc(episodeRef);
         if (!episodeSnap.exists()) {
           setError('Episode not found');
+          setIsLoading(false);
           return;
         }
-        const episodeData = episodeSnap.data();
         
-        // Convert timestamps
+        const safeToDate = (timestamp: unknown): Date => {
+          if (!timestamp) return new Date();
+          if (timestamp instanceof Date) return timestamp;
+          if (timestamp && typeof timestamp === 'object' && 'toDate' in timestamp && typeof (timestamp as {toDate: () => Date}).toDate === 'function') {
+            return (timestamp as {toDate: () => Date}).toDate();
+          }
+          if (typeof timestamp === 'string' || typeof timestamp === 'number') {
+            const date = new Date(timestamp);
+            return isNaN(date.getTime()) ? new Date() : date;
+          }
+          return new Date();
+        };
+        
         const convertTimestamps = (obj: unknown): unknown => {
           if (obj === null || obj === undefined) return obj;
           if (Array.isArray(obj)) {
@@ -56,19 +119,7 @@ export default function AVPreviewPage() {
           return obj;
         };
         
-        const safeToDate = (timestamp: unknown): Date => {
-          if (!timestamp) return new Date();
-          if (timestamp instanceof Date) return timestamp;
-          if (timestamp && typeof timestamp === 'object' && 'toDate' in timestamp && typeof (timestamp as {toDate: () => Date}).toDate === 'function') {
-            return (timestamp as {toDate: () => Date}).toDate();
-          }
-          if (typeof timestamp === 'string' || typeof timestamp === 'number') {
-            const date = new Date(timestamp);
-            return isNaN(date.getTime()) ? new Date() : date;
-          }
-          return new Date();
-        };
-        
+        const episodeData = episodeSnap.data();
         const convertedEpisode = {
           id: episodeSnap.id,
           ...episodeData,
@@ -77,38 +128,20 @@ export default function AVPreviewPage() {
           updatedAt: safeToDate(episodeData.updatedAt),
         } as Episode;
         
-        // Get show
-        const showRef = doc(db, 'shows', showId);
-        const showSnap = await getDoc(showRef);
-        if (!showSnap.exists()) {
-          setError('Show not found');
-          return;
-        }
-        const showData = {
-          id: showSnap.id,
-          ...showSnap.data(),
-          createdAt: safeToDate(showSnap.data().createdAt),
-          updatedAt: safeToDate(showSnap.data().updatedAt),
-        } as Show;
-        
-        // Get global assets
-        const assets = await globalAssetService.getByShow(showId);
-        
         setEpisode(convertedEpisode);
-        setShow(showData);
-        setGlobalAssets(assets);
+        setIsLoading(false);
+        setError(null);
       } catch (err) {
-        console.error('Error loading data:', err);
+        console.error('Error loading initial episode:', err);
         setError('Failed to load episode data');
-      } finally {
         setIsLoading(false);
       }
     };
 
-    if (episodeId && showId) {
-      loadData();
+    if (episodeId && !episode) {
+      loadInitialEpisode();
     }
-  }, [episodeId, showId]);
+  }, [episodeId, episode]);
 
   const handleSave = async (avPreviewData: AVPreviewData, avScript?: AVScript) => {
     if (!episode) return;

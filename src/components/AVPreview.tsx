@@ -2,8 +2,8 @@
 
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { flushSync } from 'react-dom';
-import { Episode, AVScript, AVPreviewData, AVPreviewTrack, GlobalAsset, AVShot, AVSegment, AVPreviewClip } from '@/types';
-import { Play, Pause, Save, Upload, Plus, Trash2, Volume2, VolumeX, Music, Mic, Image as ImageIcon, Film, SkipBack, GripVertical, Video, Loader2, Download, Edit3, GripVertical as DragHandle, ChevronLeft, ChevronRight, Maximize, Scissors, RefreshCw } from 'lucide-react';
+import { Episode, AVScript, AVPreviewData, AVPreviewTrack, GlobalAsset, AVShot, AVSegment, AVPreviewClip, StableVersion } from '@/types';
+import { Play, Pause, Save, Upload, Plus, Trash2, Volume2, VolumeX, Music, Mic, Image as ImageIcon, Film, SkipBack, GripVertical, Video, Loader2, Download, Edit3, GripVertical as DragHandle, ChevronLeft, ChevronRight, Maximize, Scissors, RefreshCw, X, Check, History, RotateCcw } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { useSessionStorageState } from '@/hooks/useSessionStorageState';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
@@ -129,11 +129,21 @@ export function AVPreview({
   // Auto-save debounce ref
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Tab visibility tracking - prevent autosave when tab is inactive
+  const isTabVisibleRef = useRef(true);
+  const lastKnownAvScriptHashRef = useRef<string>('');
+
   // Delete track confirmation
   const [trackToDelete, setTrackToDelete] = useState<string | null>(null);
 
   // Delete clip confirmation
   const [clipToDelete, setClipToDelete] = useState<{trackId: string; clipId: string} | null>(null);
+
+  // Stable Versions
+  const [stableVersions, setStableVersions] = useState<StableVersion[]>(avPreviewData?.stableVersions || []);
+  const [editingVersionName, setEditingVersionName] = useState<string | null>(null);
+  const [tempVersionName, setTempVersionName] = useState<string>('');
+  const [versionToRestore, setVersionToRestore] = useState<StableVersion | null>(null);
 
   // Compact mode toggle
   const [isCompactMode, setIsCompactMode] = useState(false);
@@ -253,9 +263,181 @@ export function AVPreview({
     }
   }, []);
 
+  // Track tab visibility and check for changes when tab becomes active
+  useEffect(() => {
+    // Helper function to safely get timestamp from updatedAt
+    const getUpdatedAtTimestamp = (updatedAt: Date | string | number | undefined): number => {
+      if (!updatedAt) return 0;
+      if (updatedAt instanceof Date) return updatedAt.getTime();
+      if (typeof updatedAt === 'number') return updatedAt;
+      if (typeof updatedAt === 'string') return new Date(updatedAt).getTime();
+      // Handle Firestore Timestamp
+      if (updatedAt && typeof updatedAt === 'object' && 'toDate' in updatedAt) {
+        return (updatedAt as { toDate: () => Date }).toDate().getTime();
+      }
+      return 0;
+    };
+
+    const handleVisibilityChange = () => {
+      const isVisible = !document.hidden;
+      isTabVisibleRef.current = isVisible;
+      checkForChanges();
+    };
+
+    const handleWindowFocus = () => {
+      isTabVisibleRef.current = true;
+      checkForChanges();
+    };
+
+    const handleWindowBlur = () => {
+      isTabVisibleRef.current = false;
+    };
+
+    const checkForChanges = () => {
+      if (avScript) {
+        // Tab became visible - check for changes
+        const currentHash = JSON.stringify({
+          segmentsCount: avScript.segments.length,
+          totalShots: avScript.segments.reduce((sum, seg) => sum + (seg.shots?.length || 0), 0),
+          segmentIds: avScript.segments.map(s => s.id).sort().join(','),
+          shotIds: avScript.segments.flatMap(seg => seg.shots.map(s => s.id)).sort().join(','),
+          updatedAt: getUpdatedAtTimestamp(avScript.updatedAt)
+        });
+
+        if (lastKnownAvScriptHashRef.current && lastKnownAvScriptHashRef.current !== currentHash) {
+          // Changes detected - show sync notification and refresh
+          setSaveNotification({
+            message: 'New changes from AV script synced',
+            timestamp: new Date()
+          });
+          setTimeout(() => {
+            setSaveNotification(null);
+          }, 3000);
+          
+          // Refresh video durations for new shots (this will trigger visualPlaylist update)
+          const loadNewVideoDurations = async () => {
+            const durations: {[url: string]: number} = {};
+            const videoUrls = new Set<string>();
+            
+            // Collect all unique video URLs from the current AV script
+            avScript.segments.forEach(seg => {
+              seg.shots.forEach(shot => {
+                if (shot.videoUrl) {
+                  videoUrls.add(shot.videoUrl);
+                }
+              });
+            });
+            
+            // Load duration for each video that we don't have yet
+            const promises = Array.from(videoUrls).map(url => {
+              return new Promise<void>((resolve) => {
+                // Skip if we already have this duration
+                if (videoDurations[url]) {
+                  resolve();
+                  return;
+                }
+                
+                const video = document.createElement('video');
+                video.preload = 'metadata';
+                video.onloadedmetadata = () => {
+                  durations[url] = video.duration;
+                  resolve();
+                };
+                video.onerror = () => {
+                  console.warn(`Could not load duration for video: ${url}`);
+                  resolve();
+                };
+                video.src = url;
+              });
+            });
+            
+            await Promise.all(promises);
+            
+            // Update video durations (this will trigger visualPlaylist to update)
+            if (Object.keys(durations).length > 0) {
+              setVideoDurations(prev => ({ ...prev, ...durations }));
+            }
+          };
+          
+          loadNewVideoDurations();
+          
+          // Update clipEdits for any new shots that don't have edits yet
+          setClipEdits(prev => {
+            const newEdits: {[shotId: string]: ClipEdit} = {};
+            avScript.segments.forEach(seg => {
+              seg.shots.forEach(shot => {
+                if (!prev[shot.id]) {
+                  // New shot - initialize with default values
+                  newEdits[shot.id] = {
+                    duration: shot.duration || 3,
+                    offset: shot.videoOffset || 0
+                  };
+                }
+              });
+            });
+            // Merge new edits with existing ones (preserve user changes)
+            return { ...newEdits, ...prev };
+          });
+        } else if (lastKnownAvScriptHashRef.current) {
+          // No changes
+          setSaveNotification({
+            message: 'No changes made',
+            timestamp: new Date()
+          });
+          setTimeout(() => {
+            setSaveNotification(null);
+          }, 2000);
+        }
+
+        // Update hash for next comparison
+        lastKnownAvScriptHashRef.current = currentHash;
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleWindowFocus);
+    window.addEventListener('blur', handleWindowBlur);
+    
+    // Initialize hash on mount
+    if (avScript) {
+      // Helper function to safely get timestamp from updatedAt
+      const getUpdatedAtTimestamp = (updatedAt: Date | string | number | undefined): number => {
+        if (!updatedAt) return 0;
+        if (updatedAt instanceof Date) return updatedAt.getTime();
+        if (typeof updatedAt === 'number') return updatedAt;
+        if (typeof updatedAt === 'string') return new Date(updatedAt).getTime();
+        // Handle Firestore Timestamp
+        if (updatedAt && typeof updatedAt === 'object' && 'toDate' in updatedAt) {
+          return (updatedAt as { toDate: () => Date }).toDate().getTime();
+        }
+        return 0;
+      };
+
+      lastKnownAvScriptHashRef.current = JSON.stringify({
+        segmentsCount: avScript.segments.length,
+        totalShots: avScript.segments.reduce((sum, seg) => sum + (seg.shots?.length || 0), 0),
+        segmentIds: avScript.segments.map(s => s.id).sort().join(','),
+        shotIds: avScript.segments.flatMap(seg => seg.shots.map(s => s.id)).sort().join(','),
+        updatedAt: getUpdatedAtTimestamp(avScript.updatedAt)
+      });
+    }
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleWindowFocus);
+      window.removeEventListener('blur', handleWindowBlur);
+    };
+  }, [avScript, videoDurations]);
+
   // Periodic auto-save every minute
   useEffect(() => {
     const autoSaveInterval = setInterval(() => {
+      // Don't autosave if tab is not visible
+      if (!isTabVisibleRef.current) {
+        console.log('⏸️ Skipping periodic autosave - tab is not visible');
+        return;
+      }
+
       if (!avScript) return;
       
       // Construct updated AV Script with new durations and offsets
@@ -279,7 +461,8 @@ export function AVPreview({
 
       const avPreviewData: AVPreviewData = {
         audioTracks: tracks,
-        videoClipStartTimes: videoClipStartTimes
+        videoClipStartTimes: videoClipStartTimes,
+        stableVersions: stableVersions
       };
 
       onSave(avPreviewData, updatedAvScript);
@@ -744,17 +927,60 @@ export function AVPreview({
 
   // Auto-save function (debounced) - defined early so it can be used by handlers
   const triggerAutoSave = useCallback(() => {
+    // Don't autosave if tab is not visible
+    if (!isTabVisibleRef.current) {
+      console.log('⏸️ Skipping autosave - tab is not visible');
+      return;
+    }
+
+    // Don't autosave if we've detected changes that haven't been synced yet
+    // This prevents overwriting new shots created in another tab
+    if (lastKnownAvScriptHashRef.current && avScript) {
+      const getUpdatedAtTimestamp = (updatedAt: Date | string | number | undefined): number => {
+        if (!updatedAt) return 0;
+        if (updatedAt instanceof Date) return updatedAt.getTime();
+        if (typeof updatedAt === 'number') return updatedAt;
+        if (typeof updatedAt === 'string') return new Date(updatedAt).getTime();
+        if (updatedAt && typeof updatedAt === 'object' && 'toDate' in updatedAt) {
+          return (updatedAt as { toDate: () => Date }).toDate().getTime();
+        }
+        return 0;
+      };
+      
+      const currentHash = JSON.stringify({
+        segmentsCount: avScript.segments.length,
+        totalShots: avScript.segments.reduce((sum, seg) => sum + (seg.shots?.length || 0), 0),
+        segmentIds: avScript.segments.map(s => s.id).sort().join(','),
+        shotIds: avScript.segments.flatMap(seg => seg.shots.map(s => s.id)).sort().join(','),
+        updatedAt: getUpdatedAtTimestamp(avScript.updatedAt)
+      });
+      
+      // If the hash has changed, it means there are newer changes we haven't synced
+      // Don't autosave until user explicitly saves or we sync
+      if (currentHash !== lastKnownAvScriptHashRef.current) {
+        console.log('⏸️ Skipping autosave - detected unsynced changes in AV script');
+        return;
+      }
+    }
+
     if (autoSaveTimeoutRef.current) {
       clearTimeout(autoSaveTimeoutRef.current);
     }
     
     autoSaveTimeoutRef.current = setTimeout(() => {
+      // Double-check visibility before saving
+      if (!isTabVisibleRef.current) {
+        console.log('⏸️ Skipping autosave - tab became inactive during debounce');
+        return;
+      }
+
       if (!avScript) {
         console.warn('No AV Script to save');
         return;
       }
 
       // Construct updated AV Script with new durations and offsets
+      // IMPORTANT: We're only updating durations and offsets, preserving all other shot data
       const updatedAvScript = {
         ...avScript,
         segments: avScript.segments.map(seg => ({
@@ -775,10 +1001,31 @@ export function AVPreview({
 
       const avPreviewData: AVPreviewData = {
         audioTracks: tracks,
-        videoClipStartTimes: videoClipStartTimes
+        videoClipStartTimes: videoClipStartTimes,
+        stableVersions: stableVersions
       };
 
       onSave(avPreviewData, updatedAvScript);
+      
+      // Update the hash after saving to reflect the new state
+      const getUpdatedAtTimestamp = (updatedAt: Date | string | number | undefined): number => {
+        if (!updatedAt) return 0;
+        if (updatedAt instanceof Date) return updatedAt.getTime();
+        if (typeof updatedAt === 'number') return updatedAt;
+        if (typeof updatedAt === 'string') return new Date(updatedAt).getTime();
+        if (updatedAt && typeof updatedAt === 'object' && 'toDate' in updatedAt) {
+          return (updatedAt as { toDate: () => Date }).toDate().getTime();
+        }
+        return 0;
+      };
+      
+      lastKnownAvScriptHashRef.current = JSON.stringify({
+        segmentsCount: updatedAvScript.segments.length,
+        totalShots: updatedAvScript.segments.reduce((sum, seg) => sum + (seg.shots?.length || 0), 0),
+        segmentIds: updatedAvScript.segments.map(s => s.id).sort().join(','),
+        shotIds: updatedAvScript.segments.flatMap(seg => seg.shots.map(s => s.id)).sort().join(','),
+        updatedAt: getUpdatedAtTimestamp(updatedAvScript.updatedAt)
+      });
       
       // Show save notification
       setSaveNotification({
@@ -3594,7 +3841,8 @@ export function AVPreview({
     
     const avPreviewData: AVPreviewData = {
       audioTracks: tracks,
-      videoClipStartTimes: videoClipStartTimes
+      videoClipStartTimes: videoClipStartTimes,
+      stableVersions: stableVersions
     };
     
     onSave(avPreviewData, updatedAvScript);
@@ -3610,6 +3858,134 @@ export function AVPreview({
       setSaveNotification(null);
     }, 3000);
   };
+
+  // Save stable version
+  const handleSaveStableVersion = useCallback(() => {
+    if (!selectedSegmentId || !avScript) return;
+
+    const segment = avScript.segments.find(s => s.id === selectedSegmentId);
+    if (!segment) return;
+
+    // Get next version number for this scene
+    const sceneVersions = stableVersions.filter(v => v.name.startsWith(`Scene${segment.segmentNumber}_stable_v`));
+    const nextVersion = sceneVersions.length + 1;
+    const defaultName = `Scene${segment.segmentNumber}_stable_v${nextVersion}`;
+
+    const newVersion: StableVersion = {
+      id: `version_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      name: defaultName,
+      createdAt: new Date(),
+      data: {
+        audioTracks: JSON.parse(JSON.stringify(tracks)),
+        videoClipStartTimes: JSON.parse(JSON.stringify(videoClipStartTimes)),
+        clipEdits: JSON.parse(JSON.stringify(clipEdits)),
+        videoClipVolumes: JSON.parse(JSON.stringify(videoClipVolumes)),
+        mutedShots: Array.from(mutedShots)
+      }
+    };
+
+    const updatedVersions = [...stableVersions, newVersion];
+    setStableVersions(updatedVersions);
+
+    // Save to Firestore
+    const avPreviewData: AVPreviewData = {
+      audioTracks: tracks,
+      videoClipStartTimes: videoClipStartTimes,
+      stableVersions: updatedVersions
+    };
+
+    if (avScript) {
+      onSave(avPreviewData, avScript);
+    }
+
+    // Start editing the name
+    setEditingVersionName(newVersion.id);
+    setTempVersionName(defaultName);
+  }, [selectedSegmentId, avScript, tracks, videoClipStartTimes, clipEdits, videoClipVolumes, mutedShots, stableVersions, onSave]);
+
+  // Restore stable version
+  const handleRestoreStableVersion = useCallback((version: StableVersion) => {
+    setVersionToRestore(version);
+  }, []);
+
+  // Confirm restore
+  const handleConfirmRestore = useCallback(() => {
+    if (!versionToRestore) return;
+
+    // Restore all state from the version
+    setTracks(JSON.parse(JSON.stringify(versionToRestore.data.audioTracks)));
+    if (versionToRestore.data.videoClipStartTimes) {
+      setVideoClipStartTimes(JSON.parse(JSON.stringify(versionToRestore.data.videoClipStartTimes)));
+    }
+    if (versionToRestore.data.clipEdits) {
+      setClipEdits(JSON.parse(JSON.stringify(versionToRestore.data.clipEdits)));
+    }
+    if (versionToRestore.data.videoClipVolumes) {
+      setVideoClipVolumes(JSON.parse(JSON.stringify(versionToRestore.data.videoClipVolumes)));
+    }
+    if (versionToRestore.data.mutedShots) {
+      setMutedShots(new Set(versionToRestore.data.mutedShots));
+    }
+
+    // Save the restored state
+    if (avScript) {
+      const avPreviewData: AVPreviewData = {
+        audioTracks: JSON.parse(JSON.stringify(versionToRestore.data.audioTracks)),
+        videoClipStartTimes: versionToRestore.data.videoClipStartTimes,
+        stableVersions: stableVersions
+      };
+      onSave(avPreviewData, avScript);
+    }
+
+    setVersionToRestore(null);
+
+    // Show notification
+    setSaveNotification({
+      message: `Restored version: ${versionToRestore.name}`,
+      timestamp: new Date()
+    });
+    setTimeout(() => {
+      setSaveNotification(null);
+    }, 3000);
+  }, [versionToRestore, avScript, stableVersions, onSave]);
+
+  // Update version name
+  const handleUpdateVersionName = useCallback((versionId: string, newName: string) => {
+    if (!newName.trim()) return;
+
+    const updatedVersions = stableVersions.map(v =>
+      v.id === versionId ? { ...v, name: newName.trim() } : v
+    );
+    setStableVersions(updatedVersions);
+    setEditingVersionName(null);
+    setTempVersionName('');
+
+    // Save to Firestore
+    if (avScript) {
+      const avPreviewData: AVPreviewData = {
+        audioTracks: tracks,
+        videoClipStartTimes: videoClipStartTimes,
+        stableVersions: updatedVersions
+      };
+      onSave(avPreviewData, avScript);
+    }
+  }, [stableVersions, avScript, tracks, videoClipStartTimes, onSave]);
+
+  // Delete stable version
+  const handleDeleteStableVersion = useCallback((versionId: string) => {
+    const updatedVersions = stableVersions.filter(v => v.id !== versionId);
+    setStableVersions(updatedVersions);
+
+    // Save to Firestore
+    if (avScript) {
+      const avPreviewData: AVPreviewData = {
+        audioTracks: tracks,
+        videoClipStartTimes: videoClipStartTimes,
+        stableVersions: updatedVersions
+      };
+      onSave(avPreviewData, avScript);
+    }
+  }, [stableVersions, avScript, tracks, videoClipStartTimes, onSave]);
 
   // Format timecode for FCP XML (HH:MM:SS:FF at 24fps)
   const formatTimecode = (seconds: number): string => {
@@ -4557,6 +4933,36 @@ export function AVPreview({
         </div>
       )}
 
+      {/* Restore Version Confirmation Dialog */}
+      {versionToRestore && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
+          <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+            <h3 className="text-lg font-semibold text-white mb-2">Restore Stable Version?</h3>
+            <p className="text-gray-300 mb-2">
+              This will override your current state with the saved version:
+            </p>
+            <p className="text-indigo-400 font-medium mb-4">{versionToRestore.name}</p>
+            <p className="text-yellow-400 text-sm mb-6">
+              ⚠️ Warning: This action cannot be undone. Your current state will be lost.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setVersionToRestore(null)}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-md transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmRestore}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md transition-colors"
+              >
+                Restore
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col h-screen w-screen bg-gray-950 text-white overflow-hidden select-none">
       {/* Header / Toolbar */}
       <div className="border-b border-gray-800 bg-gray-900 shadow-sm px-3 py-3 sm:px-4 sm:h-14 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -4657,7 +5063,138 @@ export function AVPreview({
         {/* Video Preview Area (Top Half) */}
         <div className="h-[45%] bg-black flex items-center relative border-b border-gray-800">
           <div className="w-full h-full flex items-center">
-            {/* Video Player - Left Side (Centered) */}
+            {/* Stable Versions Panel - Left Side (Snapped to Left Edge) */}
+            <div className="w-80 h-full max-h-[400px] bg-gray-900 border-r border-gray-800 flex flex-col overflow-hidden flex-shrink-0">
+              <div className="flex-1 flex flex-col p-4 overflow-y-auto">
+                <div className="flex items-center justify-between mb-4 border-b border-gray-700 pb-2">
+                  <h3 className="text-sm font-semibold text-gray-300">Stable Versions</h3>
+                  <button
+                    onClick={handleSaveStableVersion}
+                    disabled={!selectedSegmentId}
+                    className="flex items-center space-x-1 px-2 py-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded text-xs transition-colors"
+                    title="Save current state as stable version"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Save</span>
+                  </button>
+                </div>
+
+                {stableVersions.length === 0 ? (
+                  <div className="flex-1 flex items-center justify-center">
+                    <p className="text-gray-500 text-xs text-center">No stable versions saved yet.<br />Click &quot;Save&quot; to create one.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {stableVersions
+                      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+                      .map((version) => (
+                        <div
+                          key={version.id}
+                          className="bg-gray-800 border border-gray-700 rounded p-2 hover:border-gray-600 transition-colors"
+                        >
+                          {editingVersionName === version.id ? (
+                            <div className="flex items-center space-x-1">
+                              <input
+                                type="text"
+                                value={tempVersionName}
+                                onChange={(e) => setTempVersionName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    handleUpdateVersionName(version.id, tempVersionName);
+                                  } else if (e.key === 'Escape') {
+                                    setEditingVersionName(null);
+                                    setTempVersionName('');
+                                  }
+                                }}
+                                onBlur={() => {
+                                  if (tempVersionName.trim()) {
+                                    handleUpdateVersionName(version.id, tempVersionName);
+                                  } else {
+                                    setEditingVersionName(null);
+                                    setTempVersionName('');
+                                  }
+                                }}
+                                className="flex-1 px-2 py-1 text-xs bg-gray-900 border border-gray-600 rounded text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                autoFocus
+                              />
+                              <button
+                                onClick={() => handleUpdateVersionName(version.id, tempVersionName)}
+                                className="p-1 text-green-500 hover:text-green-400"
+                                title="Save name"
+                              >
+                                <Check className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setEditingVersionName(null);
+                                  setTempVersionName('');
+                                }}
+                                className="p-1 text-red-500 hover:text-red-400"
+                                title="Cancel"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex items-start justify-between mb-1">
+                                <div className="flex-1 min-w-0">
+                                  <p
+                                    className="text-xs font-medium text-gray-200 truncate cursor-pointer hover:text-indigo-400"
+                                    onClick={() => {
+                                      setEditingVersionName(version.id);
+                                      setTempVersionName(version.name);
+                                    }}
+                                    title="Click to rename"
+                                  >
+                                    {version.name}
+                                  </p>
+                                  <p className="text-[10px] text-gray-500 mt-1">
+                                    Saved: {version.createdAt.toLocaleDateString('en-US', { 
+                                      year: 'numeric', 
+                                      month: 'short', 
+                                      day: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit'
+                                    })}
+                                  </p>
+                                </div>
+                                <div className="flex items-center space-x-1 ml-2">
+                                  <button
+                                    onClick={() => {
+                                      setEditingVersionName(version.id);
+                                      setTempVersionName(version.name);
+                                    }}
+                                    className="p-1 text-gray-400 hover:text-gray-300"
+                                    title="Rename"
+                                  >
+                                    <Edit3 className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteStableVersion(version.id)}
+                                    className="p-1 text-gray-400 hover:text-red-400"
+                                    title="Delete"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => handleRestoreStableVersion(version)}
+                                className="w-full mt-2 px-2 py-1.5 bg-indigo-600 hover:bg-indigo-700 rounded text-xs text-white flex items-center justify-center space-x-1 transition-colors"
+                              >
+                                <RotateCcw className="w-3 h-3" />
+                                <span>Restore</span>
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            {/* Video Player - Center */}
             <div className="flex-1 flex items-center justify-center">
               <div className="aspect-video h-full max-h-[400px] w-full max-w-[800px] bg-gray-900 flex items-center justify-center relative shadow-2xl">
                {currentVisualClip ? (

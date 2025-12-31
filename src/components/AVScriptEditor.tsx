@@ -117,6 +117,11 @@ export function AVScriptEditor({
     }
   ); // 'all' or segment id
   const autosaveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  
+  // Tab visibility tracking - prevent autosave when tab is inactive
+  const isTabVisibleRef = React.useRef(true);
+  const lastKnownAvScriptHashRef = React.useRef<string>('');
+  const [syncNotification, setSyncNotification] = useState<{message: string; timestamp: Date} | null>(null);
 
   // If the saved filter references a scene that no longer exists, fall back to "all"
   useEffect(() => {
@@ -328,7 +333,101 @@ export function AVScriptEditor({
   // Track last saved script hash to prevent unnecessary saves
   const lastSavedScriptHashRef = React.useRef<string>('');
   
+  // Track tab visibility and check for changes when tab becomes active
   useEffect(() => {
+    // Helper function to safely get timestamp from updatedAt
+    const getUpdatedAtTimestamp = (updatedAt: Date | string | number | undefined): number => {
+      if (!updatedAt) return 0;
+      if (updatedAt instanceof Date) return updatedAt.getTime();
+      if (typeof updatedAt === 'number') return updatedAt;
+      if (typeof updatedAt === 'string') return new Date(updatedAt).getTime();
+      // Handle Firestore Timestamp
+      if (updatedAt && typeof updatedAt === 'object' && 'toDate' in updatedAt) {
+        return (updatedAt as { toDate: () => Date }).toDate().getTime();
+      }
+      return 0;
+    };
+
+    const handleVisibilityChange = () => {
+      const isVisible = !document.hidden;
+      isTabVisibleRef.current = isVisible;
+
+      if (isVisible && avScript) {
+        // Tab became visible - check for changes in incoming avScript prop
+        const currentHash = JSON.stringify({
+          segmentsCount: avScript.segments.length,
+          totalShots: avScript.segments.reduce((sum, seg) => sum + (seg.shots?.length || 0), 0),
+          segmentIds: avScript.segments.map(s => s.id).sort().join(','),
+          shotIds: avScript.segments.flatMap(seg => seg.shots.map(s => s.id)).sort().join(','),
+          updatedAt: getUpdatedAtTimestamp(avScript.updatedAt)
+        });
+
+        if (lastKnownAvScriptHashRef.current && lastKnownAvScriptHashRef.current !== currentHash) {
+          // Changes detected - show sync notification and update local script
+          setSyncNotification({
+            message: 'New changes from AV preview synced',
+            timestamp: new Date()
+          });
+          setTimeout(() => {
+            setSyncNotification(null);
+          }, 3000);
+          
+          // Update local script to match incoming avScript
+          setScript(avScript);
+        } else if (lastKnownAvScriptHashRef.current) {
+          // No changes
+          setSyncNotification({
+            message: 'No changes made',
+            timestamp: new Date()
+          });
+          setTimeout(() => {
+            setSyncNotification(null);
+          }, 2000);
+        }
+
+        // Update hash for next comparison
+        lastKnownAvScriptHashRef.current = currentHash;
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // Initialize hash on mount
+    if (avScript) {
+      // Helper function to safely get timestamp from updatedAt
+      const getUpdatedAtTimestamp = (updatedAt: Date | string | number | undefined): number => {
+        if (!updatedAt) return 0;
+        if (updatedAt instanceof Date) return updatedAt.getTime();
+        if (typeof updatedAt === 'number') return updatedAt;
+        if (typeof updatedAt === 'string') return new Date(updatedAt).getTime();
+        // Handle Firestore Timestamp
+        if (updatedAt && typeof updatedAt === 'object' && 'toDate' in updatedAt) {
+          return (updatedAt as { toDate: () => Date }).toDate().getTime();
+        }
+        return 0;
+      };
+
+      lastKnownAvScriptHashRef.current = JSON.stringify({
+        segmentsCount: avScript.segments.length,
+        totalShots: avScript.segments.reduce((sum, seg) => sum + (seg.shots?.length || 0), 0),
+        segmentIds: avScript.segments.map(s => s.id).sort().join(','),
+        shotIds: avScript.segments.flatMap(seg => seg.shots.map(s => s.id)).sort().join(','),
+        updatedAt: getUpdatedAtTimestamp(avScript.updatedAt)
+      });
+    }
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [avScript]);
+
+  useEffect(() => {
+    // Don't autosave if tab is not visible
+    if (!isTabVisibleRef.current) {
+      console.log('⏸️ Skipping autosave - tab is not visible');
+      return;
+    }
+
     // Create a lightweight hash of the script to detect actual changes
     const scriptHash = JSON.stringify({
       segmentsCount: script.segments.length,
@@ -352,6 +451,11 @@ export function AVScriptEditor({
 
     // Set new timeout
     autosaveTimeoutRef.current = setTimeout(async () => {
+      // Double-check visibility before saving
+      if (!isTabVisibleRef.current) {
+        console.log('⏸️ Skipping autosave - tab became inactive during debounce');
+        return;
+      }
       // Double-check hash hasn't changed during the debounce period
       const currentHash = JSON.stringify({
         segmentsCount: script.segments.length,
@@ -2075,6 +2179,19 @@ export function AVScriptEditor({
               >
                 Cancel
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sync Notification */}
+      {syncNotification && (
+        <div className="fixed bottom-4 right-4 bg-blue-600 text-white px-4 py-3 rounded-lg shadow-lg z-[200] flex items-center space-x-2 transform transition-all duration-300 ease-out">
+          <Save className="w-4 h-4" />
+          <div>
+            <div className="text-sm font-medium">{syncNotification.message}</div>
+            <div className="text-xs opacity-90">
+              {syncNotification.timestamp.toLocaleTimeString()}
             </div>
           </div>
         </div>
