@@ -132,16 +132,6 @@ export default function LoginPage() {
               )}
             </button>
           </form>
-
-          {/* User Info */}
-          <div className="mt-6 pt-6 border-t border-white/20">
-            <p className="text-xs text-indigo-300 text-center">
-              Available users: <span className="font-semibold">lukasz</span>, <span className="font-semibold">adrian</span>
-            </p>
-            <p className="text-xs text-indigo-300 text-center mt-1">
-              Password: <span className="font-semibold">zaq12wsx</span>
-            </p>
-          </div>
         </div>
       </div>
     </div>
