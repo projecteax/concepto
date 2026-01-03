@@ -38,10 +38,19 @@ export function EpisodeList({
   const basePath = useBasePath();
   const [showAddForm, setShowAddForm] = useState(false);
   const [newEpisodeTitle, setNewEpisodeTitle] = useState('');
-  const [newEpisodeNumber, setNewEpisodeNumber] = useState(1);
+  const [newEpisodeNumber, setNewEpisodeNumber] = useState<number | 'intro'>(1);
   const [newEpisodeDescription, setNewEpisodeDescription] = useState('');
 
-  const sortedEpisodes = [...episodes].sort((a, b) => a.episodeNumber - b.episodeNumber);
+  const sortedEpisodes = [...episodes].sort((a, b) => {
+    // Intro episodes always come first
+    if (a.episodeNumber === 'intro' && b.episodeNumber !== 'intro') return -1;
+    if (a.episodeNumber !== 'intro' && b.episodeNumber === 'intro') return 1;
+    if (a.episodeNumber === 'intro' && b.episodeNumber === 'intro') return 0;
+    // Both are numbers, sort numerically
+    const numA = typeof a.episodeNumber === 'number' ? a.episodeNumber : 0;
+    const numB = typeof b.episodeNumber === 'number' ? b.episodeNumber : 0;
+    return numA - numB;
+  });
 
   const handleAddEpisode = () => {
     if (newEpisodeTitle.trim()) {
@@ -112,9 +121,13 @@ export function EpisodeList({
     return `Scripts (${languages.join(', ')})`;
   };
 
-  const getNextEpisodeNumber = () => {
+  const getNextEpisodeNumber = (): number => {
     if (episodes.length === 0) return 1;
-    return Math.max(...episodes.map(e => e.episodeNumber)) + 1;
+    const numericEpisodes = episodes
+      .map(e => e.episodeNumber)
+      .filter((n): n is number => typeof n === 'number');
+    if (numericEpisodes.length === 0) return 1;
+    return Math.max(...numericEpisodes) + 1;
   };
 
   return (
@@ -177,7 +190,7 @@ export function EpisodeList({
                     {/* Header: Episode number and title */}
                     <div className="flex items-center space-x-2">
                       <div className="w-8 h-8 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0">
-                        {episode.episodeNumber}
+                        {episode.episodeNumber === 'intro' ? 'I' : episode.episodeNumber}
                       </div>
                       <h3 className="text-lg font-semibold text-gray-900 group-hover:text-green-600 transition-colors flex-1 min-w-0">
                         {episode.title}
@@ -248,9 +261,11 @@ export function EpisodeList({
                         <div className="flex items-center space-x-4 mb-3">
                           <div className="flex items-center space-x-2">
                             <div className="w-8 h-8 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-sm font-semibold">
-                              {episode.episodeNumber}
+                              {episode.episodeNumber === 'intro' ? 'I' : episode.episodeNumber}
                             </div>
-                            <h3 className="text-xl font-semibold text-gray-900 group-hover:text-green-600 transition-colors">{episode.title}</h3>
+                            <h3 className="text-xl font-semibold text-gray-900 group-hover:text-green-600 transition-colors">
+                              {episode.episodeNumber === 'intro' ? 'Intro' : `Episode ${episode.episodeNumber}`} - {episode.title}
+                            </h3>
                           </div>
                           <div className="flex items-center space-x-4 text-sm text-gray-500">
                             <div className="flex items-center space-x-1">
@@ -324,16 +339,39 @@ export function EpisodeList({
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Add New Episode</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Episode Number
-                  </label>
-                  <input
-                    type="number"
-                    value={newEpisodeNumber}
-                    onChange={(e) => setNewEpisodeNumber(parseInt(e.target.value) || 1)}
-                    min="1"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  />
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Sequence Type
+                    </label>
+                    <select
+                      value={newEpisodeNumber === 'intro' ? 'intro' : 'number'}
+                      onChange={(e) => {
+                        if (e.target.value === 'intro') {
+                          setNewEpisodeNumber('intro');
+                        } else {
+                          setNewEpisodeNumber(typeof newEpisodeNumber === 'number' ? newEpisodeNumber : 1);
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent mb-2"
+                    >
+                      <option value="number">Number</option>
+                      <option value="intro">Intro</option>
+                    </select>
+                  </div>
+                  {newEpisodeNumber !== 'intro' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Episode Number
+                      </label>
+                      <input
+                        type="number"
+                        value={typeof newEpisodeNumber === 'number' ? newEpisodeNumber : 1}
+                        onChange={(e) => setNewEpisodeNumber(parseInt(e.target.value) || 1)}
+                        min="1"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      />
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">

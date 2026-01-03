@@ -184,7 +184,7 @@ export interface Episode {
   id: string;
   showId: string;
   title: string;
-  episodeNumber: number;
+  episodeNumber: number | 'intro';
   description?: string;
   /** Optional show-level plot theme selected for this episode (links to PlotTheme.id). */
   plotThemeId?: string;

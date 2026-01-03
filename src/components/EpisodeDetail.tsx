@@ -173,8 +173,15 @@ export default function EpisodeDetail({
   // Inline editing states
   const [editingTitle, setEditingTitle] = useState(false);
   const [editingDescription, setEditingDescription] = useState(false);
+  const [editingEpisodeNumber, setEditingEpisodeNumber] = useState(false);
   const [tempTitle, setTempTitle] = useState(episode.title);
   const [tempDescription, setTempDescription] = useState(episode.description || '');
+  const [tempEpisodeNumber, setTempEpisodeNumber] = useState<number | 'intro'>(episode.episodeNumber);
+
+  // Sync tempEpisodeNumber when episode changes
+  useEffect(() => {
+    setTempEpisodeNumber(episode.episodeNumber);
+  }, [episode.episodeNumber]);
   const selectedEpisodePlotTheme = plotThemes.find((t) => t.id === localEpisode.plotThemeId) || null;
   const narrativeStoriesPL = localEpisode.narrativeStories || [];
   const narrativeStoriesEN = localEpisode.narrativeStoriesEN || [];
@@ -456,6 +463,41 @@ export default function EpisodeDetail({
   const handleCancelDescription = () => {
     setTempDescription(localEpisode.description || '');
     setEditingDescription(false);
+  };
+
+  const handleSaveEpisodeNumber = async () => {
+    if (tempEpisodeNumber !== localEpisode.episodeNumber) {
+      const previousEpisode = localEpisode;
+      const updatedEpisode = { ...localEpisode, episodeNumber: tempEpisodeNumber };
+      
+      // Update the hash references BEFORE saving to prevent useEffect from overwriting
+      const episodeHash = calculateEpisodeHash(updatedEpisode);
+      lastSavedEpisodeRef.current = episodeHash;
+      lastEpisodeHashRef.current = episodeHash;
+      
+      // Update local state immediately for UI responsiveness
+      setLocalEpisode(updatedEpisode);
+      
+      // Force immediate save for episode number changes
+      if (onSave) {
+        try {
+          await onSave(updatedEpisode);
+          console.log('✅ Episode number saved successfully:', tempEpisodeNumber);
+        } catch (error) {
+          console.error('❌ Error saving episode number:', error);
+          // Revert on error
+          setLocalEpisode(previousEpisode);
+          lastSavedEpisodeRef.current = calculateEpisodeHash(previousEpisode);
+          lastEpisodeHashRef.current = calculateEpisodeHash(previousEpisode);
+        }
+      }
+    }
+    setEditingEpisodeNumber(false);
+  };
+
+  const handleCancelEpisodeNumber = () => {
+    setTempEpisodeNumber(localEpisode.episodeNumber);
+    setEditingEpisodeNumber(false);
   };
 
   const handleAddScene = () => {
@@ -1375,6 +1417,91 @@ export default function EpisodeDetail({
       <div className={`${activeTab === 'screenwriting' ? 'py-0' : 'studio-container py-4 sm:py-6'}`}>
         {activeTab === 'overview' && (
           <div className="space-y-6">
+            {/* Episode Sequence Number */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-medium text-gray-900">Episode Sequence</h2>
+              </div>
+              {editingEpisodeNumber ? (
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-3">
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Sequence Type
+                      </label>
+                      <select
+                        value={tempEpisodeNumber === 'intro' ? 'intro' : 'number'}
+                        onChange={(e) => {
+                          if (e.target.value === 'intro') {
+                            setTempEpisodeNumber('intro');
+                          } else {
+                            setTempEpisodeNumber(typeof tempEpisodeNumber === 'number' ? tempEpisodeNumber : 1);
+                          }
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        disabled={isPublicMode}
+                      >
+                        <option value="number">Number</option>
+                        <option value="intro">Intro</option>
+                      </select>
+                    </div>
+                    {tempEpisodeNumber !== 'intro' && (
+                      <div className="flex-1">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Episode Number
+                        </label>
+                        <input
+                          type="number"
+                          value={typeof tempEpisodeNumber === 'number' ? tempEpisodeNumber : 1}
+                          onChange={(e) => setTempEpisodeNumber(parseInt(e.target.value) || 1)}
+                          min="1"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          disabled={isPublicMode}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSaveEpisodeNumber();
+                            if (e.key === 'Escape') handleCancelEpisodeNumber();
+                          }}
+                          autoFocus
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={handleSaveEpisodeNumber}
+                      disabled={isPublicMode}
+                      className="px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm disabled:bg-gray-300 disabled:cursor-not-allowed"
+                    >
+                      <Save className="w-4 h-4 inline mr-1" />
+                      Save
+                    </button>
+                    <button
+                      onClick={handleCancelEpisodeNumber}
+                      className="px-3 py-1 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className="cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition-colors"
+                  onClick={() => !isPublicMode && setEditingEpisodeNumber(true)}
+                  title={isPublicMode ? undefined : "Click to edit sequence number"}
+                >
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm font-medium text-gray-700">Current:</span>
+                    <span className="text-lg font-semibold text-gray-900">
+                      {localEpisode.episodeNumber === 'intro' ? 'Intro' : `Episode ${localEpisode.episodeNumber}`}
+                    </span>
+                    {!isPublicMode && (
+                      <Edit3 className="w-4 h-4 text-gray-400" />
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="bg-white rounded-lg shadow p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-medium text-gray-900">Episode Description</h2>

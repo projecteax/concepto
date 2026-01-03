@@ -310,8 +310,17 @@ export const episodeService = {
         } as Episode;
       });
       
-      // Sort episodes by episode number on the client side
-      const sortedEpisodes = episodes.sort((a, b) => a.episodeNumber - b.episodeNumber);
+      // Sort episodes by episode number on the client side (intro first, then numeric)
+      const sortedEpisodes = episodes.sort((a, b) => {
+        // Intro episodes always come first
+        if (a.episodeNumber === 'intro' && b.episodeNumber !== 'intro') return -1;
+        if (a.episodeNumber !== 'intro' && b.episodeNumber === 'intro') return 1;
+        if (a.episodeNumber === 'intro' && b.episodeNumber === 'intro') return 0;
+        // Both are numbers, sort numerically
+        const numA = typeof a.episodeNumber === 'number' ? a.episodeNumber : 0;
+        const numB = typeof b.episodeNumber === 'number' ? b.episodeNumber : 0;
+        return numA - numB;
+      });
       
       // Cache the result
       queryCache.set(cacheKey, { data: sortedEpisodes, timestamp: Date.now() });

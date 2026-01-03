@@ -93,7 +93,7 @@ export function ShowDashboard({
   const [newAssetName, setNewAssetName] = useState('');
   const [newAssetCategory, setNewAssetCategory] = useState<'character' | 'location' | 'gadget' | 'texture' | 'background'>('character');
   const [newEpisodeTitle, setNewEpisodeTitle] = useState('');
-  const [newEpisodeNumber, setNewEpisodeNumber] = useState(1);
+  const [newEpisodeNumber, setNewEpisodeNumber] = useState<number | 'intro'>(1);
   
   // Edit show state (Show Settings)
   const [showName, setShowName] = useState(show.name);
@@ -413,14 +413,23 @@ export function ShowDashboard({
 
             {/* Recent Episodes */}
             <div className="space-y-3 mb-6">
-              {episodes.slice(0, 3).map((episode) => (
+              {[...episodes].sort((a, b) => {
+                if (a.episodeNumber === 'intro' && b.episodeNumber !== 'intro') return -1;
+                if (a.episodeNumber !== 'intro' && b.episodeNumber === 'intro') return 1;
+                if (a.episodeNumber === 'intro' && b.episodeNumber === 'intro') return 0;
+                const numA = typeof a.episodeNumber === 'number' ? a.episodeNumber : 0;
+                const numB = typeof b.episodeNumber === 'number' ? b.episodeNumber : 0;
+                return numA - numB;
+              }).slice(0, 3).map((episode) => (
                 <div
                   key={episode.id}
                   className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent transition-colors cursor-pointer"
                   onClick={() => onSelectEpisode(episode)}
                 >
                   <div>
-                    <h4 className="font-medium hover:text-primary transition-colors">Episode {episode.episodeNumber}</h4>
+                    <h4 className="font-medium hover:text-primary transition-colors">
+                      {episode.episodeNumber === 'intro' ? 'Intro' : `Episode ${episode.episodeNumber}`}
+                    </h4>
                     <p className="text-sm text-muted-foreground">{episode.title}</p>
                   </div>
                   <span className="text-sm text-muted-foreground">
@@ -798,16 +807,37 @@ export function ShowDashboard({
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Episode Number
+                      Sequence Type
                     </label>
-                    <input
-                      type="number"
-                      value={newEpisodeNumber}
-                      onChange={(e) => setNewEpisodeNumber(parseInt(e.target.value) || 1)}
-                      min="1"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    />
+                    <select
+                      value={newEpisodeNumber === 'intro' ? 'intro' : 'number'}
+                      onChange={(e) => {
+                        if (e.target.value === 'intro') {
+                          setNewEpisodeNumber('intro');
+                        } else {
+                          setNewEpisodeNumber(typeof newEpisodeNumber === 'number' ? newEpisodeNumber : 1);
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent mb-2"
+                    >
+                      <option value="number">Number</option>
+                      <option value="intro">Intro</option>
+                    </select>
                   </div>
+                  {newEpisodeNumber !== 'intro' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Episode Number
+                      </label>
+                      <input
+                        type="number"
+                        value={typeof newEpisodeNumber === 'number' ? newEpisodeNumber : 1}
+                        onChange={(e) => setNewEpisodeNumber(parseInt(e.target.value) || 1)}
+                        min="1"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      />
+                    </div>
+                  )}
                   <div className="flex space-x-3">
                     <button
                       onClick={handleAddEpisode}
