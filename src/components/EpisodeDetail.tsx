@@ -18,7 +18,8 @@ import {
   Wand2,
   BookOpen,
   Menu,
-  Loader2
+  Loader2,
+  Copy
 } from 'lucide-react';
 import StoryboardDrawer from './StoryboardDrawer';
 import CommentThread from './CommentThread';
@@ -32,6 +33,7 @@ import { EpisodeDescriptionGenerationDialog } from './EpisodeDescriptionGenerati
 import { ScreenplayGenerationDialog, ScreenplayVersion } from './ScreenplayGenerationDialog';
 import { NarrativeGenerationDialog } from './NarrativeGenerationDialog';
 import { NarrativeReaderDialog } from './NarrativeReaderDialog';
+import { CopyScriptDialog } from './CopyScriptDialog';
 import { AppBreadcrumbHeader } from './AppBreadcrumbHeader';
 import { Button } from '@/components/ui/button';
 import {
@@ -202,6 +204,7 @@ export default function EpisodeDetail({
   const [showScreenplayDialog, setShowScreenplayDialog] = useState(false);
   const [showNarrativeDialog, setShowNarrativeDialog] = useState(false);
   const [showNarrativeReader, setShowNarrativeReader] = useState(false);
+  const [showCopyScriptDialog, setShowCopyScriptDialog] = useState(false);
   const [narrativeReaderPayload, setNarrativeReaderPayload] = useState<{
     title: string;
     text: string;
@@ -1394,6 +1397,10 @@ export default function EpisodeDetail({
                   <BookOpen className="h-4 w-4" />
                   <span>Narrative descriptions</span>
                 </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setShowCopyScriptDialog(true)}>
+                  <Copy className="h-4 w-4" />
+                  <span>Copy script from</span>
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => screenplayEditorRef.current?.togglePreview()}>
                   <Eye className="h-4 w-4" />
@@ -1850,6 +1857,39 @@ export default function EpisodeDetail({
             </div>
           </div>
         )}
+
+        {/* Copy Script Dialog */}
+        <CopyScriptDialog
+          isOpen={showCopyScriptDialog}
+          onClose={() => setShowCopyScriptDialog(false)}
+          currentEpisodeId={episode.id}
+          showId={show.id}
+          onCopyComplete={(screenplayData) => {
+            const updatedEpisode: Episode = { 
+              ...localEpisode, 
+              screenplayData: {
+                ...screenplayData,
+                // Update title to current episode's title
+                title: localEpisode.title || screenplayData.title || 'Untitled Screenplay',
+              }
+            };
+            setLocalEpisode(updatedEpisode);
+            setScreenplayLastSavedAt(Date.now());
+            // Save immediately
+            updateEpisodeAndSave(updatedEpisode, true);
+            // Force ScreenplayEditor to re-render
+            setTimeout(() => {
+              setLocalEpisode(prev => ({
+                ...prev,
+                screenplayData: {
+                  ...prev.screenplayData!,
+                  elements: [...prev.screenplayData!.elements],
+                  elementsEN: prev.screenplayData!.elementsEN ? [...prev.screenplayData!.elementsEN] : [],
+                }
+              }));
+            }, 100);
+          }}
+        />
 
         {/* Screenplay Generation Dialog */}
         <ScreenplayGenerationDialog
