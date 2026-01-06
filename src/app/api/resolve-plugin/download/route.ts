@@ -8,7 +8,7 @@ import archiver from 'archiver';
  * 
  * Creates a zip file of the davinci-plugin directory and streams it to the client
  */
-export async function GET(_request: NextRequest) {
+export async function GET() {
   try {
     const pluginDir = join(process.cwd(), 'davinci-plugin');
     
@@ -21,7 +21,7 @@ export async function GET(_request: NextRequest) {
           { status: 404 }
         );
       }
-    } catch (error) {
+    } catch {
       return NextResponse.json(
         { error: 'Plugin directory not found' },
         { status: 404 }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, updateDoc, Timestamp } from 'firebase/firestore';
 import { requireApiKey } from '@/lib/api-auth';
-import { AVPreviewData } from '@/types';
+import { AVPreviewData, AVPreviewTrack } from '@/types';
 
 /**
  * GET /api/external/episodes/:episodeId/av-preview
@@ -121,7 +121,7 @@ export async function PUT(
     const data = episodeSnap.data();
     const existing: AVPreviewData | undefined = data?.avPreviewData as AVPreviewData | undefined;
 
-    const updates: Record<string, any> = {
+    const updates: Record<string, Timestamp | Record<string, number> | AVPreviewTrack[]> = {
       updatedAt: Timestamp.now(),
     };
 

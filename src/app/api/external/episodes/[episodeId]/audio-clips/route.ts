@@ -57,7 +57,6 @@ export async function POST(
 
     // Generate file key
     const timestamp = Date.now();
-    const fileExtension = audioFile.name.split('.').pop() || 'mp3';
     const sanitizedName = audioFile.name.replace(/[^a-zA-Z0-9.-]/g, '_').substring(0, 100);
     const fileKey = `episodes/${episodeId}/audio-clips/${timestamp}_${sanitizedName}`;
 
