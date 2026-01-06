@@ -65,9 +65,10 @@ export function CopyScriptDialog({
             return obj;
           };
 
+          const convertedData = convertTimestamps(data);
           const episode = {
             id: docSnap.id,
-            ...convertTimestamps(data),
+            ...(typeof convertedData === 'object' && convertedData !== null ? convertedData as Record<string, unknown> : {}),
           } as Episode;
 
           // Only include episodes that have screenplayData and exclude current episode
