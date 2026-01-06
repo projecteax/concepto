@@ -420,7 +420,7 @@ export function ShowDashboard({
                 const numA = typeof a.episodeNumber === 'number' ? a.episodeNumber : 0;
                 const numB = typeof b.episodeNumber === 'number' ? b.episodeNumber : 0;
                 return numA - numB;
-              }).slice(0, 3).map((episode) => (
+              }).slice(0, 5).map((episode) => (
                 <div
                   key={episode.id}
                   className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent transition-colors cursor-pointer"
