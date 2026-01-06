@@ -12,16 +12,24 @@ interface ImportedShot {
   segmentNumber: number; // Extracted from order
 }
 
+interface AVSegment {
+  id: string;
+  segmentNumber: number;
+  title: string;
+}
+
 interface ImportAVDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onImport: (shots: ImportedShot[]) => void;
+  onImport: (shots: ImportedShot[], targetSegmentId: string | null) => void;
+  availableSegments?: AVSegment[];
 }
 
-export function ImportAVDialog({ isOpen, onClose, onImport }: ImportAVDialogProps) {
+export function ImportAVDialog({ isOpen, onClose, onImport, availableSegments = [] }: ImportAVDialogProps) {
   const [importedShots, setImportedShots] = useState<ImportedShot[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [targetSegmentId, setTargetSegmentId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const formatTime = (time: string): string => {
@@ -283,10 +291,15 @@ export function ImportAVDialog({ isOpen, onClose, onImport }: ImportAVDialogProp
       setError('No shots to import');
       return;
     }
-    onImport(importedShots);
+    if (availableSegments.length > 0 && !targetSegmentId) {
+      setError('Please select a target segment');
+      return;
+    }
+    onImport(importedShots, targetSegmentId);
     onClose();
     // Reset state
     setImportedShots([]);
+    setTargetSegmentId(null);
     setError(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -311,6 +324,32 @@ export function ImportAVDialog({ isOpen, onClose, onImport }: ImportAVDialogProp
 
         {/* Content */}
         <div className="flex-1 overflow-auto p-3 sm:p-6">
+          {/* Target Segment Selection */}
+          {availableSegments.length > 0 && (
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Select Target Segment / Scene
+              </label>
+              <select
+                value={targetSegmentId || ''}
+                onChange={(e) => setTargetSegmentId(e.target.value || null)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              >
+                <option value="">-- Select a segment --</option>
+                {availableSegments
+                  .sort((a, b) => a.segmentNumber - b.segmentNumber)
+                  .map((segment) => (
+                    <option key={segment.id} value={segment.id}>
+                      Scene {segment.segmentNumber.toString().padStart(2, '0')}: {segment.title}
+                    </option>
+                  ))}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                Choose which segment to add the imported shots to. If not selected, shots will be added to their original segments.
+              </p>
+            </div>
+          )}
+
           {/* File Upload */}
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -400,7 +439,7 @@ export function ImportAVDialog({ isOpen, onClose, onImport }: ImportAVDialogProp
           </button>
           <button
             onClick={handleImport}
-            disabled={importedShots.length === 0}
+            disabled={importedShots.length === 0 || (availableSegments.length > 0 && !targetSegmentId)}
             className="w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
           >
             <CheckCircle2 className="w-4 h-4" />

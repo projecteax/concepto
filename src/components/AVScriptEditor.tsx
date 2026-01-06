@@ -71,16 +71,23 @@ export function AVScriptEditor({
   const scriptSceneFilterKey = `concepto:av:scriptSceneFilter:${episodeId}`;
   const previewSelectedSegmentKey = `concepto:av:selectedSegmentId:${episodeId}`;
 
-  const [script, setScript] = useState<AVScript>(avScript || {
-    id: `av-script-${Date.now()}`,
-    episodeId,
-    title: 'BT AV script',
-    version: 'v1',
-    segments: [],
-    totalRuntime: 0,
-    totalWords: 0,
-    createdAt: new Date(),
-    updatedAt: new Date(),
+  const [script, setScript] = useState<AVScript>(() => {
+    const initialScript = avScript || {
+      id: `av-script-${Date.now()}`,
+      episodeId,
+      title: 'AV script',
+      version: 'v1',
+      segments: [],
+      totalRuntime: 0,
+      totalWords: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    // Auto-update old "BT AV script" title to "AV script"
+    if (initialScript.title === 'BT AV script') {
+      initialScript.title = 'AV script';
+    }
+    return initialScript;
   });
   
   // Stable versions state
@@ -161,9 +168,34 @@ export function AVScriptEditor({
 
   const { uploadFile } = useS3Upload();
 
+  // Auto-update "BT AV script" title to "AV script" on mount or when avScript prop changes
+  useEffect(() => {
+    if (script.title === 'BT AV script') {
+      const updatedScript = {
+        ...script,
+        title: 'AV script',
+        updatedAt: new Date(),
+      };
+      setScript(updatedScript);
+      onSave(updatedScript);
+    }
+  }, []); // Run only once on mount
+
   // Sync internal state when avScript prop changes (e.g., from AVPreview save)
   useEffect(() => {
     if (avScript) {
+      // Auto-update old "BT AV script" title if present
+      if (avScript.title === 'BT AV script') {
+        const updatedScript = {
+          ...avScript,
+          title: 'AV script',
+          updatedAt: new Date(),
+        };
+        setScript(updatedScript);
+        onSave(updatedScript);
+        return;
+      }
+      
       // Only update if the prop actually changed (avoid unnecessary updates)
       const propHash = JSON.stringify(avScript);
       const stateHash = JSON.stringify(script);
@@ -1299,7 +1331,7 @@ export function AVScriptEditor({
     visual: string;
     time: string;
     segmentNumber: number;
-  }>) => {
+  }>, targetSegmentId: string | null) => {
     // Convert imported shots to the same format as generated shots
     const convertedShots = importedShots.map(shot => ({
       shotNumber: shot.order,
@@ -1310,8 +1342,8 @@ export function AVScriptEditor({
       segmentNumber: shot.segmentNumber,
     }));
     
-    // Use the same autopopulate logic
-    await handleAutopopulate(convertedShots);
+    // Use the same autopopulate logic with target segment
+    await handleAutopopulate(convertedShots, targetSegmentId);
   };
 
   // Handle autopopulate from generated shots
@@ -1322,22 +1354,87 @@ export function AVScriptEditor({
     audio: string;
     time: string;
     segmentNumber: number;
-  }>) => {
-    // Group shots by segment
-    const shotsBySegment = new Map<number, typeof generatedShots>();
-    generatedShots.forEach(shot => {
-      if (!shotsBySegment.has(shot.segmentNumber)) {
-        shotsBySegment.set(shot.segmentNumber, []);
-      }
-      shotsBySegment.get(shot.segmentNumber)!.push(shot);
-    });
-
+  }>, targetSegmentId: string | null = null) => {
     // Update or create segments and shots
     const updatedSegments = [...script.segments];
     
-    shotsBySegment.forEach((shots, segmentNum) => {
-      // Find or create segment
-      let segment = updatedSegments.find(s => s.segmentNumber === segmentNum);
+    let targetSegment: AVSegment | null = null;
+    if (targetSegmentId) {
+      // If target segment is specified, use it for all shots
+      targetSegment = updatedSegments.find(s => s.id === targetSegmentId) || null;
+      if (!targetSegment) {
+        // Target segment not found - this shouldn't happen, but handle gracefully
+        console.warn(`Target segment ${targetSegmentId} not found`);
+        targetSegmentId = null;
+      }
+    }
+
+    if (targetSegment) {
+      // Add all shots to the target segment (ignore segment numbers from imported data)
+      const shots = generatedShots;
+      
+      // Parse time string (MM:SS:FF) to seconds
+      const parseTime = (timeStr: string): number => {
+        const parts = timeStr.split(':');
+        if (parts.length === 3) {
+          const mins = parseInt(parts[0], 10) || 0;
+          const secs = parseInt(parts[1], 10) || 0;
+          const frames = parseInt(parts[2], 10) || 0;
+          return mins * 60 + secs + frames / 24; // 24 fps
+        }
+        return 0;
+      };
+
+      // Add or update shots in target segment
+      shots.forEach((generatedShot, index) => {
+        // Check if shot with this unique name already exists
+        const existingShot = targetSegment!.shots.find(s => s.take === generatedShot.uniqueName);
+        
+        if (existingShot) {
+          // Update existing shot
+          existingShot.audio = generatedShot.audio;
+          existingShot.visual = generatedShot.visual;
+          existingShot.duration = parseTime(generatedShot.time);
+          existingShot.wordCount = calculateWordCount(generatedShot.audio);
+          existingShot.runtime = calculateRuntime(generatedShot.audio);
+          existingShot.updatedAt = new Date();
+        } else {
+          // Create new shot
+          const newShot: AVShot = {
+            id: `shot-${Date.now()}-${index}`,
+            segmentId: targetSegment!.id,
+            shotNumber: 0, // Will be calculated
+            take: generatedShot.uniqueName,
+            audio: generatedShot.audio,
+            visual: generatedShot.visual,
+            duration: parseTime(generatedShot.time),
+            wordCount: calculateWordCount(generatedShot.audio),
+            runtime: calculateRuntime(generatedShot.audio),
+            order: targetSegment!.shots.length,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+          targetSegment!.shots.push(newShot);
+        }
+      });
+
+      // Recalculate segment totals
+      targetSegment.totalWords = targetSegment.shots.reduce((sum, s) => sum + s.wordCount, 0);
+      targetSegment.totalRuntime = targetSegment.shots.reduce((sum, s) => sum + s.runtime, 0);
+      targetSegment.updatedAt = new Date();
+    } else {
+      // Original logic: Group shots by segment
+      const shotsBySegment = new Map<number, typeof generatedShots>();
+      generatedShots.forEach(shot => {
+        if (!shotsBySegment.has(shot.segmentNumber)) {
+          shotsBySegment.set(shot.segmentNumber, []);
+        }
+        shotsBySegment.get(shot.segmentNumber)!.push(shot);
+      });
+      
+      shotsBySegment.forEach((shots, segmentNum) => {
+        // Find or create segment
+        let segment = updatedSegments.find(s => s.segmentNumber === segmentNum);
       
       if (!segment) {
         // Create new segment
@@ -1404,7 +1501,8 @@ export function AVScriptEditor({
       segment.totalWords = segment.shots.reduce((sum, s) => sum + s.wordCount, 0);
       segment.totalRuntime = segment.shots.reduce((sum, s) => sum + s.runtime, 0);
       segment.updatedAt = new Date();
-    });
+      });
+    }
 
     // Sort segments by segment number
     updatedSegments.sort((a, b) => a.segmentNumber - b.segmentNumber);
@@ -2509,6 +2607,11 @@ export function AVScriptEditor({
           isOpen={showImportAVDialog}
           onClose={() => setShowImportAVDialog(false)}
           onImport={handleImportCSV}
+          availableSegments={script.segments.map(s => ({
+            id: s.id,
+            segmentNumber: s.segmentNumber,
+            title: s.title,
+          }))}
         />
       )}
 
