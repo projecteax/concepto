@@ -581,6 +581,7 @@ export interface AVPreviewClip {
   duration: number; // Duration of the clip to play
   offset: number; // Start time within the source file
   volume: number; // 0-1
+  sourceDuration?: number; // Total duration of the source audio file
 }
 
 export interface AVPreviewTrack {

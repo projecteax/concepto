@@ -36,6 +36,102 @@ export function ImportAVDialog({ isOpen, onClose, onImport }: ImportAVDialogProp
     return time;
   };
 
+  const parseSRT = (srtText: string): ImportedShot[] => {
+    const lines = srtText.split('\n');
+    const shots: ImportedShot[] = [];
+    let i = 0;
+    let shotIndex = 1; // For generating order numbers
+
+    while (i < lines.length) {
+      // Skip empty lines
+      while (i < lines.length && !lines[i].trim()) {
+        i++;
+      }
+      if (i >= lines.length) break;
+
+      // Line 1: Subtitle number (ignore)
+      const numLine = lines[i].trim();
+      if (!/^\d+$/.test(numLine)) {
+        i++;
+        continue;
+      }
+      i++;
+
+      // Line 2: Timecode "00:00:00,000 --> 00:00:05,500"
+      if (i >= lines.length) break;
+      const timecodeLine = lines[i].trim();
+      const timecodeMatch = timecodeLine.match(/(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})/);
+      if (!timecodeMatch) {
+        i++;
+        continue;
+      }
+
+      // Parse start and end times
+      const startH = parseInt(timecodeMatch[1], 10);
+      const startM = parseInt(timecodeMatch[2], 10);
+      const startS = parseInt(timecodeMatch[3], 10);
+      const startMs = parseInt(timecodeMatch[4], 10);
+      const endH = parseInt(timecodeMatch[5], 10);
+      const endM = parseInt(timecodeMatch[6], 10);
+      const endS = parseInt(timecodeMatch[7], 10);
+      const endMs = parseInt(timecodeMatch[8], 10);
+
+      const startTotalMs = (startH * 3600 + startM * 60 + startS) * 1000 + startMs;
+      const endTotalMs = (endH * 3600 + endM * 60 + endS) * 1000 + endMs;
+      const durationMs = endTotalMs - startTotalMs;
+      const durationSec = durationMs / 1000.0;
+
+      // Convert to MM:SS:FF format (assuming 24fps)
+      const totalFrames = Math.round(durationSec * 24);
+      const frames = totalFrames % 24;
+      const totalSeconds = Math.floor(totalFrames / 24);
+      const seconds = totalSeconds % 60;
+      const minutes = Math.floor(totalSeconds / 60);
+      const timeStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}:${String(frames).padStart(2, '0')}`;
+
+      i++;
+
+      // Line 3+: Text content (may span multiple lines)
+      const textLines: string[] = [];
+      while (i < lines.length && lines[i].trim()) {
+        textLines.push(lines[i].trim());
+        i++;
+      }
+      const fullText = textLines.join(' ');
+
+      // Extract take and visual description from text like "[SC01T01] - Visual description"
+      const takeMatch = fullText.match(/\[?\s*(SC\d{2}T\d{2})\s*\]?\s*-?\s*(.*)/i);
+      if (!takeMatch) {
+        // No take pattern found, skip or use default
+        i++;
+        continue;
+      }
+
+      const take = takeMatch[1]; // e.g., "SC01T01"
+      const visual = takeMatch[2].trim(); // Visual description after the take number
+
+      // Extract segment number from take (SC01 -> segment 1)
+      const segmentMatch = take.match(/SC(\d{2})/);
+      const segmentNumber = segmentMatch ? parseInt(segmentMatch[1], 10) : 1;
+
+      // Generate order number (segment.shotIndex)
+      const order = `${segmentNumber}.${shotIndex}`;
+
+      shots.push({
+        order,
+        take,
+        audio: '', // SRT doesn't contain audio info
+        visual,
+        time: timeStr,
+        segmentNumber,
+      });
+
+      shotIndex++;
+    }
+
+    return shots;
+  };
+
   const parseCSV = (csvText: string): ImportedShot[] => {
     const lines = csvText.split('\n').filter(line => line.trim());
     if (lines.length === 0) {
@@ -156,15 +252,26 @@ export function ImportAVDialog({ isOpen, onClose, onImport }: ImportAVDialogProp
 
     try {
       const text = await file.text();
-      const shots = parseCSV(text);
+      const fileName = file.name.toLowerCase();
       
-      if (shots.length === 0) {
-        throw new Error('No valid shots found in CSV file');
+      let shots: ImportedShot[];
+      if (fileName.endsWith('.srt')) {
+        shots = parseSRT(text);
+        if (shots.length === 0) {
+          throw new Error('No valid shots found in SRT file. Expected format: [SC01T01] - Visual description');
+        }
+      } else if (fileName.endsWith('.csv')) {
+        shots = parseCSV(text);
+        if (shots.length === 0) {
+          throw new Error('No valid shots found in CSV file');
+        }
+      } else {
+        throw new Error('Unsupported file format. Please upload a CSV or SRT file.');
       }
 
       setImportedShots(shots);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to parse CSV file');
+      setError(err instanceof Error ? err.message : 'Failed to parse file');
       setImportedShots([]);
     } finally {
       setIsProcessing(false);
@@ -193,7 +300,7 @@ export function ImportAVDialog({ isOpen, onClose, onImport }: ImportAVDialogProp
       <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[95vh] sm:max-h-[90vh] flex flex-col m-0 sm:m-4">
         {/* Header */}
         <div className="flex items-center justify-between p-3 sm:p-6 border-b border-gray-200">
-          <h2 className="text-lg sm:text-2xl font-bold text-gray-900">Import AV Script from CSV</h2>
+          <h2 className="text-lg sm:text-2xl font-bold text-gray-900">Import AV Script (CSV or SRT)</h2>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
@@ -207,23 +314,23 @@ export function ImportAVDialog({ isOpen, onClose, onImport }: ImportAVDialogProp
           {/* File Upload */}
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Upload CSV File
+              Upload File (CSV or SRT)
             </label>
             <div className="flex items-center gap-4">
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv"
+                accept=".csv,.srt"
                 onChange={handleFileUpload}
                 className="hidden"
-                id="csv-upload"
+                id="file-upload"
               />
               <label
-                htmlFor="csv-upload"
+                htmlFor="file-upload"
                 className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 cursor-pointer transition-colors"
               >
                 <Upload className="w-4 h-4" />
-                <span>Choose CSV File</span>
+                <span>Choose File</span>
               </label>
               {isProcessing && (
                 <span className="text-sm text-gray-600">Processing...</span>
@@ -254,7 +361,7 @@ export function ImportAVDialog({ isOpen, onClose, onImport }: ImportAVDialogProp
                       <th className="px-4 py-3 text-left font-semibold text-gray-700 border-b border-gray-200">Take</th>
                       <th className="px-4 py-3 text-left font-semibold text-gray-700 border-b border-gray-200">Audio</th>
                       <th className="px-4 py-3 text-left font-semibold text-gray-700 border-b border-gray-200">Visual</th>
-                      <th className="px-4 py-3 text-left font-semibold text-gray-700 border-b border-gray-200">Time</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-700 border-b border-gray-200">Duration</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
@@ -276,8 +383,9 @@ export function ImportAVDialog({ isOpen, onClose, onImport }: ImportAVDialogProp
           {importedShots.length === 0 && !error && !isProcessing && (
             <div className="text-center py-12 text-gray-500">
               <Upload className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-              <p>Upload a CSV file to import AV script data</p>
-              <p className="text-sm mt-2">Expected format: order, take, audio, visual, time</p>
+              <p>Upload a CSV or SRT file to import AV script data</p>
+              <p className="text-sm mt-2">CSV format: order, take, audio, visual, time</p>
+              <p className="text-sm mt-1">SRT format: [SC01T01] - Visual description (duration from timestamps)</p>
             </div>
           )}
         </div>

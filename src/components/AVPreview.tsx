@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import { Episode, AVScript, AVPreviewData, AVPreviewTrack, GlobalAsset, AVShot, AVSegment, AVPreviewClip, StableVersion } from '@/types';
-import { Play, Pause, Save, Upload, Plus, Trash2, Volume2, VolumeX, Music, Mic, Image as ImageIcon, Film, SkipBack, GripVertical, Video, Loader2, Download, Edit3, GripVertical as DragHandle, ChevronLeft, ChevronRight, Maximize, Scissors, RefreshCw, X, Check, History, RotateCcw } from 'lucide-react';
+import { Play, Pause, Save, Upload, Plus, Trash2, Volume2, VolumeX, Music, Mic, Image as ImageIcon, Film, SkipBack, GripVertical, Video, Loader2, Download, Edit3, GripVertical as DragHandle, ChevronLeft, ChevronRight, Maximize, Scissors, RefreshCw, X, Check, History, RotateCcw, Lock, Unlock } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { useSessionStorageState } from '@/hooks/useSessionStorageState';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
@@ -225,6 +225,9 @@ export function AVPreview({
   // Razor tool state
   const [isRazorMode, setIsRazorMode] = useState(false);
   const [razorMouseX, setRazorMouseX] = useState<number | null>(null);
+  
+  // Length lock state - when locked, only left edge (offset) can be changed, not right edge (duration)
+  const [isLengthLocked, setIsLengthLocked] = useState(true);
 
   // Playhead drag state
   const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false);
@@ -271,9 +274,22 @@ export function AVPreview({
     }
   }, [avScript, selectedSegmentId, setSelectedSegmentId]);
 
-  // Initialize tracks if empty
+  // Initialize tracks from avPreviewData or use defaults if empty (initial mount only)
   useEffect(() => {
-    if (tracks.length === 0) {
+    if (avPreviewData?.audioTracks && avPreviewData.audioTracks.length > 0) {
+      // Use tracks from avPreviewData (e.g., from Resolve export)
+      setTracks(avPreviewData.audioTracks);
+      // Initialize history with loaded state
+      const initialState: HistoryState = {
+        tracks: JSON.parse(JSON.stringify(avPreviewData.audioTracks)),
+        clipEdits: {},
+        videoClipStartTimes: avPreviewData.videoClipStartTimes || {}
+      };
+      setHistory([initialState]);
+      setHistoryIndex(0);
+      historyRef.current = { history: [initialState], index: 0 };
+    } else {
+      // Only set defaults if no tracks exist at all (initial mount only)
       const initialTracks: AVPreviewTrack[] = [
         { id: 'track-voice', name: 'Voice Over', type: 'audio' as const, clips: [] },
         { id: 'track-sfx', name: 'Sound Effects', type: 'sfx' as const, clips: [] },
@@ -290,7 +306,27 @@ export function AVPreview({
       setHistoryIndex(0);
       historyRef.current = { history: [initialState], index: 0 };
     }
-  }, []);
+  }, []); // Run only once on mount
+
+  // Update tracks when avPreviewData changes (e.g., after export from Resolve)
+  useEffect(() => {
+    if (avPreviewData?.audioTracks && avPreviewData.audioTracks.length > 0) {
+      // Check if tracks are different (simple comparison by ID and clip count)
+      const currentTrackIds = new Set(tracks.map(t => t.id));
+      const newTrackIds = new Set(avPreviewData.audioTracks.map(t => t.id));
+      const tracksChanged = 
+        currentTrackIds.size !== newTrackIds.size ||
+        !Array.from(newTrackIds).every(id => currentTrackIds.has(id)) ||
+        avPreviewData.audioTracks.some(newTrack => {
+          const currentTrack = tracks.find(t => t.id === newTrack.id);
+          return !currentTrack || currentTrack.clips.length !== newTrack.clips.length;
+        });
+      
+      if (tracksChanged) {
+        setTracks(avPreviewData.audioTracks);
+      }
+    }
+  }, [avPreviewData?.audioTracks]); // React to changes in avPreviewData.audioTracks
 
   // Track tab visibility and check for changes when tab becomes active
   useEffect(() => {
@@ -655,10 +691,22 @@ export function AVPreview({
     const segment = avScript.segments.find(s => s.id === selectedSegmentId);
     if (!segment) return { playlist: [], totalDuration: 0 };
     
-    let currentStartTime = 0;
+    // Sort shots by order (row) to ensure proper sequence
+    const sortedShots = [...segment.shots].sort((a, b) => {
+      const orderA = a.order || 0;
+      const orderB = b.order || 0;
+      if (orderA !== orderB) return orderA - orderB;
+      return (a.shotNumber || 0) - (b.shotNumber || 0);
+    });
+    
+    let currentEndTime = 0; // Track where the last clip ends (for sequential placement)
     const playlist: VisualClip[] = [];
 
-    segment.shots.forEach((shot, index) => {
+    sortedShots.forEach((shot, sortedIndex) => {
+      // Find original index in segment.shots for clipId generation
+      const originalIndex = segment.shots.findIndex(s => s.id === shot.id);
+      const index = originalIndex >= 0 ? originalIndex : sortedIndex;
+      
       const edit = clipEdits[shot.id] || { duration: shot.duration || 3, offset: 0 };
       const shotDuration = edit.duration;
       
@@ -679,8 +727,31 @@ export function AVPreview({
       // Use unique key: segmentId-shotId-index to avoid duplicates
       const clipId = `${segment.id}-${shot.id}-${index}`;
       const customStartTime = videoClipStartTimes[clipId];
-      // Use custom start time if available, otherwise use sequential positioning
-      const clipStartTime = customStartTime !== undefined ? customStartTime : currentStartTime;
+      
+      let clipStartTime: number;
+      if (customStartTime !== undefined) {
+        // Use custom start time, but validate no overlap
+        clipStartTime = customStartTime;
+        
+        // Check for overlaps with already-placed clips and adjust if needed
+        for (const existingClip of playlist) {
+          const existingEnd = existingClip.startTime + existingClip.duration;
+          const newEnd = clipStartTime + shotDuration;
+          
+          // If overlap detected, move new clip to start AFTER existing clip
+          if (clipStartTime < existingEnd && newEnd > existingClip.startTime) {
+            clipStartTime = existingEnd;
+            // Update videoClipStartTimes to reflect the adjustment (will be saved on next save)
+            setVideoClipStartTimes(prev => ({
+              ...prev,
+              [clipId]: clipStartTime
+            }));
+          }
+        }
+      } else {
+        // Sequential placement: start AFTER the last clip ends (no overlap)
+        clipStartTime = currentEndTime;
+      }
       
       playlist.push({
         id: clipId, // Unique key
@@ -697,13 +768,13 @@ export function AVPreview({
         sourceDuration
       });
 
-      // Always increment for sequential positioning (used as fallback for clips without custom positions)
-      currentStartTime += shotDuration;
+      // Update currentEndTime to be after this clip ends (for next sequential placement)
+      currentEndTime = Math.max(currentEndTime, clipStartTime + shotDuration);
     });
 
     // Calculate total duration based on all clips (including custom positioned ones)
     const allEndTimes = playlist.map(clip => clip.startTime + clip.duration);
-    const maxEndTime = allEndTimes.length > 0 ? Math.max(...allEndTimes) : currentStartTime;
+    const maxEndTime = allEndTimes.length > 0 ? Math.max(...allEndTimes) : currentEndTime;
 
     return { playlist, totalDuration: maxEndTime };
   }, [avScript, selectedSegmentId, clipEdits, videoDurations, videoClipStartTimes]);
@@ -1342,8 +1413,8 @@ export function AVPreview({
       return;
     }
     
-    // Check if clicking on right edge - trim ending
-    if (offsetX > rect.width - edgeThreshold) {
+    // Check if clicking on right edge - trim ending (only if length is not locked)
+    if (offsetX > rect.width - edgeThreshold && !isLengthLocked) {
       const sourceDuration = audioDurations[clip.url] || clip.duration;
       setResizeState({
         clipId: clip.id,
@@ -2768,13 +2839,13 @@ export function AVPreview({
               });
             }
           } else {
-            // Single clip - only update if no collision
+            // Single clip - adjust position to prevent overlaps
             const finalTime = dragPositions.get(currentDragState.clipId);
             if (finalTime !== undefined) {
-              // Check collision with all other clips (not selected)
-              let validMove = true;
-              const proposedEnd = finalTime + draggedClip.duration;
+              let adjustedTime = finalTime;
+              const proposedEnd = adjustedTime + draggedClip.duration;
               
+              // Check for overlaps and adjust position to prevent them
               for (const otherClip of visualPlaylist) {
                 if (otherClip.id === currentDragState.clipId) continue; // Skip self
                 if (selectedVideoClips.has(otherClip.id)) continue; // Skip other selected clips
@@ -2782,19 +2853,18 @@ export function AVPreview({
                 const otherStart = otherClip.startTime;
                 const otherEnd = otherStart + otherClip.duration;
                 
-                // Check for overlap
-                if (!(proposedEnd <= otherStart || finalTime >= otherEnd)) {
-                  validMove = false;
-                  break;
+                // Check for overlap - if overlap detected, move clip to start AFTER the other clip
+                if (adjustedTime < otherEnd && proposedEnd > otherStart) {
+                  // Overlap detected - move to start after this clip
+                  adjustedTime = Math.max(adjustedTime, otherEnd);
                 }
               }
               
-              if (validMove) {
-                setVideoClipStartTimes(prev => ({
-                  ...prev,
-                  [currentDragState.clipId]: finalTime
-                }));
-              }
+              // Update with adjusted time (prevents overlaps by auto-adjusting)
+              setVideoClipStartTimes(prev => ({
+                ...prev,
+                [currentDragState.clipId]: Math.max(0, adjustedTime)
+              }));
             }
           }
           
@@ -2994,24 +3064,39 @@ export function AVPreview({
       for (const { url, clipId } of clipsToLoad) {
         try {
           const audio = new Audio(url);
+          // Pre-load duration from clip if available to avoid unnecessary network requests
+          const clip = tracks.flatMap(t => t.clips).find(c => c.url === url);
+          if (clip?.sourceDuration) {
+            setAudioDurations(prev => ({ ...prev, [url]: clip.sourceDuration! }));
+            continue;
+          }
+
           await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error('Timeout')), 5000);
+            // Increase timeout to 30 seconds for larger files
+            const timeout = setTimeout(() => reject(new Error('Timeout loading audio metadata')), 30000);
+            
             audio.addEventListener('loadedmetadata', () => {
               clearTimeout(timeout);
               const duration = audio.duration || 0;
               setAudioDurations(prev => ({ ...prev, [url]: duration }));
               resolve(duration);
             }, { once: true });
-            audio.addEventListener('error', () => {
+            
+            audio.addEventListener('error', (e) => {
               clearTimeout(timeout);
-              setAudioDurations(prev => ({ ...prev, [url]: 5 })); // Default 5s
-              resolve(5);
+              console.warn('Audio load error for URL:', url, e);
+              // Fallback to clip duration if available, otherwise 5s
+              const fallback = clip?.duration || 5;
+              setAudioDurations(prev => ({ ...prev, [url]: fallback }));
+              resolve(fallback);
             }, { once: true });
+            
             audio.load();
           });
         } catch (error) {
           console.error('Error loading audio duration:', error);
-          setAudioDurations(prev => ({ ...prev, [url]: 5 }));
+          const clip = tracks.flatMap(t => t.clips).find(c => c.url === url);
+          setAudioDurations(prev => ({ ...prev, [url]: clip?.duration || 5 }));
         }
       }
     };
@@ -3159,36 +3244,27 @@ export function AVPreview({
             }
           };
         } else {
-          // Left edge: trim in (for videos only)
+          // Left edge: change offset ONLY (keep duration constant)
+          // Offset determines which part of source video/image to show
           let newOffset = currentResizeState.originalOffset + deltaSeconds;
           newOffset = Math.max(0, newOffset);
-          let newDuration = currentResizeState.originalDuration - deltaSeconds;
-          newDuration = Math.max(0.1, newDuration);
           
-          // For videos: ensure offset + duration doesn't exceed source duration
+          // Limit offset based on source duration and clip duration
+          // If clip duration is 3s and source is 5s, offset can be max 2s (5 - 3 = 2)
           if (currentResizeState.clipType === 'video' && currentResizeState.sourceDuration) {
-            // Total playable length = offset + duration cannot exceed sourceDuration
-            const totalLength = newOffset + newDuration;
-            if (totalLength > currentResizeState.sourceDuration) {
-              // Clamp to source duration
-              const maxAvailable = currentResizeState.sourceDuration;
-              // If dragging left (increasing offset), reduce duration
-              if (deltaSeconds > 0) {
-                newOffset = Math.min(newOffset, maxAvailable - 0.1);
-                newDuration = maxAvailable - newOffset;
-              } else {
-                // If dragging right (decreasing offset), we can increase duration
-                newDuration = Math.min(newDuration, maxAvailable - newOffset);
-              }
+            const maxOffset = currentResizeState.sourceDuration - currentResizeState.originalDuration;
+            if (maxOffset >= 0) {
+              newOffset = Math.min(newOffset, maxOffset);
             }
           }
           
+          // Keep duration constant - only offset changes
           return {
             ...prev,
             [currentResizeState.shotId]: {
               ...currentEdit,
               offset: newOffset,
-              duration: newDuration
+              duration: currentResizeState.originalDuration // Keep original duration
             }
           };
         }
@@ -3203,7 +3279,8 @@ export function AVPreview({
       const currentResizeState = resizeStateRef.current;
       const wasAudioResize = currentResizeState?.trackId !== undefined;
       
-      // If resizing right edge of video clip, shift all following clips
+      // If resizing right edge of video clip (changing duration), shift all following clips
+      // NOTE: Left edge resize (changing offset) does NOT shift clips - duration stays the same
       if (currentResizeState && 
           !wasAudioResize && 
           currentResizeState.edge === 'right' && 
@@ -3315,6 +3392,11 @@ export function AVPreview({
     e.stopPropagation();
     e.preventDefault();
     
+    // When length is locked, prevent right edge resizing (duration changes)
+    if (isLengthLocked && edge === 'right') {
+      return; // Do nothing - right edge resize is disabled when locked
+    }
+    
     setResizeState({
       clipId: clip.id,
       shotId: clip.shotId,
@@ -3331,6 +3413,11 @@ export function AVPreview({
   const handleAudioResizeStart = (e: React.MouseEvent, clip: AVPreviewClip, trackId: string, edge: 'left' | 'right') => {
     e.stopPropagation();
     e.preventDefault();
+    
+    // When length is locked, prevent right edge resizing (duration changes)
+    if (isLengthLocked && edge === 'right') {
+      return; // Do nothing - right edge resize is disabled when locked
+    }
     
     const sourceDuration = audioDurations[clip.url] || clip.duration;
     
@@ -5017,6 +5104,13 @@ export function AVPreview({
              >
                 <Scissors className="w-4 h-4" />
              </button>
+             <button
+                onClick={() => setIsLengthLocked(!isLengthLocked)}
+                className={`ml-1 p-2 rounded-md transition-all ${isLengthLocked ? 'bg-indigo-500/20 text-indigo-400' : 'bg-gray-700/20 text-gray-400'} hover:bg-opacity-30`}
+                title={isLengthLocked ? "Length Locked - Only offset can be changed" : "Length Unlocked - Both offset and duration can be changed"}
+             >
+                {isLengthLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+             </button>
           </div>
           
           <div className="text-base sm:text-xl font-mono text-indigo-400 bg-gray-800 px-3 py-1 rounded border border-gray-700 min-w-[140px] text-center">
@@ -5711,8 +5805,10 @@ export function AVPreview({
                           const clipWidth = rect.width;
                           const edgeThreshold = 8;
                           
-                          if ((mouseX < edgeThreshold && clip.type === 'video') || mouseX > clipWidth - edgeThreshold) {
-                            (e.currentTarget as HTMLElement).style.cursor = 'ew-resize';
+                          if (mouseX < edgeThreshold && clip.type === 'video') {
+                            (e.currentTarget as HTMLElement).style.cursor = 'ew-resize'; // Left edge - always allow
+                          } else if (mouseX > clipWidth - edgeThreshold && !isLengthLocked) {
+                            (e.currentTarget as HTMLElement).style.cursor = 'ew-resize'; // Right edge - only when unlocked
                           } else {
                             (e.currentTarget as HTMLElement).style.cursor = 'grab';
                           }
@@ -5811,22 +5907,31 @@ export function AVPreview({
                           </div>
                         )}
                         
-                        {/* Right Resize Handle - Always visible, wider */}
+                        {/* Right Resize Handle - Only active when length is unlocked */}
                         <div 
                             data-resize-handle="right"
-                            className="absolute top-0 right-0 bottom-0 w-8 cursor-ew-resize z-[60] pointer-events-auto"
+                            className={`absolute top-0 right-0 bottom-0 w-8 z-[60] ${
+                              isLengthLocked 
+                                ? 'pointer-events-none cursor-not-allowed opacity-30' 
+                                : 'cursor-ew-resize pointer-events-auto'
+                            }`}
                             style={{
                               background: resizeState?.clipId === clip.id && resizeState?.edge === 'right' 
                                 ? 'rgba(99, 102, 241, 0.5)' 
                                 : 'transparent'
                             }}
                             onMouseDown={(e) => {
+                              if (isLengthLocked) {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                return; // Don't allow resize when locked
+                              }
                               e.stopPropagation();
                               e.preventDefault();
                               handleResizeStart(e, clip, 'right');
                             }}
                             onMouseEnter={(e) => {
-                              if (!resizeState) {
+                              if (!resizeState && !isLengthLocked) {
                                 (e.currentTarget as HTMLElement).style.background = 'rgba(99, 102, 241, 0.3)';
                               }
                             }}
@@ -5836,7 +5941,9 @@ export function AVPreview({
                               }
                             }}
                         >
-                            <div className="absolute top-1/2 right-1/2 transform translate-x-1/2 -translate-y-1/2 w-1 h-8 bg-indigo-400 rounded pointer-events-none" />
+                            <div className={`absolute top-1/2 right-1/2 transform translate-x-1/2 -translate-y-1/2 w-1 h-8 rounded pointer-events-none ${
+                              isLengthLocked ? 'bg-gray-500' : 'bg-indigo-400'
+                            }`} />
                         </div>
                     </div>
                   ))}
@@ -6052,9 +6159,9 @@ export function AVPreview({
                                 const edgeThreshold = 8;
                                 
                                 if (mouseX < edgeThreshold) {
-                                    (e.currentTarget as HTMLElement).style.cursor = 'w-resize'; // Left edge - adjust start/offset
-                                } else if (mouseX > clipWidth - edgeThreshold) {
-                                    (e.currentTarget as HTMLElement).style.cursor = 'e-resize'; // Right edge - trim end
+                                    (e.currentTarget as HTMLElement).style.cursor = 'w-resize'; // Left edge - adjust start/offset (always allowed)
+                                } else if (mouseX > clipWidth - edgeThreshold && !isLengthLocked) {
+                                    (e.currentTarget as HTMLElement).style.cursor = 'e-resize'; // Right edge - trim end (only when unlocked)
                                 } else {
                                     (e.currentTarget as HTMLElement).style.cursor = 'move'; // Middle - drag clip
                                 }
@@ -6200,17 +6307,31 @@ export function AVPreview({
                                 <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-1 h-8 bg-emerald-400 rounded pointer-events-none" />
                             </div>
                             
-                            {/* Right Resize Handle - Trim End */}
+                            {/* Right Resize Handle - Trim End (Only active when length is unlocked) */}
                             <div 
                                 data-resize-handle="right"
-                                className="absolute top-0 right-0 bottom-0 w-8 cursor-e-resize z-30 pointer-events-auto"
+                                className={`absolute top-0 right-0 bottom-0 w-8 z-30 ${
+                                  isLengthLocked 
+                                    ? 'pointer-events-none cursor-not-allowed opacity-30' 
+                                    : 'cursor-e-resize pointer-events-auto'
+                                }`}
                                 style={{
                                     background: resizeState?.clipId === clip.id && resizeState?.edge === 'right' 
                                         ? 'rgba(16, 185, 129, 0.5)' 
                                         : 'transparent'
                                 }}
+                                onMouseDown={(e) => {
+                                  if (isLengthLocked) {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    return; // Don't allow resize when locked
+                                  }
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  handleAudioResizeStart(e, clip, track.id, 'right');
+                                }}
                                 onMouseEnter={(e) => {
-                                    if (!resizeState || (resizeState?.clipId !== clip.id || resizeState?.edge !== 'right')) {
+                                    if (!resizeState && !isLengthLocked) {
                                         (e.currentTarget as HTMLElement).style.background = 'rgba(16, 185, 129, 0.3)';
                                     }
                                 }}
@@ -6220,7 +6341,9 @@ export function AVPreview({
                                     }
                                 }}
                             >
-                                <div className="absolute top-1/2 right-1/2 transform translate-x-1/2 -translate-y-1/2 w-1 h-8 bg-emerald-400 rounded pointer-events-none" />
+                                <div className={`absolute top-1/2 right-1/2 transform translate-x-1/2 -translate-y-1/2 w-1 h-8 rounded pointer-events-none ${
+                                  isLengthLocked ? 'bg-gray-500' : 'bg-emerald-400'
+                                }`} />
                             </div>
                         </div>
                     ))}

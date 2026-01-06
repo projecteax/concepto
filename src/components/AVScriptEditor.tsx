@@ -130,6 +130,7 @@ export function AVScriptEditor({
   const [showImportAVDialog, setShowImportAVDialog] = useState(false);
   const [showApiKeyDialog, setShowApiKeyDialog] = useState(false);
   const [isDownloadingPlugin, setIsDownloadingPlugin] = useState(false);
+  const [isDownloadingResolvePlugin, setIsDownloadingResolvePlugin] = useState(false);
   const [isAnyPopupOpen, setIsAnyPopupOpen] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -220,6 +221,38 @@ export function AVScriptEditor({
       alert('Failed to download Blender plugin. Please try again.');
     } finally {
       setIsDownloadingPlugin(false);
+    }
+  };
+
+  // Handle Resolve plugin download
+  const handleDownloadResolvePlugin = async () => {
+    setIsDownloadingResolvePlugin(true);
+    try {
+      const response = await fetch('/api/resolve-plugin/download');
+      
+      if (!response.ok) {
+        throw new Error('Failed to download plugin');
+      }
+
+      // Get the blob from the response
+      const blob = await response.blob();
+      
+      // Create a download link
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'concepto_resolve_plugin.zip';
+      document.body.appendChild(a);
+      a.click();
+      
+      // Clean up
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Error downloading Resolve plugin:', error);
+      alert('Failed to download Resolve plugin. Please try again.');
+    } finally {
+      setIsDownloadingResolvePlugin(false);
     }
   };
 
@@ -1478,6 +1511,15 @@ export function AVScriptEditor({
                     >
                       {isDownloadingPlugin ? <Loader2 className="h-4 w-4 animate-spin" /> : <Package className="h-4 w-4" />}
                       <span>Blender Plugin</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        if (!isDownloadingResolvePlugin) void handleDownloadResolvePlugin();
+                      }}
+                      disabled={isDownloadingResolvePlugin}
+                    >
+                      {isDownloadingResolvePlugin ? <Loader2 className="h-4 w-4 animate-spin" /> : <Video className="h-4 w-4" />}
+                      <span>Resolve Plugin</span>
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onSelect={() => setShowAutoPopulateDialog(true)} disabled={!screenplayData}>

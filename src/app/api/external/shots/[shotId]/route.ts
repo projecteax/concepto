@@ -136,7 +136,9 @@ export async function GET(
  *   "audio": "string",
  *   "visual": "string",
  *   "wordCount": number (optional),
- *   "runtime": number (optional)
+ *   "runtime": number (optional),
+ *   "duration": number (optional), // seconds
+ *   "videoOffset": number (optional) // seconds
  * }
  */
 export async function PUT(
@@ -199,6 +201,8 @@ export async function PUT(
           visual: body.visual !== undefined ? body.visual : shot.visual,
           wordCount: body.wordCount !== undefined ? body.wordCount : shot.wordCount,
           runtime: body.runtime !== undefined ? body.runtime : shot.runtime,
+          duration: body.duration !== undefined ? body.duration : shot.duration,
+          videoOffset: body.videoOffset !== undefined ? body.videoOffset : shot.videoOffset,
           updatedAt: new Date(),
         };
       }
