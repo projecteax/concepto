@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Show, Episode, EpisodeScene, SceneShot, Character, GlobalAsset, PlotTheme } from '@/types';
+import { Show, Episode, EpisodeScene, SceneShot, Character, GlobalAsset, PlotTheme, NotificationType } from '@/types';
 import { 
   Plus, 
   Camera, 
@@ -29,6 +29,8 @@ import { AVPreview } from './AVPreview';
 import ScreenplayEditor, { ScreenplayEditorHandle } from './ScreenplayEditor';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { useRealtimeEpisode } from '@/hooks/useRealtimeEpisode';
+import { useAuth } from '@/contexts/AuthContext';
+import { episodeAccessService, notificationService, showAccessService, userService } from '@/lib/firebase-services';
 import { EpisodeDescriptionGenerationDialog } from './EpisodeDescriptionGenerationDialog';
 import { ScreenplayGenerationDialog, ScreenplayVersion } from './ScreenplayGenerationDialog';
 import { NarrativeGenerationDialog } from './NarrativeGenerationDialog';
@@ -71,6 +73,8 @@ export default function EpisodeDetail({
   hasOnlyEpisodeAccess = false,
 }: EpisodeDetailProps) {
   const readOnly = isPublicMode || isReadOnly;
+  const { user } = useAuth();
+  const lastNotifyRef = useRef<Record<string, { hash: string; at: number }>>({});
   
   const headerIsDark = Boolean(show.coverImageUrl);
   const [activeTab, setActiveTab] = useState<'overview' | 'av-script' | 'av-preview' | 'av-editing' | 'screenwriting' | 'characters' | 'locations' | 'gadgets'>('overview');
@@ -79,6 +83,42 @@ export default function EpisodeDetail({
   const [screenplayLastSavedAt, setScreenplayLastSavedAt] = useState<number | null>(null);
   const [screenplayIsSaving, setScreenplayIsSaving] = useState(false);
   const [isTabVisible, setIsTabVisible] = useState(true);
+
+  const notifyShowMembers = useCallback(async (type: NotificationType, message: string, hash: string) => {
+    if (!user) return;
+    const now = Date.now();
+    const key = `${type}-${episode.id}`;
+    const last = lastNotifyRef.current[key];
+    if (last && last.hash === hash && now - last.at < 60_000) {
+      return;
+    }
+    lastNotifyRef.current[key] = { hash, at: now };
+
+    const [showAccess, episodeAccess, allUsers] = await Promise.all([
+      showAccessService.getByShow(show.id),
+      episodeAccessService.getByShow(show.id),
+      userService.getAll(),
+    ]);
+    const userIds = new Set<string>();
+    if (show.ownerId) userIds.add(show.ownerId);
+    if (episode.ownerId) userIds.add(episode.ownerId);
+    showAccess.forEach(entry => userIds.add(entry.userId));
+    episodeAccess.forEach(entry => userIds.add(entry.userId));
+    allUsers.filter(profile => profile.role === 'admin').forEach(profile => userIds.add(profile.id));
+    userIds.delete(user.id);
+    if (userIds.size === 0) return;
+
+    await notificationService.createMany(Array.from(userIds), {
+      showId: show.id,
+      episodeId: episode.id,
+      type,
+      message,
+      actorId: user.id,
+      actorName: user.name,
+      actorAvatarUrl: user.avatarUrl,
+      isRead: false,
+    });
+  }, [episode.id, episode.ownerId, show.id, show.ownerId, user]);
   
   // Track tab visibility to enable/disable real-time sync (saves resources)
   useEffect(() => {
@@ -1816,6 +1856,18 @@ export default function EpisodeDetail({
                   // Use immediate save for critical operations (like image generation)
                   await updateEpisodeAndSave(updatedEpisode, true);
                 }
+                const avHash = JSON.stringify({
+                  segments: avScript.segments?.map(seg => ({
+                    id: seg.id,
+                    title: seg.title,
+                    shots: seg.shots?.map(shot => shot.id),
+                  })),
+                });
+                await notifyShowMembers(
+                  'av-script-updated',
+                  `${user?.name || 'Someone'} updated the AV script in "${episode.title}"`,
+                  avHash
+                );
               }}
               onSaveImmediately={async (avScript) => {
                 const updatedEpisode = { ...localEpisode, avScript };
@@ -1825,6 +1877,18 @@ export default function EpisodeDetail({
                 } else {
                   await updateEpisodeAndSave(updatedEpisode, true);
                 }
+                const avHash = JSON.stringify({
+                  segments: avScript.segments?.map(seg => ({
+                    id: seg.id,
+                    title: seg.title,
+                    shots: seg.shots?.map(shot => shot.id),
+                  })),
+                });
+                await notifyShowMembers(
+                  'av-script-updated',
+                  `${user?.name || 'Someone'} updated the AV script in "${episode.title}"`,
+                  avHash
+                );
               }}
               globalAssets={globalAssets}
               screenplayData={localEpisode.screenplayData}
@@ -1863,6 +1927,15 @@ export default function EpisodeDetail({
                   setScreenplayLastSavedAt(Date.now());
                   // Save immediately to avoid losing changes when navigating/switching views.
                   updateEpisodeAndSave(updatedEpisode, true);
+                  const screenplayHash = JSON.stringify({
+                    elements: screenplayData.elements?.map(el => ({ id: el.id, type: el.type, content: el.content })),
+                    elementsEN: screenplayData.elementsEN?.map(el => ({ id: el.id, type: el.type, content: el.content })),
+                  });
+                  void notifyShowMembers(
+                    'screenplay-updated',
+                    `${user?.name || 'Someone'} updated the screenplay in "${episode.title}"`,
+                    screenplayHash
+                  );
                 }}
               />
             </div>

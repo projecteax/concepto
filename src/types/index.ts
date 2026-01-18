@@ -7,8 +7,87 @@ export interface UserProfile {
   name: string;
   email: string;
   role: 'admin' | 'user';
+  avatarUrl?: string;
+  lastActiveAt?: Date;
   createdAt: Date;
   updatedAt: Date;
+}
+
+// Chat System
+export interface ChatAttachment {
+  id: string;
+  url: string;
+  name: string;
+  size: number;
+  type: string;
+}
+
+export type ChatConversationType = 'direct' | 'group';
+
+export interface ChatConversation {
+  id: string;
+  showId: string;
+  type: ChatConversationType;
+  memberIds: string[];
+  memberKey?: string; // For direct chats, sorted member ids joined by "__"
+  name?: string;
+  createdBy: string;
+  lastMessage?: {
+    text?: string;
+    senderId: string;
+    createdAt: Date;
+    type: 'text' | 'attachment' | 'deleted';
+  };
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ChatMessage {
+  id: string;
+  chatId: string;
+  showId: string;
+  senderId: string;
+  senderName: string;
+  senderAvatarUrl?: string;
+  text?: string;
+  attachments?: ChatAttachment[];
+  isDeleted?: boolean;
+  deletedAt?: Date;
+  deletedBy?: string;
+  editedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Notifications
+export type NotificationType =
+  | 'screenplay-updated'
+  | 'av-script-updated'
+  | 'episode-description-updated'
+  | 'asset-created'
+  | 'asset-updated'
+  | 'episode-idea-created'
+  | 'episode-idea-updated'
+  | 'general-idea-created'
+  | 'general-idea-updated'
+  | 'plot-theme-created'
+  | 'plot-theme-updated'
+  | 'episode-updated'
+  | 'general';
+
+export interface NotificationItem {
+  id: string;
+  userId: string;
+  showId?: string;
+  episodeId?: string;
+  type: NotificationType;
+  message: string;
+  actorId?: string;
+  actorName?: string;
+  actorAvatarUrl?: string;
+  createdAt: Date;
+  readAt?: Date;
+  isRead?: boolean;
 }
 
 // Comment System

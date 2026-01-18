@@ -18,9 +18,12 @@ import { GeneralIdeas } from './GeneralIdeas';
 import { GeneralIdeaDetail } from './GeneralIdeaDetail';
 import { PlotThemes } from './PlotThemes';
 import { LoadingPreloader } from './LoadingPreloader';
-import { Show, GlobalAsset, Episode, Character, AssetConcept, EpisodeIdea, GeneralIdea, PlotTheme } from '@/types';
+import { ChatWidget } from '@/components/chat/ChatWidget';
+import { Show, GlobalAsset, Episode, Character, AssetConcept, EpisodeIdea, GeneralIdea, PlotTheme, NotificationType } from '@/types';
 import { useFirebaseData } from '@/hooks/useFirebaseData';
 import { useAccessControl } from '@/hooks/useAccessControl';
+import { useAuth } from '@/contexts/AuthContext';
+import { episodeAccessService, notificationService, showAccessService, userService } from '@/lib/firebase-services';
 
 type AppView = 'shows' | 'dashboard' | 'global-assets' | 'asset-detail' | 'character-detail' | 'location-detail' | 'gadget-detail' | 'texture-detail' | 'background-detail' | 'vehicle-detail' | 'episodes' | 'episode-detail' | 'episode-ideas' | 'general-ideas' | 'general-idea-detail' | 'plot-themes';
 
@@ -42,6 +45,7 @@ export function ConceptoApp({
   category: initialCategory = 'all'
 }: ConceptoAppProps = {}) {
   const router = useRouter();
+  const { user } = useAuth();
   
   const [currentView, setCurrentView] = useState<AppView>(initialView);
   const [selectedShow, setSelectedShow] = useState<Show | null>(null);
@@ -253,7 +257,34 @@ export function ConceptoApp({
 
   const handleAddGlobalAsset = async (assetData: Omit<GlobalAsset, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
-      await createGlobalAsset(assetData);
+      const newAsset = await createGlobalAsset(assetData);
+      if (!user || !selectedShow) return;
+      
+      // Notify show members about new asset
+      const [showAccess, episodeAccess, allUsers] = await Promise.all([
+        showAccessService.getByShow(selectedShow.id),
+        episodeAccessService.getByShow(selectedShow.id),
+        userService.getAll(),
+      ]);
+      const userIds = new Set<string>();
+      if (selectedShow.ownerId) userIds.add(selectedShow.ownerId);
+      showAccess.forEach(entry => userIds.add(entry.userId));
+      episodeAccess.forEach(entry => userIds.add(entry.userId));
+      allUsers.filter(profile => profile.role === 'admin').forEach(profile => userIds.add(profile.id));
+      userIds.delete(user.id);
+      
+      if (userIds.size > 0) {
+        const categoryLabel = assetData.category.charAt(0).toUpperCase() + assetData.category.slice(1);
+        await notificationService.createMany(Array.from(userIds), {
+          showId: selectedShow.id,
+          type: 'asset-created',
+          message: `${user.name} created a new ${categoryLabel.toLowerCase()}: "${assetData.name}"`,
+          actorId: user.id,
+          actorName: user.name,
+          actorAvatarUrl: user.avatarUrl,
+          isRead: false,
+        });
+      }
     } catch (error) {
       console.error('Failed to create asset:', error);
     }
@@ -271,11 +302,43 @@ export function ConceptoApp({
 
   const handleSaveGlobalAsset = async (asset: GlobalAsset) => {
     try {
+      const existingAsset = globalAssets.find(a => a.id === asset.id);
       await updateGlobalAsset(asset.id, asset);
       
       // Update the selectedAsset state to reflect the changes
       if (selectedAsset && selectedAsset.id === asset.id) {
         setSelectedAsset(asset);
+      }
+      
+      // Notify if asset was actually changed
+      if (!user || !selectedShow || !existingAsset) return;
+      
+      const hasChanges = JSON.stringify(existingAsset) !== JSON.stringify(asset);
+      if (hasChanges) {
+        const [showAccess, episodeAccess, allUsers] = await Promise.all([
+          showAccessService.getByShow(selectedShow.id),
+          episodeAccessService.getByShow(selectedShow.id),
+          userService.getAll(),
+        ]);
+        const userIds = new Set<string>();
+        if (selectedShow.ownerId) userIds.add(selectedShow.ownerId);
+        showAccess.forEach(entry => userIds.add(entry.userId));
+        episodeAccess.forEach(entry => userIds.add(entry.userId));
+        allUsers.filter(profile => profile.role === 'admin').forEach(profile => userIds.add(profile.id));
+        userIds.delete(user.id);
+        
+        if (userIds.size > 0) {
+          const categoryLabel = asset.category.charAt(0).toUpperCase() + asset.category.slice(1);
+          await notificationService.createMany(Array.from(userIds), {
+            showId: selectedShow.id,
+            type: 'asset-updated',
+            message: `${user.name} updated the ${categoryLabel.toLowerCase()}: "${asset.name}"`,
+            actorId: user.id,
+            actorName: user.name,
+            actorAvatarUrl: user.avatarUrl,
+            isRead: false,
+          });
+        }
       }
     } catch (error) {
       console.error('Error saving global asset:', error);
@@ -361,7 +424,33 @@ export function ConceptoApp({
 
   const handleAddGeneralIdea = async (ideaData: Omit<GeneralIdea, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
-      await createGeneralIdea(ideaData);
+      const newIdea = await createGeneralIdea(ideaData);
+      if (!user || !selectedShow) return;
+      
+      // Notify show members about new general idea
+      const [showAccess, episodeAccess, allUsers] = await Promise.all([
+        showAccessService.getByShow(selectedShow.id),
+        episodeAccessService.getByShow(selectedShow.id),
+        userService.getAll(),
+      ]);
+      const userIds = new Set<string>();
+      if (selectedShow.ownerId) userIds.add(selectedShow.ownerId);
+      showAccess.forEach(entry => userIds.add(entry.userId));
+      episodeAccess.forEach(entry => userIds.add(entry.userId));
+      allUsers.filter(profile => profile.role === 'admin').forEach(profile => userIds.add(profile.id));
+      userIds.delete(user.id);
+      
+      if (userIds.size > 0) {
+        await notificationService.createMany(Array.from(userIds), {
+          showId: selectedShow.id,
+          type: 'general-idea-created',
+          message: `${user.name} added a new general idea: "${ideaData.name}"`,
+          actorId: user.id,
+          actorName: user.name,
+          actorAvatarUrl: user.avatarUrl,
+          isRead: false,
+        });
+      }
     } catch (error) {
       console.error('Failed to create general idea:', error);
     }
@@ -369,7 +458,34 @@ export function ConceptoApp({
 
   const handleEditGeneralIdea = async (idea: GeneralIdea) => {
     try {
+      const existingIdea = generalIdeas.find(i => i.id === idea.id);
       await updateGeneralIdea(idea.id, idea);
+      
+      if (!user || !selectedShow || !existingIdea) return;
+      
+      const [showAccess, episodeAccess, allUsers] = await Promise.all([
+        showAccessService.getByShow(selectedShow.id),
+        episodeAccessService.getByShow(selectedShow.id),
+        userService.getAll(),
+      ]);
+      const userIds = new Set<string>();
+      if (selectedShow.ownerId) userIds.add(selectedShow.ownerId);
+      showAccess.forEach(entry => userIds.add(entry.userId));
+      episodeAccess.forEach(entry => userIds.add(entry.userId));
+      allUsers.filter(profile => profile.role === 'admin').forEach(profile => userIds.add(profile.id));
+      userIds.delete(user.id);
+      
+      if (userIds.size > 0) {
+        await notificationService.createMany(Array.from(userIds), {
+          showId: selectedShow.id,
+          type: 'general-idea-updated',
+          message: `${user.name} updated the general idea: "${idea.name}"`,
+          actorId: user.id,
+          actorName: user.name,
+          actorAvatarUrl: user.avatarUrl,
+          isRead: false,
+        });
+      }
     } catch (error) {
       console.error('Failed to update general idea:', error);
     }
@@ -389,8 +505,38 @@ export function ConceptoApp({
 
   const handleSaveGeneralIdea = async (idea: GeneralIdea) => {
     try {
+      const existingIdea = generalIdeas.find(i => i.id === idea.id);
       await updateGeneralIdea(idea.id, idea);
       setSelectedGeneralIdea(idea);
+      
+      if (!user || !selectedShow || !existingIdea) return;
+      
+      const hasChanges = JSON.stringify(existingIdea) !== JSON.stringify(idea);
+      if (hasChanges) {
+        const [showAccess, episodeAccess, allUsers] = await Promise.all([
+          showAccessService.getByShow(selectedShow.id),
+          episodeAccessService.getByShow(selectedShow.id),
+          userService.getAll(),
+        ]);
+        const userIds = new Set<string>();
+        if (selectedShow.ownerId) userIds.add(selectedShow.ownerId);
+        showAccess.forEach(entry => userIds.add(entry.userId));
+        episodeAccess.forEach(entry => userIds.add(entry.userId));
+        allUsers.filter(profile => profile.role === 'admin').forEach(profile => userIds.add(profile.id));
+        userIds.delete(user.id);
+        
+        if (userIds.size > 0) {
+          await notificationService.createMany(Array.from(userIds), {
+            showId: selectedShow.id,
+            type: 'general-idea-updated',
+            message: `${user.name} updated the general idea: "${idea.name}"`,
+            actorId: user.id,
+            actorName: user.name,
+            actorAvatarUrl: user.avatarUrl,
+            isRead: false,
+          });
+        }
+      }
     } catch (error) {
       console.error('Failed to save general idea:', error);
     }
@@ -405,7 +551,33 @@ export function ConceptoApp({
 
   const handleAddPlotTheme = async (themeData: Omit<PlotTheme, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
-      await createPlotTheme(themeData);
+      const newTheme = await createPlotTheme(themeData);
+      if (!user || !selectedShow) return;
+      
+      // Notify show members about new plot theme
+      const [showAccess, episodeAccess, allUsers] = await Promise.all([
+        showAccessService.getByShow(selectedShow.id),
+        episodeAccessService.getByShow(selectedShow.id),
+        userService.getAll(),
+      ]);
+      const userIds = new Set<string>();
+      if (selectedShow.ownerId) userIds.add(selectedShow.ownerId);
+      showAccess.forEach(entry => userIds.add(entry.userId));
+      episodeAccess.forEach(entry => userIds.add(entry.userId));
+      allUsers.filter(profile => profile.role === 'admin').forEach(profile => userIds.add(profile.id));
+      userIds.delete(user.id);
+      
+      if (userIds.size > 0) {
+        await notificationService.createMany(Array.from(userIds), {
+          showId: selectedShow.id,
+          type: 'plot-theme-created',
+          message: `${user.name} added a new plot theme: "${themeData.name}"`,
+          actorId: user.id,
+          actorName: user.name,
+          actorAvatarUrl: user.avatarUrl,
+          isRead: false,
+        });
+      }
     } catch (error) {
       console.error('Failed to create plot theme:', error);
     }
@@ -413,7 +585,34 @@ export function ConceptoApp({
 
   const handleEditPlotTheme = async (theme: PlotTheme) => {
     try {
+      const existingTheme = plotThemes.find(t => t.id === theme.id);
       await updatePlotTheme(theme.id, theme);
+      
+      if (!user || !selectedShow || !existingTheme) return;
+      
+      const [showAccess, episodeAccess, allUsers] = await Promise.all([
+        showAccessService.getByShow(selectedShow.id),
+        episodeAccessService.getByShow(selectedShow.id),
+        userService.getAll(),
+      ]);
+      const userIds = new Set<string>();
+      if (selectedShow.ownerId) userIds.add(selectedShow.ownerId);
+      showAccess.forEach(entry => userIds.add(entry.userId));
+      episodeAccess.forEach(entry => userIds.add(entry.userId));
+      allUsers.filter(profile => profile.role === 'admin').forEach(profile => userIds.add(profile.id));
+      userIds.delete(user.id);
+      
+      if (userIds.size > 0) {
+        await notificationService.createMany(Array.from(userIds), {
+          showId: selectedShow.id,
+          type: 'plot-theme-updated',
+          message: `${user.name} updated the plot theme: "${theme.name}"`,
+          actorId: user.id,
+          actorName: user.name,
+          actorAvatarUrl: user.avatarUrl,
+          isRead: false,
+        });
+      }
     } catch (error) {
       console.error('Failed to update plot theme:', error);
     }
@@ -555,7 +754,33 @@ export function ConceptoApp({
   // Episode Ideas handlers
   const handleSaveEpisodeIdea = async (ideaData: Omit<EpisodeIdea, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
-      await createEpisodeIdea(ideaData);
+      const newIdea = await createEpisodeIdea(ideaData);
+      if (!user || !selectedShow) return;
+      
+      // Notify show members about new episode idea
+      const [showAccess, episodeAccess, allUsers] = await Promise.all([
+        showAccessService.getByShow(selectedShow.id),
+        episodeAccessService.getByShow(selectedShow.id),
+        userService.getAll(),
+      ]);
+      const userIds = new Set<string>();
+      if (selectedShow.ownerId) userIds.add(selectedShow.ownerId);
+      showAccess.forEach(entry => userIds.add(entry.userId));
+      episodeAccess.forEach(entry => userIds.add(entry.userId));
+      allUsers.filter(profile => profile.role === 'admin').forEach(profile => userIds.add(profile.id));
+      userIds.delete(user.id);
+      
+      if (userIds.size > 0) {
+        await notificationService.createMany(Array.from(userIds), {
+          showId: selectedShow.id,
+          type: 'episode-idea-created',
+          message: `${user.name} added a new episode idea: "${ideaData.title}"`,
+          actorId: user.id,
+          actorName: user.name,
+          actorAvatarUrl: user.avatarUrl,
+          isRead: false,
+        });
+      }
     } catch (error) {
       console.error('Failed to save episode idea:', error);
     }
@@ -563,7 +788,34 @@ export function ConceptoApp({
 
   const handleUpdateEpisodeIdea = async (id: string, updates: Partial<EpisodeIdea>) => {
     try {
+      const existingIdea = episodeIdeas.find(i => i.id === id);
       await updateEpisodeIdea(id, updates);
+      
+      if (!user || !selectedShow || !existingIdea) return;
+      
+      const [showAccess, episodeAccess, allUsers] = await Promise.all([
+        showAccessService.getByShow(selectedShow.id),
+        episodeAccessService.getByShow(selectedShow.id),
+        userService.getAll(),
+      ]);
+      const userIds = new Set<string>();
+      if (selectedShow.ownerId) userIds.add(selectedShow.ownerId);
+      showAccess.forEach(entry => userIds.add(entry.userId));
+      episodeAccess.forEach(entry => userIds.add(entry.userId));
+      allUsers.filter(profile => profile.role === 'admin').forEach(profile => userIds.add(profile.id));
+      userIds.delete(user.id);
+      
+      if (userIds.size > 0) {
+        await notificationService.createMany(Array.from(userIds), {
+          showId: selectedShow.id,
+          type: 'episode-idea-updated',
+          message: `${user.name} updated an episode idea: "${existingIdea.title}"`,
+          actorId: user.id,
+          actorName: user.name,
+          actorAvatarUrl: user.avatarUrl,
+          isRead: false,
+        });
+      }
     } catch (error) {
       console.error('Failed to update episode idea:', error);
     }
@@ -579,7 +831,50 @@ export function ConceptoApp({
 
   const handleSaveEpisode = async (episode: Episode) => {
     try {
+      const existingEpisode = episodes.find(e => e.id === episode.id);
       await updateEpisode(episode.id, episode);
+      const screenplayChanged = JSON.stringify(existingEpisode?.screenplayData ?? null) !== JSON.stringify(episode.screenplayData ?? null);
+      const avScriptChanged = JSON.stringify(existingEpisode?.avScript ?? null) !== JSON.stringify(episode.avScript ?? null);
+      const descriptionChanged = existingEpisode?.description !== episode.description;
+      const showId = episode.showId;
+      const show = shows.find(s => s.id === showId);
+
+      const notifyShowMembers = async (message: string, type: NotificationType) => {
+        if (!user) return;
+        const [showAccess, episodeAccess, allUsers] = await Promise.all([
+          showAccessService.getByShow(showId),
+          episodeAccessService.getByShow(showId),
+          userService.getAll(),
+        ]);
+        const userIds = new Set<string>();
+        if (show?.ownerId) userIds.add(show.ownerId);
+        if (episode.ownerId) userIds.add(episode.ownerId);
+        showAccess.forEach(entry => userIds.add(entry.userId));
+        episodeAccess.forEach(entry => userIds.add(entry.userId));
+        allUsers.filter(profile => profile.role === 'admin').forEach(profile => userIds.add(profile.id));
+        userIds.delete(user.id);
+        if (userIds.size === 0) return;
+        await notificationService.createMany(Array.from(userIds), {
+          showId,
+          episodeId: episode.id,
+          type,
+          message,
+          actorId: user.id,
+          actorName: user.name,
+          actorAvatarUrl: user.avatarUrl,
+          isRead: false,
+        });
+      };
+
+      if (screenplayChanged) {
+        await notifyShowMembers(`${user?.name || 'Someone'} updated the screenplay in "${episode.title}"`, 'screenplay-updated');
+      }
+      if (avScriptChanged) {
+        await notifyShowMembers(`${user?.name || 'Someone'} updated the AV script in "${episode.title}"`, 'av-script-updated');
+      }
+      if (descriptionChanged) {
+        await notifyShowMembers(`${user?.name || 'Someone'} updated the description for "${episode.title}"`, 'episode-description-updated');
+      }
       // Don't update selectedEpisode here - let the episodes array update handle it
       // This prevents creating unnecessary prop changes that trigger re-renders
     } catch (error) {
@@ -650,7 +945,8 @@ export function ConceptoApp({
   }
 
   // Render current view
-  switch (currentView) {
+  const renderContent = () => {
+    switch (currentView) {
     case 'shows':
       return (
         <ShowSelection
@@ -877,7 +1173,17 @@ export function ConceptoApp({
         />
       ) : null;
 
-    default:
-      return null;
-  }
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <>
+      {renderContent()}
+      {!isPublicMode && (
+        <ChatWidget show={selectedShow} isDisabled={!selectedShow} />
+      )}
+    </>
+  );
 }

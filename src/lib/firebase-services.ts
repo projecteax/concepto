@@ -12,7 +12,22 @@ import {
   Timestamp 
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { Show, GlobalAsset, Episode, AssetConcept, EpisodeIdea, GeneralIdea, PlotTheme, UserProfile, ShowAccess, EpisodeAccess, PermissionRole } from '@/types';
+import { 
+  Show, 
+  GlobalAsset, 
+  Episode, 
+  AssetConcept, 
+  EpisodeIdea, 
+  GeneralIdea, 
+  PlotTheme, 
+  UserProfile, 
+  ShowAccess, 
+  EpisodeAccess, 
+  PermissionRole,
+  ChatConversation,
+  ChatMessage,
+  NotificationItem
+} from '@/types';
 
 // Shows
 export const showService = {
@@ -914,6 +929,8 @@ export const userService = {
       name: profile.name,
       email: profile.email,
       role: profile.role,
+      avatarUrl: profile.avatarUrl || null,
+      lastActiveAt: profile.lastActiveAt ? Timestamp.fromDate(profile.lastActiveAt) : null,
       createdAt: Timestamp.fromDate(profile.createdAt),
       updatedAt: Timestamp.fromDate(profile.updatedAt),
     }, { merge: true });
@@ -931,6 +948,8 @@ export const userService = {
       name: data.name,
       email: data.email,
       role: data.role,
+      avatarUrl: data.avatarUrl || undefined,
+      lastActiveAt: data.lastActiveAt ? safeToDate(data.lastActiveAt) : undefined,
       createdAt: safeToDate(data.createdAt),
       updatedAt: safeToDate(data.updatedAt),
     } as UserProfile;
@@ -950,6 +969,8 @@ export const userService = {
       name: data.name,
       email: data.email,
       role: data.role,
+      avatarUrl: data.avatarUrl || undefined,
+      lastActiveAt: data.lastActiveAt ? safeToDate(data.lastActiveAt) : undefined,
       createdAt: safeToDate(data.createdAt),
       updatedAt: safeToDate(data.updatedAt),
     } as UserProfile;
@@ -965,15 +986,52 @@ export const userService = {
         name: data.name,
         email: data.email,
         role: data.role,
+        avatarUrl: data.avatarUrl || undefined,
+        lastActiveAt: data.lastActiveAt ? safeToDate(data.lastActiveAt) : undefined,
         createdAt: safeToDate(data.createdAt),
         updatedAt: safeToDate(data.updatedAt),
       } as UserProfile;
     });
   },
 
+  async getByIds(userIds: string[]): Promise<UserProfile[]> {
+    const uniqueIds = Array.from(new Set(userIds.filter(Boolean)));
+    const profiles = await Promise.all(uniqueIds.map(async (id) => {
+      const docSnap = await getDoc(doc(db, 'users', id));
+      if (!docSnap.exists()) return null;
+      const data = docSnap.data();
+      return {
+        id: docSnap.id,
+        username: data.username,
+        name: data.name,
+        email: data.email,
+        role: data.role,
+        avatarUrl: data.avatarUrl || undefined,
+        lastActiveAt: data.lastActiveAt ? safeToDate(data.lastActiveAt) : undefined,
+        createdAt: safeToDate(data.createdAt),
+        updatedAt: safeToDate(data.updatedAt),
+      } as UserProfile;
+    }));
+    return profiles.filter(Boolean) as UserProfile[];
+  },
+
   async updateRole(userId: string, role: UserProfile['role']): Promise<void> {
     await updateDoc(doc(db, 'users', userId), {
       role,
+      updatedAt: Timestamp.now(),
+    });
+  },
+
+  async updateLastActive(userId: string): Promise<void> {
+    await updateDoc(doc(db, 'users', userId), {
+      lastActiveAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+  },
+
+  async updateAvatar(userId: string, avatarUrl: string | null): Promise<void> {
+    await updateDoc(doc(db, 'users', userId), {
+      avatarUrl: avatarUrl || null,
       updatedAt: Timestamp.now(),
     });
   }
@@ -1191,5 +1249,200 @@ export const episodeAccessService = {
 
   async removeAccess(accessId: string): Promise<void> {
     await deleteDoc(doc(db, 'episodeAccess', accessId));
+  }
+};
+
+// Chat conversations
+export const chatService = {
+  async createConversation(input: Omit<ChatConversation, 'id' | 'createdAt' | 'updatedAt'>): Promise<ChatConversation> {
+    const docRef = await addDoc(collection(db, 'chats'), {
+      ...input,
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+    const docSnap = await getDoc(docRef);
+    const data = docSnap.data() || {};
+    return {
+      id: docRef.id,
+      ...data,
+      createdAt: safeToDate(data.createdAt),
+      updatedAt: safeToDate(data.updatedAt),
+      lastMessage: data.lastMessage
+        ? {
+            ...data.lastMessage,
+            createdAt: safeToDate(data.lastMessage.createdAt),
+          }
+        : undefined,
+    } as ChatConversation;
+  },
+
+  async getDirectByMemberKey(showId: string, memberKey: string): Promise<ChatConversation | null> {
+    const q = query(
+      collection(db, 'chats'),
+      where('showId', '==', showId),
+      where('type', '==', 'direct'),
+      where('memberKey', '==', memberKey),
+    );
+    const snapshot = await getDocs(q);
+    if (snapshot.empty) return null;
+    const docSnap = snapshot.docs[0];
+    const data = docSnap.data();
+    return {
+      id: docSnap.id,
+      ...data,
+      createdAt: safeToDate(data.createdAt),
+      updatedAt: safeToDate(data.updatedAt),
+      lastMessage: data.lastMessage
+        ? {
+            ...data.lastMessage,
+            createdAt: safeToDate(data.lastMessage.createdAt),
+          }
+        : undefined,
+    } as ChatConversation;
+  },
+
+  async getByShowForUser(showId: string, userId: string): Promise<ChatConversation[]> {
+    const q = query(
+      collection(db, 'chats'),
+      where('showId', '==', showId),
+      where('memberIds', 'array-contains', userId),
+    );
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(docSnap => {
+      const data = docSnap.data();
+      return {
+        id: docSnap.id,
+        ...data,
+        createdAt: safeToDate(data.createdAt),
+        updatedAt: safeToDate(data.updatedAt),
+        lastMessage: data.lastMessage
+          ? {
+              ...data.lastMessage,
+              createdAt: safeToDate(data.lastMessage.createdAt),
+            }
+          : undefined,
+      } as ChatConversation;
+    });
+  },
+
+  async updateLastMessage(chatId: string, lastMessage: ChatConversation['lastMessage']): Promise<void> {
+    await updateDoc(doc(db, 'chats', chatId), {
+      lastMessage: lastMessage
+        ? {
+            ...lastMessage,
+            createdAt: Timestamp.fromDate(lastMessage.createdAt),
+          }
+        : null,
+      updatedAt: Timestamp.now(),
+    });
+  },
+
+  async renameGroup(chatId: string, name: string): Promise<void> {
+    await updateDoc(doc(db, 'chats', chatId), {
+      name,
+      updatedAt: Timestamp.now(),
+    });
+  }
+};
+
+// Chat messages
+export const chatMessageService = {
+  async addMessage(input: Omit<ChatMessage, 'id' | 'createdAt' | 'updatedAt'>): Promise<ChatMessage> {
+    // Filter out undefined values to prevent Firestore errors
+    const cleanInput = Object.fromEntries(
+      Object.entries(input).filter(([, value]) => value !== undefined)
+    );
+    
+    const docRef = await addDoc(collection(db, 'chatMessages'), {
+      ...cleanInput,
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+    const docSnap = await getDoc(docRef);
+    const data = docSnap.data() || {};
+    return {
+      id: docRef.id,
+      ...data,
+      createdAt: safeToDate(data.createdAt),
+      updatedAt: safeToDate(data.updatedAt),
+      editedAt: data.editedAt ? safeToDate(data.editedAt) : undefined,
+      deletedAt: data.deletedAt ? safeToDate(data.deletedAt) : undefined,
+    } as ChatMessage;
+  },
+
+  async updateMessage(messageId: string, updates: Partial<ChatMessage>): Promise<void> {
+    const cleanUpdates = Object.fromEntries(
+      Object.entries(updates).filter(([, value]) => value !== undefined)
+    );
+    await updateDoc(doc(db, 'chatMessages', messageId), {
+      ...cleanUpdates,
+      updatedAt: Timestamp.now(),
+    });
+  },
+
+  async markDeleted(messageId: string, deletedBy: string): Promise<void> {
+    await updateDoc(doc(db, 'chatMessages', messageId), {
+      isDeleted: true,
+      deletedBy,
+      deletedAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+  }
+};
+
+// Notifications
+export const notificationService = {
+  async createNotification(input: Omit<NotificationItem, 'id' | 'createdAt'>): Promise<NotificationItem> {
+    // Filter out undefined values to prevent Firestore errors
+    const cleanInput = Object.fromEntries(
+      Object.entries(input).filter(([, value]) => value !== undefined)
+    );
+    
+    const docRef = await addDoc(collection(db, 'notifications'), {
+      ...cleanInput,
+      isRead: input.isRead ?? false,
+      createdAt: Timestamp.now(),
+      readAt: input.readAt ? Timestamp.fromDate(input.readAt) : null,
+    });
+    const docSnap = await getDoc(docRef);
+    const data = docSnap.data() || {};
+    return {
+      id: docRef.id,
+      ...data,
+      createdAt: safeToDate(data.createdAt),
+      readAt: data.readAt ? safeToDate(data.readAt) : undefined,
+    } as NotificationItem;
+  },
+
+  async createMany(userIds: string[], payload: Omit<NotificationItem, 'id' | 'userId' | 'createdAt'>): Promise<void> {
+    // Filter out undefined values to prevent Firestore errors
+    const cleanPayload = Object.fromEntries(
+      Object.entries(payload).filter(([, value]) => value !== undefined)
+    );
+    
+    const uniqueIds = Array.from(new Set(userIds));
+    await Promise.all(uniqueIds.map(userId => addDoc(collection(db, 'notifications'), {
+      ...cleanPayload,
+      userId,
+      isRead: false,
+      createdAt: Timestamp.now(),
+      readAt: null,
+    })));
+  },
+
+  async markRead(notificationId: string): Promise<void> {
+    await updateDoc(doc(db, 'notifications', notificationId), {
+      isRead: true,
+      readAt: Timestamp.now(),
+    });
+  },
+
+  async markAllRead(userId: string): Promise<void> {
+    const q = query(collection(db, 'notifications'), where('userId', '==', userId), where('isRead', '==', false));
+    const snapshot = await getDocs(q);
+    await Promise.all(snapshot.docs.map(docSnap => updateDoc(doc(db, 'notifications', docSnap.id), {
+      isRead: true,
+      readAt: Timestamp.now(),
+    })));
   }
 };

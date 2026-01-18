@@ -8,9 +8,10 @@ import { UserProfile } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Save, User, Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, Save, User, Mail, Lock, Eye, EyeOff, Upload, Trash2 } from 'lucide-react';
 import { auth } from '@/lib/firebase';
 import { reauthenticateWithCredential, updatePassword, EmailAuthProvider } from 'firebase/auth';
+import { useS3Upload } from '@/hooks/useS3Upload';
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -19,6 +20,7 @@ export default function SettingsPage() {
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
@@ -34,6 +36,7 @@ export default function SettingsPage() {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
+  const { uploadState, uploadFile, resetUpload } = useS3Upload();
 
   useEffect(() => {
     if (!currentUser) {
@@ -44,6 +47,7 @@ export default function SettingsPage() {
     setName(currentUser.name);
     setUsername(currentUser.username);
     setEmail(currentUser.email || '');
+    setAvatarUrl(currentUser.avatarUrl || null);
     setIsLoading(false);
   }, [currentUser, router]);
 
@@ -70,6 +74,7 @@ export default function SettingsPage() {
         name: name.trim(),
         username: username.trim().toLowerCase(),
         email: email.trim(),
+        avatarUrl: avatarUrl || undefined,
         updatedAt: new Date(),
       };
       
@@ -86,6 +91,31 @@ export default function SettingsPage() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleAvatarUpload = async (file: File) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Please upload an image file');
+      return;
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      setError('Avatar image must be less than 15MB');
+      return;
+    }
+    setError('');
+    setSuccess('');
+    resetUpload();
+    const result = await uploadFile(file, 'user-avatars');
+    if (result?.url) {
+      setAvatarUrl(result.url);
+      setSuccess('Avatar uploaded. Save changes to apply.');
+    }
+  };
+
+  const handleRemoveAvatar = () => {
+    setAvatarUrl(null);
+    setSuccess('Avatar removed. Save changes to apply.');
   };
 
   const handleChangePassword = async () => {
@@ -194,6 +224,57 @@ export default function SettingsPage() {
             <CardDescription>Update your personal information</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Avatar
+              </label>
+              <div className="flex items-center gap-4">
+                <div className="h-16 w-16 rounded-full bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center">
+                  {avatarUrl ? (
+                    <img
+                      src={avatarUrl}
+                      alt="User avatar"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <User className="h-7 w-7 text-gray-400" />
+                  )}
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="inline-flex items-center gap-2 px-3 py-2 rounded-md border bg-white text-sm hover:bg-gray-50 cursor-pointer">
+                    <Upload className="w-4 h-4" />
+                    <span>{uploadState.isUploading ? 'Uploading...' : 'Upload Avatar'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={uploadState.isUploading}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          void handleAvatarUpload(file);
+                        }
+                      }}
+                    />
+                  </label>
+                  {avatarUrl ? (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 text-sm text-red-600 hover:text-red-700"
+                      onClick={handleRemoveAvatar}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Remove avatar
+                    </button>
+                  ) : null}
+                  {uploadState.error ? (
+                    <p className="text-xs text-red-600">{uploadState.error}</p>
+                  ) : null}
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">Recommended: square image, up to 15MB.</p>
+            </div>
+
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
                 {error}

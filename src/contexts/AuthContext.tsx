@@ -33,6 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const profile = await userService.getProfile(firebaseUser.uid);
         if (profile) {
           setUser(profile);
+          void userService.updateLastActive(profile.id);
           return;
         }
 
@@ -46,11 +47,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           name: firebaseUser.displayName || username,
           email,
           role: isAdmin ? 'admin' : 'user',
+          avatarUrl: firebaseUser.photoURL || undefined,
+          lastActiveAt: new Date(),
           createdAt: new Date(),
           updatedAt: new Date(),
         };
         await userService.createOrUpdateProfile(newProfile);
         setUser(newProfile);
+        void userService.updateLastActive(newProfile.id);
       } catch (error) {
         console.error('Error loading user profile:', error);
         setUser(null);
@@ -61,6 +65,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const updatePresence = () => {
+      if (!active) return;
+      void userService.updateLastActive(user.id);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        updatePresence();
+      }
+    };
+
+    updatePresence();
+    intervalId = setInterval(updatePresence, 60_000);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      active = false;
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [user]);
 
   const login = async (identifier: string, password: string): Promise<boolean> => {
     try {
@@ -97,6 +130,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         name: input.name.trim() || username,
         email: input.email.trim(),
         role: isAdmin ? 'admin' : 'user',
+        avatarUrl: credential.user.photoURL || undefined,
+        lastActiveAt: new Date(),
         createdAt: new Date(),
         updatedAt: new Date(),
       };
