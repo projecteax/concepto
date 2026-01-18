@@ -66,7 +66,7 @@ export function TranslationConfirmationDialog({
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
             <p className="text-sm text-blue-800">
               <strong>Note:</strong> The translation will preserve all element types (Scene Setting, Character, Dialogue, etc.) and structure. 
-              You can review and edit the translation after it's generated.
+              You can review and edit the translation after it&apos;s generated.
             </p>
           </div>
         </div>

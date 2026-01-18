@@ -71,8 +71,8 @@ export function EpisodeHelpDialog({ isOpen, onClose, activeTab }: EpisodeHelpDia
                   Creating Segments and Shots
                 </h3>
                 <ul className="space-y-2 text-gray-700 list-disc list-inside">
-                  <li>Click <strong>"Add Segment"</strong> to create a new scene segment</li>
-                  <li>Within each segment, click <strong>"Add Shot"</strong> to add individual shots</li>
+                  <li>Click <strong>&quot;Add Segment&quot;</strong> to create a new scene segment</li>
+                  <li>Within each segment, click <strong>&quot;Add Shot&quot;</strong> to add individual shots</li>
                   <li>Each shot can have a visual description, audio text, duration, and shot type</li>
                   <li>Use the <GripVertical className="w-4 h-4 inline" /> grip handle to drag and reorder shots</li>
                 </ul>
@@ -84,12 +84,12 @@ export function EpisodeHelpDialog({ isOpen, onClose, activeTab }: EpisodeHelpDia
                   Generating Images
                 </h3>
                 <ol className="space-y-2 text-gray-700 list-decimal list-inside">
-                  <li>Click the <ImageIcon className="w-4 h-4 inline" /> <strong>"Generate Image"</strong> button on any shot</li>
+                  <li>Click the <ImageIcon className="w-4 h-4 inline" /> <strong>&quot;Generate Image&quot;</strong> button on any shot</li>
                   <li>In the dialog, review the visual description (auto-filled from your shot)</li>
                   <li>Select an AI model (Gemini 2.5 Flash, etc.)</li>
                   <li>Optionally reference global assets (characters, locations, gadgets) for consistency</li>
                   <li>Use the chat interface to refine the image with follow-up requests</li>
-                  <li>Click <strong>"Use This Image"</strong> to apply it to the shot</li>
+                  <li>Click <strong>&quot;Use This Image&quot;</strong> to apply it to the shot</li>
                 </ol>
                 <p className="mt-3 text-gray-600 text-xs">
                   <Info className="w-3 h-3 inline mr-1" />
@@ -103,13 +103,13 @@ export function EpisodeHelpDialog({ isOpen, onClose, activeTab }: EpisodeHelpDia
                   Generating Videos
                 </h3>
                 <ol className="space-y-2 text-gray-700 list-decimal list-inside">
-                  <li>Click the <Video className="w-4 h-4 inline" /> <strong>"Generate Video"</strong> button on any shot</li>
+                  <li>Click the <Video className="w-4 h-4 inline" /> <strong>&quot;Generate Video&quot;</strong> button on any shot</li>
                   <li>Select a video model (Veo 3.1, SORA 2, Kling, Runway, etc.)</li>
                   <li>Provide a video prompt describing the motion and action</li>
                   <li>Optionally upload a reference image to guide the generation</li>
                   <li>Set duration and other parameters based on the model</li>
                   <li>Use the chat to refine the video generation</li>
-                  <li>Click <strong>"Use This Video"</strong> to apply it to the shot</li>
+                  <li>Click <strong>&quot;Use This Video&quot;</strong> to apply it to the shot</li>
                 </ol>
                 <p className="mt-3 text-gray-600 text-xs">
                   <Info className="w-3 h-3 inline mr-1" />
@@ -123,8 +123,8 @@ export function EpisodeHelpDialog({ isOpen, onClose, activeTab }: EpisodeHelpDia
                   AI Enhancement
                 </h3>
                 <ul className="space-y-2 text-gray-700 list-disc list-inside">
-                  <li>Click <Sparkles className="w-4 h-4 inline" /> <strong>"Enhance"</strong> to improve shot descriptions using AI</li>
-                  <li>Use <strong>"Auto-Populate"</strong> to automatically generate AV script from screenplay</li>
+                  <li>Click <Sparkles className="w-4 h-4 inline" /> <strong>&quot;Enhance&quot;</strong> to improve shot descriptions using AI</li>
+                  <li>Use <strong>&quot;Auto-Populate&quot;</strong> to automatically generate AV script from screenplay</li>
                   <li>AI will analyze your screenplay and create corresponding segments and shots</li>
                 </ul>
               </div>
@@ -135,9 +135,9 @@ export function EpisodeHelpDialog({ isOpen, onClose, activeTab }: EpisodeHelpDia
                   Importing and Exporting
                 </h3>
                 <ul className="space-y-2 text-gray-700 list-disc list-inside">
-                  <li>Use <Menu className="w-4 h-4 inline" /> <strong>"More Actions"</strong> → <strong>"Import AV"</strong> to import from external files</li>
-                  <li>Download <Package className="w-4 h-4 inline" /> <strong>"Blender Plugin"</strong> or <Video className="w-4 h-4 inline" /> <strong>"Resolve Plugin"</strong> for integration</li>
-                  <li>Get API keys via <Key className="w-4 h-4 inline" /> <strong>"Get API"</strong> for external automation</li>
+                  <li>Use <Menu className="w-4 h-4 inline" /> <strong>&quot;More Actions&quot;</strong> → <strong>&quot;Import AV&quot;</strong> to import from external files</li>
+                  <li>Download <Package className="w-4 h-4 inline" /> <strong>&quot;Blender Plugin&quot;</strong> or <Video className="w-4 h-4 inline" /> <strong>&quot;Resolve Plugin&quot;</strong> for integration</li>
+                  <li>Get API keys via <Key className="w-4 h-4 inline" /> <strong>&quot;Get API&quot;</strong> for external automation</li>
                 </ul>
               </div>
 
@@ -147,7 +147,7 @@ export function EpisodeHelpDialog({ isOpen, onClose, activeTab }: EpisodeHelpDia
                   Version Control
                 </h3>
                 <ul className="space-y-2 text-gray-700 list-disc list-inside">
-                  <li>Save stable versions of your script using <History className="w-4 h-4 inline" /> <strong>"Save Stable Version"</strong></li>
+                  <li>Save stable versions of your script using <History className="w-4 h-4 inline" /> <strong>&quot;Save Stable Version&quot;</strong></li>
                   <li>Restore previous versions from the stable versions panel</li>
                   <li>Compare versions to track changes over time</li>
                 </ul>
@@ -172,7 +172,7 @@ export function EpisodeHelpDialog({ isOpen, onClose, activeTab }: EpisodeHelpDia
                 </h3>
                 <ul className="space-y-2 text-gray-700 list-disc list-inside">
                   <li>Changes are automatically saved at regular intervals as you work</li>
-                  <li>Use the <Save className="w-4 h-4 inline" /> <strong>"Save"</strong> button to manually save your work</li>
+                  <li>Use the <Save className="w-4 h-4 inline" /> <strong>&quot;Save&quot;</strong> button to manually save your work</li>
                   <li><strong>Important:</strong> Always use the manual save button when finishing your work to ensure all changes are saved</li>
                   <li>Real-time sync ensures changes are synced across all collaborators</li>
                 </ul>
@@ -288,7 +288,7 @@ export function EpisodeHelpDialog({ isOpen, onClose, activeTab }: EpisodeHelpDia
                 </h3>
                 <ul className="space-y-2 text-gray-700 list-disc list-inside">
                   <li>Changes are automatically saved at regular intervals as you work</li>
-                  <li>Use the <Save className="w-4 h-4 inline" /> <strong>"Save"</strong> button to manually save your work</li>
+                  <li>Use the <Save className="w-4 h-4 inline" /> <strong>&quot;Save&quot;</strong> button to manually save your work</li>
                   <li><strong>Important:</strong> Always use the manual save button when finishing your work to ensure all changes are saved</li>
                 </ul>
               </div>
@@ -329,7 +329,7 @@ export function EpisodeHelpDialog({ isOpen, onClose, activeTab }: EpisodeHelpDia
                     <Type className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
                     <div>
                       <strong className="text-red-600">Scene Setting:</strong> Describes the location and time of day. 
-                      Format: "INT./EXT. LOCATION - TIME OF DAY". Always in UPPERCASE, bold.
+                      Format: &quot;INT./EXT. LOCATION - TIME OF DAY&quot;. Always in UPPERCASE, bold.
                     </div>
                   </div>
                   <div className="flex items-start gap-3">
@@ -342,7 +342,7 @@ export function EpisodeHelpDialog({ isOpen, onClose, activeTab }: EpisodeHelpDia
                   <div className="flex items-start gap-3">
                     <FileText className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
                     <div>
-                      <strong className="text-green-600">Action:</strong> Describes what's happening in the scene. 
+                      <strong className="text-green-600">Action:</strong> Describes what&apos;s happening in the scene. 
                       Written in present tense, left-aligned with standard margins.
                     </div>
                   </div>
@@ -369,7 +369,7 @@ export function EpisodeHelpDialog({ isOpen, onClose, activeTab }: EpisodeHelpDia
                   Adding Elements
                 </h3>
                 <ul className="space-y-2 text-gray-700 list-disc list-inside">
-                  <li>Click <strong>"Add Element"</strong> to insert a new screenplay element</li>
+                  <li>Click <strong>&quot;Add Element&quot;</strong> to insert a new screenplay element</li>
                   <li>Select the element type from the dropdown (Scene Setting, Character, Dialogue, etc.)</li>
                   <li>Type your content in the text field</li>
                   <li>Elements are automatically formatted according to industry standards</li>
@@ -396,7 +396,7 @@ export function EpisodeHelpDialog({ isOpen, onClose, activeTab }: EpisodeHelpDia
                 </h3>
                 <ul className="space-y-2 text-gray-700 list-disc list-inside">
                   <li>Changes are automatically saved at regular intervals as you work</li>
-                  <li>Use the <Save className="w-4 h-4 inline" /> <strong>"Save"</strong> button to manually save your work</li>
+                  <li>Use the <Save className="w-4 h-4 inline" /> <strong>&quot;Save&quot;</strong> button to manually save your work</li>
                   <li><strong>Important:</strong> Always use the manual save button when finishing your work to ensure all changes are saved</li>
                   <li>The "Last saved" timestamp shows when your work was last saved</li>
                 </ul>
