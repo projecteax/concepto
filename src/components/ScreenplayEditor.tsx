@@ -27,6 +27,7 @@ import { ScreenplayElement, ScreenplayData, ScreenplayComment, ScreenplayStableV
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { useAuth } from '@/contexts/AuthContext';
 import { TranslationDialog } from './TranslationDialog';
+import { TranslationConfirmationDialog } from './TranslationConfirmationDialog';
 import { EnhanceDialog } from './EnhanceDialog';
 
 export interface ScreenplayEditorHandle {
@@ -73,6 +74,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
     return 'PL';
   });
   const [showTranslationDialog, setShowTranslationDialog] = useState(false);
+  const [showTranslationConfirmation, setShowTranslationConfirmation] = useState(false);
   const [showEnhanceDialog, setShowEnhanceDialog] = useState(false);
   const [enhanceElementId, setEnhanceElementId] = useState<string | null>(null);
   const [originalContent, setOriginalContent] = useState<{ [key: string]: string }>({});
@@ -1566,9 +1568,9 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   }));
 
   const handleTranslationComplete = (translatedText: string) => {
-    // Parse the translated text and update EN elements
-    // The translated text should maintain the same structure as PL with [TYPE] markers
-    const plElements = localData.elements;
+    // Determine source and target based on current language
+    const isTranslatingToEN = language === 'EN';
+    const sourceElements = isTranslatingToEN ? localData.elements : (localData.elementsEN || localData.elements);
     
     // Parse translated text by element type markers
     const lines = translatedText.split('\n');
@@ -1604,43 +1606,53 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
       });
     }
     
-    // Match parsed elements to PL structure
-    const enElements: ScreenplayElement[] = plElements.map((plEl, index) => {
+    // Match parsed elements to source structure
+    const translatedElements: ScreenplayElement[] = sourceElements.map((sourceEl, index) => {
       // Try to find matching translated element by type and position
       const translatedEl = parsedElements[index];
       
       // If we found a matching element with the same type, use it
-      if (translatedEl && translatedEl.type === plEl.type) {
+      if (translatedEl && translatedEl.type === sourceEl.type) {
         return {
-          ...plEl,
-          id: `en-${plEl.id}`,
+          ...sourceEl,
+          id: isTranslatingToEN ? `en-${sourceEl.id}` : sourceEl.id.replace(/^en-/, ''),
           content: translatedEl.content
         };
       }
       
       // Otherwise, try to find by type only
-      const matchingByType = parsedElements.find(el => el.type === plEl.type);
+      const matchingByType = parsedElements.find(el => el.type === sourceEl.type);
       if (matchingByType) {
         return {
-          ...plEl,
-          id: `en-${plEl.id}`,
+          ...sourceEl,
+          id: isTranslatingToEN ? `en-${sourceEl.id}` : sourceEl.id.replace(/^en-/, ''),
           content: matchingByType.content
         };
       }
       
       // Fallback: use empty content
       return {
-        ...plEl,
-        id: `en-${plEl.id}`,
+        ...sourceEl,
+        id: isTranslatingToEN ? `en-${sourceEl.id}` : sourceEl.id.replace(/^en-/, ''),
         content: ''
       };
     });
 
-    setLocalData(prev => ({
-      ...prev,
-      elementsEN: enElements,
-      titleEN: prev.titleEN || prev.title
-    }));
+    if (isTranslatingToEN) {
+      // Update EN elements
+      setLocalData(prev => ({
+        ...prev,
+        elementsEN: translatedElements,
+        titleEN: prev.titleEN || prev.title
+      }));
+    } else {
+      // Update PL elements
+      setLocalData(prev => ({
+        ...prev,
+        elements: translatedElements,
+        title: prev.title || prev.titleEN
+      }));
+    }
   };
 
   const renderElement = (element: ScreenplayElement, index: number) => {
@@ -1933,12 +1945,12 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                   </button>
                 </div>
                 
-                {/* AI Generate Button for EN */}
-                {language === 'EN' && (
+                {/* AI Generate Button for Translation */}
+                {(language === 'EN' || language === 'PL') && (
                   <button
-                    onClick={() => setShowTranslationDialog(true)}
+                    onClick={() => setShowTranslationConfirmation(true)}
                     className="w-12 h-12 rounded-md bg-purple-600 hover:bg-purple-700 shadow text-white flex items-center justify-center"
-                    title="Generate English translation"
+                    title={language === 'EN' ? 'Translate from Polish to English' : 'Translate from English to Polish'}
                   >
                     <Wand2 className="w-5 h-5" />
                   </button>
@@ -2380,12 +2392,26 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
         </div>
       )}
 
+      {/* Translation Confirmation Dialog */}
+      <TranslationConfirmationDialog
+        isOpen={showTranslationConfirmation}
+        onClose={() => setShowTranslationConfirmation(false)}
+        onConfirm={() => {
+          setShowTranslationConfirmation(false);
+          setShowTranslationDialog(true);
+        }}
+        fromLanguage={language === 'EN' ? 'PL' : 'EN'}
+        toLanguage={language}
+      />
+
       {/* Translation Dialog */}
       <TranslationDialog
         isOpen={showTranslationDialog}
         onClose={() => setShowTranslationDialog(false)}
         onTranslationComplete={handleTranslationComplete}
         screenplayData={localData}
+        fromLanguage={language === 'EN' ? 'PL' : 'EN'}
+        toLanguage={language}
       />
 
       {/* Enhance Dialog */}

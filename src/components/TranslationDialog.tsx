@@ -16,6 +16,8 @@ interface TranslationDialogProps {
   onClose: () => void;
   onTranslationComplete: (translatedText: string) => void;
   screenplayData: ScreenplayData;
+  fromLanguage?: 'PL' | 'EN';
+  toLanguage?: 'PL' | 'EN';
 }
 
 interface ChatMessage {
@@ -30,6 +32,8 @@ export function TranslationDialog({
   onClose,
   onTranslationComplete,
   screenplayData,
+  fromLanguage = 'PL',
+  toLanguage = 'EN',
 }: TranslationDialogProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [editablePrompt, setEditablePrompt] = useState('');
@@ -38,16 +42,21 @@ export function TranslationDialog({
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const defaultPrompt = `Translate to english. This is a script for tv show For dialogues use a natural, expressive, slightly exaggerated tone — like friendly cartoon dialogue (e.g. Paw Patrol). Keep it casual, lively, and emotional.`;
+  const defaultPrompt = fromLanguage === 'PL' && toLanguage === 'EN'
+    ? `Translate to english. This is a script for tv show For dialogues use a natural, expressive, slightly exaggerated tone — like friendly cartoon dialogue (e.g. Paw Patrol). Keep it casual, lively, and emotional.`
+    : `Translate to polish. This is a script for tv show. For dialogues use a natural, expressive, slightly exaggerated tone — like friendly cartoon dialogue. Keep it casual, lively, and emotional.`;
 
   // Initialize prompt when dialog opens
   useEffect(() => {
     if (isOpen) {
-      setEditablePrompt(defaultPrompt);
+      const prompt = fromLanguage === 'PL' && toLanguage === 'EN'
+        ? `Translate to english. This is a script for tv show For dialogues use a natural, expressive, slightly exaggerated tone — like friendly cartoon dialogue (e.g. Paw Patrol). Keep it casual, lively, and emotional.`
+        : `Translate to polish. This is a script for tv show. For dialogues use a natural, expressive, slightly exaggerated tone — like friendly cartoon dialogue. Keep it casual, lively, and emotional.`;
+      setEditablePrompt(prompt);
       setMessages([]);
       setGeneratedText(null);
     }
-  }, [isOpen]);
+  }, [isOpen, fromLanguage, toLanguage]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -55,10 +64,13 @@ export function TranslationDialog({
   }, [messages, generatedText]);
 
   const buildScreenplayText = (): string => {
-    // Build the Polish screenplay text from elements
+    // Build the screenplay text from elements based on source language
     let text = '';
+    const sourceElements = fromLanguage === 'PL' 
+      ? screenplayData.elements 
+      : (screenplayData.elementsEN || screenplayData.elements);
     
-    screenplayData.elements.forEach((element) => {
+    sourceElements.forEach((element) => {
       // Add element type marker for better context
       // Convert scene-setting to SCENE-SETTING, etc.
       const typeUpper = element.type.toUpperCase().replace(/_/g, '-');
@@ -177,7 +189,7 @@ export function TranslationDialog({
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="text-xl font-semibold flex items-center gap-2">
             <Wand2 className="w-5 h-5" />
-            Translate Screenplay
+            Translate Screenplay ({fromLanguage} → {toLanguage})
           </h2>
           <button
             onClick={onClose}

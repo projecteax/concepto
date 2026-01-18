@@ -19,7 +19,8 @@ import {
   BookOpen,
   Menu,
   Loader2,
-  Copy
+  Copy,
+  HelpCircle
 } from 'lucide-react';
 import StoryboardDrawer from './StoryboardDrawer';
 import CommentThread from './CommentThread';
@@ -37,6 +38,7 @@ import { NarrativeGenerationDialog } from './NarrativeGenerationDialog';
 import { NarrativeReaderDialog } from './NarrativeReaderDialog';
 import { CopyScriptDialog } from './CopyScriptDialog';
 import { AppBreadcrumbHeader } from './AppBreadcrumbHeader';
+import { EpisodeHelpDialog } from './EpisodeHelpDialog';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -83,6 +85,7 @@ export default function EpisodeDetail({
   const [screenplayLastSavedAt, setScreenplayLastSavedAt] = useState<number | null>(null);
   const [screenplayIsSaving, setScreenplayIsSaving] = useState(false);
   const [isTabVisible, setIsTabVisible] = useState(true);
+  const [showHelpDialog, setShowHelpDialog] = useState(false);
 
   const notifyShowMembers = useCallback(async (type: NotificationType, message: string, hash: string) => {
     if (!user) return;
@@ -1366,37 +1369,49 @@ export default function EpisodeDetail({
       {/* Tabs */}
       <div className="bg-white border-b border-gray-200">
         <div className="studio-container">
-          <nav className="flex space-x-4 sm:space-x-8 overflow-x-auto no-scrollbar">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => {
-                  if (tab.id === 'av-preview') {
-                    // Open AV Preview in a new popup window
-                    const basePath = isPublicMode ? '/public' : '/app';
-                    const url = `${basePath}/shows/${show.id}/episodes/${episode.id}/av-preview`;
-                    const popup = window.open(
-                      url,
-                      'AVPreview',
-                      'width=1920,height=1080,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=no'
-                    );
-                    if (popup) {
-                      popup.focus();
+          <div className="flex items-center justify-between">
+            <nav className="flex space-x-4 sm:space-x-8 overflow-x-auto no-scrollbar flex-1">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    if (tab.id === 'av-preview') {
+                      // Open AV Preview in a new popup window
+                      const basePath = isPublicMode ? '/public' : '/app';
+                      const url = `${basePath}/shows/${show.id}/episodes/${episode.id}/av-preview`;
+                      const popup = window.open(
+                        url,
+                        'AVPreview',
+                        'width=1920,height=1080,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=no'
+                      );
+                      if (popup) {
+                        popup.focus();
+                      }
+                    } else {
+                      setActiveTab(tab.id as 'overview' | 'av-script' | 'av-preview' | 'av-editing' | 'screenwriting' | 'characters' | 'locations' | 'gadgets');
                     }
-                  } else {
-                    setActiveTab(tab.id as 'overview' | 'av-script' | 'av-preview' | 'av-editing' | 'screenwriting' | 'characters' | 'locations' | 'gadgets');
-                  }
-                }}
-                className={`py-3 sm:py-4 px-1 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap ${
-                  activeTab === tab.id
-                    ? 'border-indigo-500 text-indigo-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
+                  }}
+                  className={`py-3 sm:py-4 px-1 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap ${
+                    activeTab === tab.id
+                      ? 'border-indigo-500 text-indigo-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+            {/* Help Button */}
+            {(activeTab === 'av-script' || activeTab === 'av-preview' || activeTab === 'screenwriting') && (
+              <button
+                onClick={() => setShowHelpDialog(true)}
+                className="ml-4 h-8 w-8 rounded-full border border-gray-300 bg-white hover:bg-gray-50 flex items-center justify-center transition-colors flex-shrink-0"
+                title="Help"
               >
-                {tab.label}
+                <HelpCircle className="h-4 w-4 text-gray-600" />
               </button>
-            ))}
-          </nav>
+            )}
+          </div>
         </div>
       </div>
 
@@ -2839,6 +2854,13 @@ export default function EpisodeDetail({
         title={narrativeReaderPayload?.title || localEpisode.title}
         text={narrativeReaderPayload?.text || ''}
         meta={narrativeReaderPayload?.meta}
+      />
+
+      {/* Help Dialog */}
+      <EpisodeHelpDialog
+        isOpen={showHelpDialog}
+        onClose={() => setShowHelpDialog(false)}
+        activeTab={activeTab}
       />
     </div>
   );
