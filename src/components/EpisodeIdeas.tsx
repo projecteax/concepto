@@ -13,6 +13,7 @@ interface EpisodeIdeasProps {
   onSaveIdea: (idea: Omit<EpisodeIdea, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
   onUpdateIdea: (id: string, updates: Partial<EpisodeIdea>) => Promise<void>;
   onDeleteIdea: (id: string) => Promise<void>;
+  isReadOnly?: boolean;
 }
 
 export function EpisodeIdeas({
@@ -20,8 +21,10 @@ export function EpisodeIdeas({
   ideas,
   onBack,
   onSaveIdea,
-  onDeleteIdea
+  onDeleteIdea,
+  isReadOnly = false,
 }: EpisodeIdeasProps) {
+  const readOnly = isReadOnly;
   const basePath = useBasePath();
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingIdea, setEditingIdea] = useState<string | null>(null);
@@ -120,19 +123,21 @@ export function EpisodeIdeas({
         ]}
         subtitle="Idea backlog for episodes"
         actions={
-          <button
-            onClick={() => setShowAddForm(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            <span>New Idea</span>
-          </button>
+          !readOnly ? (
+            <button
+              onClick={() => setShowAddForm(true)}
+              className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              <span>New Idea</span>
+            </button>
+          ) : null
         }
       />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Add New Idea Form */}
-        {showAddForm && (
+        {showAddForm && !readOnly && (
           <div className="bg-white rounded-lg shadow-sm border p-6 mb-8">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-900">New Episode Idea</h2>
@@ -254,13 +259,15 @@ export function EpisodeIdeas({
               </div>
               <h3 className="text-lg font-medium text-gray-900 mb-2">No episode ideas yet</h3>
               <p className="text-gray-500 mb-4">Start brainstorming by adding your first episode idea.</p>
-              <button
-                onClick={() => setShowAddForm(true)}
-                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors mx-auto"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Add First Idea</span>
-              </button>
+              {!readOnly ? (
+                <button
+                  onClick={() => setShowAddForm(true)}
+                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors mx-auto"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Add First Idea</span>
+                </button>
+              ) : null}
             </div>
           ) : (
             ideas.map((idea) => (
@@ -302,20 +309,22 @@ export function EpisodeIdeas({
                     </div>
                   </div>
                   
-                  <div className="flex items-center space-x-2 ml-4">
-                    <button
-                      onClick={() => setEditingIdea(idea.id)}
-                      className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteIdea(idea.id)}
-                      className="p-2 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-lg transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
+                  {!readOnly ? (
+                    <div className="flex items-center space-x-2 ml-4">
+                      <button
+                        onClick={() => setEditingIdea(idea.id)}
+                        className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteIdea(idea.id)}
+                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-lg transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ))

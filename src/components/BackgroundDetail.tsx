@@ -22,6 +22,7 @@ interface BackgroundDetailProps {
   onBack: () => void;
   onSave: (background: GlobalAsset) => void;
   onDeleteConcept: (conceptId: string) => void;
+  isReadOnly?: boolean;
 }
 
 export function BackgroundDetail({

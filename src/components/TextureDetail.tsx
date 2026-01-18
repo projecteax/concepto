@@ -22,6 +22,7 @@ interface TextureDetailProps {
   onBack: () => void;
   onSave: (texture: GlobalAsset) => void;
   onDeleteConcept: (conceptId: string) => void;
+  isReadOnly?: boolean;
 }
 
 export function TextureDetail({

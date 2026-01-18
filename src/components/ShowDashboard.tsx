@@ -28,6 +28,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface ShowDashboardProps {
   show: Show;
@@ -47,6 +48,8 @@ interface ShowDashboardProps {
   onAddEpisode?: (episode: Omit<Episode, 'id' | 'createdAt' | 'updatedAt'>) => void;
   onSaveShow?: (show: Show) => void | Promise<void>;
   isPublicMode?: boolean;
+  isReadOnly?: boolean;
+  hasOnlyEpisodeAccess?: boolean;
 }
 
 const assetIcons = {
@@ -85,7 +88,10 @@ export function ShowDashboard({
   onAddEpisode,
   onSaveShow,
   isPublicMode = false,
+  isReadOnly = false,
+  hasOnlyEpisodeAccess = false,
 }: ShowDashboardProps) {
+  const readOnly = isPublicMode || isReadOnly;
   const basePath = useBasePath();
   const headerIsDark = Boolean(show.coverImageUrl);
   const [showAddAsset, setShowAddAsset] = useState(false);
@@ -111,6 +117,7 @@ export function ShowDashboard({
   const [logoSaveStatus, setLogoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [coverSaveError, setCoverSaveError] = useState<string | null>(null);
   const [logoSaveError, setLogoSaveError] = useState<string | null>(null);
+  const { user } = useAuth();
 
   // Sync local state when show prop changes
   useEffect(() => {
@@ -234,7 +241,7 @@ export function ShowDashboard({
     }
 
     // Auto-save to DB so reload never loses it.
-    if (!isPublicMode && onSaveShow) {
+    if (!readOnly && onSaveShow) {
       const updatedShow: Show = {
         ...show,
         name: showName.trim(),
@@ -298,7 +305,7 @@ export function ShowDashboard({
               <CardTitle>Description</CardTitle>
               <CardDescription>Short pitch, audience, premise — shown across the studio.</CardDescription>
             </div>
-            {!isEditingDescription && !isPublicMode && onSaveShow ? (
+            {!isEditingDescription && !readOnly && onSaveShow ? (
               <Button variant="outline" size="sm" onClick={() => setIsEditingDescription(true)} className="gap-2">
                 <Edit3 className="w-4 h-4" />
                 Edit
@@ -308,7 +315,7 @@ export function ShowDashboard({
           <CardContent>
           <div className="flex items-center justify-between mb-2">
           </div>
-          {isEditingDescription && !isPublicMode ? (
+          {isEditingDescription && !readOnly ? (
             <div className="space-y-3">
               <Textarea
                 value={showDescription}
@@ -338,8 +345,9 @@ export function ShowDashboard({
 
         {/* Main Navigation */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-          {/* Global Assets Section */}
-          <Card>
+          {/* Global Assets Section - Hidden if user only has episode access */}
+          {!hasOnlyEpisodeAccess && (
+            <Card>
             <CardHeader className="flex-row items-center justify-between space-y-0">
               <div className="flex items-center space-x-3">
                 <FolderOpen className="w-6 h-6 text-primary" />
@@ -392,6 +400,7 @@ export function ShowDashboard({
             </Button>
             </CardContent>
           </Card>
+          )}
 
           {/* Episodes Section */}
           <Card>
@@ -460,49 +469,52 @@ export function ShowDashboard({
           </Card>
         </div>
 
-        {/* Ideas & Themes */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-3">
-                <Lightbulb className="w-6 h-6 text-primary" />
-                <div>
-                  <CardTitle>General Ideas</CardTitle>
-                  <CardDescription>Inspiration and concepts that don&apos;t fit a specific bucket.</CardDescription>
+        {/* Ideas & Themes - Hidden if user only has episode access */}
+        {!hasOnlyEpisodeAccess && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <Lightbulb className="w-6 h-6 text-primary" />
+                  <div>
+                    <CardTitle>General Ideas</CardTitle>
+                    <CardDescription>Inspiration and concepts that don&apos;t fit a specific bucket.</CardDescription>
+                  </div>
                 </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <Button onClick={onSelectGeneralIdeas} className="w-full gap-2">
-                <Lightbulb className="w-5 h-5" />
-                Manage Ideas
-              </Button>
-            </CardContent>
-          </Card>
+              </CardHeader>
+              <CardContent>
+                <Button onClick={onSelectGeneralIdeas} className="w-full gap-2">
+                  <Lightbulb className="w-5 h-5" />
+                  Manage Ideas
+                </Button>
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-3">
-                <BookOpen className="w-6 h-6 text-primary" />
-                <div>
-                  <CardTitle>Plot Themes</CardTitle>
-                  <CardDescription>Reusable themes that guide episode descriptions and screenplays.</CardDescription>
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <BookOpen className="w-6 h-6 text-primary" />
+                  <div>
+                    <CardTitle>Plot Themes</CardTitle>
+                    <CardDescription>Reusable themes that guide episode descriptions and screenplays.</CardDescription>
+                  </div>
                 </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="text-sm text-muted-foreground">
-                {plotThemes.length} {plotThemes.length === 1 ? 'theme' : 'themes'} available
-              </div>
-              <Button onClick={onSelectPlotThemes} className="w-full gap-2">
-                <BookOpen className="w-5 h-5" />
-                Manage Plot Themes
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="text-sm text-muted-foreground">
+                  {plotThemes.length} {plotThemes.length === 1 ? 'theme' : 'themes'} available
+                </div>
+                <Button onClick={onSelectPlotThemes} className="w-full gap-2">
+                  <BookOpen className="w-5 h-5" />
+                  Manage Plot Themes
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
-        {/* Show Settings */}
+        {/* Show Settings - Hidden if user only has episode access */}
+        {!hasOnlyEpisodeAccess && (
         <Card className="mb-8">
           <CardHeader>
             <CardTitle>Show Settings</CardTitle>
@@ -517,7 +529,7 @@ export function ShowDashboard({
                     value={showName}
                     onChange={(e) => setShowName(e.target.value)}
                     placeholder="Show name…"
-                    disabled={isPublicMode || !onSaveShow}
+                    disabled={readOnly || !onSaveShow}
                   />
                 </div>
 
@@ -529,7 +541,7 @@ export function ShowDashboard({
                       min={1}
                       value={seasonsCount}
                       onChange={(e) => setSeasonsCount(Math.max(1, Number(e.target.value) || 1))}
-                      disabled={isPublicMode || !onSaveShow}
+                      disabled={readOnly || !onSaveShow}
                     />
                   </div>
                   <div>
@@ -559,7 +571,7 @@ export function ShowDashboard({
                   </div>
                 </div>
 
-                {!isPublicMode && (
+                {!readOnly && (
                   <div className="flex flex-wrap gap-2">
                     {onSaveShow ? (
                       <>
@@ -605,14 +617,14 @@ export function ShowDashboard({
                         if (f) void handleUploadShowImage(f, 'cover');
                         e.currentTarget.value = '';
                       }}
-                      disabled={isPublicMode || !onSaveShow}
+                      disabled={readOnly || !onSaveShow}
                     />
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
                       onClick={() => coverInputRef.current?.click()}
-                      disabled={uploadState.isUploading || isPublicMode || !onSaveShow}
+                      disabled={uploadState.isUploading || readOnly || !onSaveShow}
                     >
                       Upload
                     </Button>
@@ -622,7 +634,7 @@ export function ShowDashboard({
                       <div className="relative h-28 w-full overflow-hidden rounded-lg border bg-muted">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={coverImageUrl} alt="" className="h-full w-full object-cover" />
-                        {!isPublicMode && onSaveShow ? (
+                        {!readOnly && onSaveShow ? (
                           <Button
                             type="button"
                             variant="outline"
@@ -641,7 +653,7 @@ export function ShowDashboard({
                     )}
                   </div>
                   {coverUploadHint ? <div className="mt-2 text-xs text-muted-foreground">{coverUploadHint}</div> : null}
-                  {!isPublicMode && onSaveShow ? (
+                  {!readOnly && onSaveShow ? (
                     <div className="mt-1 text-xs">
                       {coverSaveStatus === 'saving' ? (
                         <span className="text-muted-foreground">Saving…</span>
@@ -672,14 +684,14 @@ export function ShowDashboard({
                         if (f) void handleUploadShowImage(f, 'logo');
                         e.currentTarget.value = '';
                       }}
-                      disabled={isPublicMode || !onSaveShow}
+                      disabled={readOnly || !onSaveShow}
                     />
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
                       onClick={() => logoInputRef.current?.click()}
-                      disabled={uploadState.isUploading || isPublicMode || !onSaveShow}
+                      disabled={uploadState.isUploading || readOnly || !onSaveShow}
                     >
                       Upload
                     </Button>
@@ -690,7 +702,7 @@ export function ShowDashboard({
                       <div className="relative h-24 w-24 overflow-hidden rounded-lg border bg-muted">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={logoUrl} alt="" className="h-full w-full object-cover" />
-                        {!isPublicMode && onSaveShow ? (
+                        {!readOnly && onSaveShow ? (
                           <button
                             type="button"
                             onClick={() => setLogoUrl('')}
@@ -708,7 +720,7 @@ export function ShowDashboard({
                     )}
                   </div>
                   {logoUploadHint ? <div className="mt-2 text-xs text-muted-foreground">{logoUploadHint}</div> : null}
-                  {!isPublicMode && onSaveShow ? (
+                  {!readOnly && onSaveShow ? (
                     <div className="mt-1 text-xs">
                       {logoSaveStatus === 'saving' ? (
                         <span className="text-muted-foreground">Saving…</span>
@@ -726,6 +738,7 @@ export function ShowDashboard({
             </div>
           </CardContent>
         </Card>
+        )}
 
         {/* Add Asset Modal */}
         {showAddAsset && (

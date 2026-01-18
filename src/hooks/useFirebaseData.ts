@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 import { showService, globalAssetService, episodeService, assetConceptService, episodeIdeaService, generalIdeaService, plotThemeService } from '@/lib/firebase-services';
 import { Show, GlobalAsset, Episode, AssetConcept, EpisodeIdea, GeneralIdea, PlotTheme } from '@/types';
 import { setupDemoData } from '@/lib/demo-data-setup';
 
 export function useFirebaseData() {
+  const { user } = useAuth();
   const [shows, setShows] = useState<Show[]>([]);
   const [globalAssets, setGlobalAssets] = useState<GlobalAsset[]>([]);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
@@ -94,7 +96,10 @@ export function useFirebaseData() {
   // Show operations
   const createShow = async (show: Omit<Show, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
-      const newShow = await showService.create(show);
+      const newShow = await showService.create({
+        ...show,
+        ownerId: user?.id,
+      });
       setShows(prev => [...prev, newShow]);
       return newShow;
     } catch (err) {
@@ -162,7 +167,10 @@ export function useFirebaseData() {
   // Episode operations
   const createEpisode = async (episode: Omit<Episode, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
-      const newEpisode = await episodeService.create(episode);
+      const newEpisode = await episodeService.create({
+        ...episode,
+        ownerId: user?.id,
+      });
       setEpisodes(prev => [...prev, newEpisode]);
       return newEpisode;
     } catch (err) {

@@ -1,17 +1,16 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-
-export interface User {
-  id: string;
-  username: string;
-  name: string;
-  role: 'admin' | 'user';
-}
+import { createUserWithEmailAndPassword, onAuthStateChanged, signInWithEmailAndPassword, signOut, updateProfile } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
+import { userService } from '@/lib/firebase-services';
+import { ADMIN_EMAILS, ADMIN_USERNAMES } from '@/lib/access-control';
+import { UserProfile } from '@/types';
 
 interface AuthContextType {
-  user: User | null;
-  login: (username: string, password: string) => Promise<boolean>;
+  user: UserProfile | null;
+  login: (identifier: string, password: string) => Promise<boolean>;
+  register: (input: { username: string; name: string; email: string; password: string }) => Promise<boolean>;
   logout: () => void;
   clearAuth: () => void;
   isLoading: boolean;
@@ -19,74 +18,110 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Predefined users
-const PREDEFINED_USERS: User[] = [
-  {
-    id: '1',
-    username: 'lukasz',
-    name: 'Lukasz',
-    role: 'admin'
-  },
-  {
-    id: '2',
-    username: 'adrian',
-    name: 'Adrian',
-    role: 'admin'
-  }
-];
-
-const PASSWORD = 'zaq12wsx';
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check if user is logged in (from localStorage)
-    const savedUser = localStorage.getItem('concepto_user');
-    if (savedUser) {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       try {
-        setUser(JSON.parse(savedUser));
+        if (!firebaseUser) {
+          setUser(null);
+          return;
+        }
+
+        const profile = await userService.getProfile(firebaseUser.uid);
+        if (profile) {
+          setUser(profile);
+          return;
+        }
+
+        const email = firebaseUser.email || '';
+        const username = firebaseUser.displayName || (email ? email.split('@')[0] : 'user');
+        const isAdmin = ADMIN_EMAILS.includes(email) || ADMIN_USERNAMES.includes(username);
+
+        const newProfile: UserProfile = {
+          id: firebaseUser.uid,
+          username,
+          name: firebaseUser.displayName || username,
+          email,
+          role: isAdmin ? 'admin' : 'user',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        await userService.createOrUpdateProfile(newProfile);
+        setUser(newProfile);
       } catch (error) {
-        console.error('Error parsing saved user:', error);
-        localStorage.removeItem('concepto_user');
+        console.error('Error loading user profile:', error);
+        setUser(null);
+      } finally {
+        setIsLoading(false);
       }
-    }
-    setIsLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  const login = async (username: string, password: string): Promise<boolean> => {
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    if (password !== PASSWORD) {
+  const login = async (identifier: string, password: string): Promise<boolean> => {
+    try {
+      const trimmed = identifier.trim();
+      let email = trimmed;
+      if (!trimmed.includes('@')) {
+        const profile = await userService.getByUsername(trimmed.toLowerCase());
+        if (!profile?.email) {
+          return false;
+        }
+        email = profile.email;
+      }
+      await signInWithEmailAndPassword(auth, email, password);
+      return true;
+    } catch (error) {
+      console.error('Login failed:', error);
       return false;
     }
+  };
 
-    const foundUser = PREDEFINED_USERS.find(u => u.username.toLowerCase() === username.toLowerCase());
-    
-    if (foundUser) {
-      setUser(foundUser);
-      localStorage.setItem('concepto_user', JSON.stringify(foundUser));
+  const register = async (input: { username: string; name: string; email: string; password: string }): Promise<boolean> => {
+    try {
+      const username = input.username.trim().toLowerCase();
+      const existing = await userService.getByUsername(username);
+      if (existing) {
+        return false;
+      }
+      const credential = await createUserWithEmailAndPassword(auth, input.email.trim(), input.password);
+      await updateProfile(credential.user, { displayName: input.name.trim() || username });
+      const isAdmin = ADMIN_EMAILS.includes(input.email.trim()) || ADMIN_USERNAMES.includes(username);
+      const profile: UserProfile = {
+        id: credential.user.uid,
+        username,
+        name: input.name.trim() || username,
+        email: input.email.trim(),
+        role: isAdmin ? 'admin' : 'user',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      await userService.createOrUpdateProfile(profile);
+      setUser(profile);
       return true;
+    } catch (error) {
+      console.error('Registration failed:', error);
+      return false;
     }
-
-    return false;
   };
 
-  const logout = () => {
+  const logout = async () => {
+    await signOut(auth);
     setUser(null);
-    localStorage.removeItem('concepto_user');
   };
 
-  const clearAuth = () => {
+  const clearAuth = async () => {
+    await signOut(auth);
     setUser(null);
-    localStorage.removeItem('concepto_user');
     localStorage.removeItem('concepto_comments');
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, clearAuth, isLoading }}>
+    <AuthContext.Provider value={{ user, login, register, logout, clearAuth, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

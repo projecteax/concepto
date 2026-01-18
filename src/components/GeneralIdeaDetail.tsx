@@ -25,14 +25,20 @@ interface GeneralIdeaDetailProps {
   idea: GeneralIdea;
   onBack: () => void;
   onSave: (idea: GeneralIdea) => void;
+  isReadOnly?: boolean;
+  canComment?: boolean;
 }
 
 export function GeneralIdeaDetail({
   show,
   idea,
   onBack,
-  onSave
+  onSave,
+  isReadOnly = false,
+  canComment = true,
 }: GeneralIdeaDetailProps) {
+  const readOnly = isReadOnly;
+  const allowComment = canComment;
   const basePath = useBasePath();
   const headerIsDark = Boolean(show.coverImageUrl);
   const [isEditing, setIsEditing] = useState(false);
@@ -165,34 +171,36 @@ export function GeneralIdeaDetail({
         ]}
         subtitle="General idea"
         actions={
-          <div className="flex items-center gap-2">
-            {isEditing ? (
-              <>
+          !readOnly ? (
+            <div className="flex items-center gap-2">
+              {isEditing ? (
+                <>
+                  <button
+                    onClick={handleCancel}
+                    className={`px-3 py-2 rounded-lg ${headerIsDark ? 'text-white/90 hover:text-white hover:bg-white/10' : 'text-muted-foreground hover:text-foreground hover:bg-accent'}`}
+                    title="Cancel"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    className={`px-3 py-2 rounded-lg ${headerIsDark ? 'bg-white/90 text-gray-900 hover:bg-white' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
+                    title="Save"
+                  >
+                    <Save className="w-4 h-4" />
+                  </button>
+                </>
+              ) : (
                 <button
-                  onClick={handleCancel}
+                  onClick={() => setIsEditing(true)}
                   className={`px-3 py-2 rounded-lg ${headerIsDark ? 'text-white/90 hover:text-white hover:bg-white/10' : 'text-muted-foreground hover:text-foreground hover:bg-accent'}`}
-                  title="Cancel"
+                  title="Edit"
                 >
-                  <X className="w-4 h-4" />
+                  <Edit3 className="w-4 h-4" />
                 </button>
-                <button
-                  onClick={handleSave}
-                  className={`px-3 py-2 rounded-lg ${headerIsDark ? 'bg-white/90 text-gray-900 hover:bg-white' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
-                  title="Save"
-                >
-                  <Save className="w-4 h-4" />
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={() => setIsEditing(true)}
-                className={`px-3 py-2 rounded-lg ${headerIsDark ? 'text-white/90 hover:text-white hover:bg-white/10' : 'text-muted-foreground hover:text-foreground hover:bg-accent'}`}
-                title="Edit"
-              >
-                <Edit3 className="w-4 h-4" />
-              </button>
-            )}
-          </div>
+              )}
+            </div>
+          ) : null
         }
         title={
           isEditing ? (
@@ -298,6 +306,7 @@ export function GeneralIdeaDetail({
                 targetType="general-idea" 
                 targetId={idea.id}
                 className="w-full"
+                canComment={allowComment}
               />
             </div>
 
@@ -305,19 +314,21 @@ export function GeneralIdeaDetail({
             <div className="bg-white rounded-lg border border-gray-200 p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-gray-900">Images</h2>
-                <label className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer transition-colors">
-                  <Upload className="w-4 h-4" />
-                  <span>Upload Image</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleImageUpload(file);
-                    }}
-                    className="hidden"
-                  />
-                </label>
+                {!readOnly ? (
+                  <label className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer transition-colors">
+                    <Upload className="w-4 h-4" />
+                    <span>Upload Image</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleImageUpload(file);
+                      }}
+                      className="hidden"
+                    />
+                  </label>
+                ) : null}
               </div>
 
               {images.length > 0 ? (
@@ -435,27 +446,31 @@ export function GeneralIdeaDetail({
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
               
               <div className="space-y-2">
-                <button
-                  onClick={() => setIsEditing(true)}
-                  className="w-full flex items-center space-x-2 px-3 py-2 text-left text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"
-                >
-                  <Edit3 className="w-4 h-4" />
-                  <span>Edit Idea</span>
-                </button>
+                {!readOnly ? (
+                  <button
+                    onClick={() => setIsEditing(true)}
+                    className="w-full flex items-center space-x-2 px-3 py-2 text-left text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                    <span>Edit Idea</span>
+                  </button>
+                ) : null}
                 
-                <label className="w-full flex items-center space-x-2 px-3 py-2 text-left text-gray-700 hover:bg-gray-50 rounded-lg transition-colors cursor-pointer">
-                  <Plus className="w-4 h-4" />
-                  <span>Add Image</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleImageUpload(file);
-                    }}
-                    className="hidden"
-                  />
-                </label>
+                {!readOnly ? (
+                  <label className="w-full flex items-center space-x-2 px-3 py-2 text-left text-gray-700 hover:bg-gray-50 rounded-lg transition-colors cursor-pointer">
+                    <Plus className="w-4 h-4" />
+                    <span>Add Image</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleImageUpload(file);
+                      }}
+                      className="hidden"
+                    />
+                  </label>
+                ) : null}
                 
                 <button
                   onClick={() => {

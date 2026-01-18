@@ -27,6 +27,7 @@ interface GadgetDetailProps {
   onSave: (gadget: GlobalAsset) => void;
   onDeleteConcept: (conceptId: string) => void;
   globalAssets?: GlobalAsset[]; // For image generation context
+  isReadOnly?: boolean;
 }
 
 export function GadgetDetail({

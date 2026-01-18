@@ -34,6 +34,7 @@ interface VehicleDetailProps {
   onAddConcept: (concept: Omit<AssetConcept, 'id' | 'createdAt' | 'updatedAt'>) => void;
   onDeleteConcept: (conceptId: string) => void;
   globalAssets?: GlobalAsset[];
+  isReadOnly?: boolean;
 }
 
 export function VehicleDetail({

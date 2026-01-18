@@ -1,9 +1,14 @@
 // User Management
-export interface User {
+export type PermissionRole = 'editor' | 'commenter' | 'viewer';
+
+export interface UserProfile {
   id: string;
   username: string;
   name: string;
+  email: string;
   role: 'admin' | 'user';
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 // Comment System
@@ -32,6 +37,8 @@ export interface CommentThread {
 // Show Management
 export interface Show {
   id: string;
+  /** Owner user id for access control. */
+  ownerId?: string;
   name: string;
   description?: string;
   /** Optional cover image (banner) shown in show-level headers. */
@@ -183,6 +190,8 @@ export interface NarrativeStoryVersion {
 export interface Episode {
   id: string;
   showId: string;
+  /** Owner user id for access control. */
+  ownerId?: string;
   title: string;
   episodeNumber: number | 'intro';
   description?: string;
@@ -208,6 +217,25 @@ export interface Episode {
   characters: EpisodeCharacter[];
   locations: EpisodeLocation[];
   scenes?: EpisodeScene[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ShowAccess {
+  id: string;
+  showId: string;
+  userId: string;
+  role: PermissionRole;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface EpisodeAccess {
+  id: string;
+  showId: string;
+  episodeId: string;
+  userId: string;
+  role: PermissionRole;
   createdAt: Date;
   updatedAt: Date;
 }

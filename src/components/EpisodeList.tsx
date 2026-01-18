@@ -24,6 +24,7 @@ interface EpisodeListProps {
   onAddEpisode: (episode: Omit<Episode, 'id' | 'createdAt' | 'updatedAt'>) => void;
   onEditEpisode: (episode: Episode) => void;
   onDeleteEpisode: (episodeId: string) => void;
+  isReadOnly?: boolean;
 }
 
 export function EpisodeList({
@@ -33,8 +34,10 @@ export function EpisodeList({
   onSelectEpisode,
   onAddEpisode,
   onEditEpisode,
-  onDeleteEpisode
+  onDeleteEpisode,
+  isReadOnly = false,
 }: EpisodeListProps) {
+  const readOnly = isReadOnly;
   const basePath = useBasePath();
   const [showAddForm, setShowAddForm] = useState(false);
   const [newEpisodeTitle, setNewEpisodeTitle] = useState('');
@@ -142,6 +145,7 @@ export function EpisodeList({
         ]}
         subtitle="All episodes for this show"
         actions={
+          !readOnly ? (
             <button
               onClick={() => {
                 setNewEpisodeNumber(getNextEpisodeNumber());
@@ -152,6 +156,7 @@ export function EpisodeList({
               <Plus className="w-4 h-4" />
               <span className="hidden sm:inline">Add Episode</span>
             </button>
+          ) : null
         }
       />
 
@@ -165,16 +170,18 @@ export function EpisodeList({
             <p className="text-gray-600 mb-4">
               Create your first episode to start building your show&apos;s story.
             </p>
-            <button
-              onClick={() => {
-                setNewEpisodeNumber(getNextEpisodeNumber());
-                setShowAddForm(true);
-              }}
-              className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors mx-auto"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add First Episode</span>
-            </button>
+            {!readOnly ? (
+              <button
+                onClick={() => {
+                  setNewEpisodeNumber(getNextEpisodeNumber());
+                  setShowAddForm(true);
+                }}
+                className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors mx-auto"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add First Episode</span>
+              </button>
+            ) : null}
           </div>
         ) : (
           <div className="space-y-3 sm:space-y-4">
@@ -195,28 +202,30 @@ export function EpisodeList({
                       <h3 className="text-lg font-semibold text-gray-900 group-hover:text-green-600 transition-colors flex-1 min-w-0">
                         {episode.title}
                       </h3>
-                      <div className="flex items-center space-x-1 flex-shrink-0">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onEditEpisode(episode);
-                          }}
-                          className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
-                          title="Edit episode"
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onDeleteEpisode(episode.id);
-                          }}
-                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded transition-colors"
-                          title="Delete episode"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
+                      {!readOnly ? (
+                        <div className="flex items-center space-x-1 flex-shrink-0">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEditEpisode(episode);
+                            }}
+                            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                            title="Edit episode"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDeleteEpisode(episode.id);
+                            }}
+                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded transition-colors"
+                            title="Delete episode"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
 
                     {/* Description */}
@@ -298,28 +307,30 @@ export function EpisodeList({
                             )}
                           </div>
 
-                          <div className="flex items-center space-x-2">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onEditEpisode(episode);
-                              }}
-                              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                              title="Edit episode"
-                            >
-                              <Edit3 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onDeleteEpisode(episode.id);
-                              }}
-                              className="p-2 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-lg transition-colors"
-                              title="Delete episode"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
+                          {!readOnly ? (
+                            <div className="flex items-center space-x-2">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onEditEpisode(episode);
+                                }}
+                                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                                title="Edit episode"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onDeleteEpisode(episode.id);
+                                }}
+                                className="p-2 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-lg transition-colors"
+                                title="Delete episode"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     </div>

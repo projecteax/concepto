@@ -53,6 +53,9 @@ interface EpisodeDetailProps {
   onBack: () => void;
   onSave?: (episode: Episode) => void;
   isPublicMode?: boolean;
+  isReadOnly?: boolean;
+  canComment?: boolean;
+  hasOnlyEpisodeAccess?: boolean;
 }
 
 export default function EpisodeDetail({
@@ -63,7 +66,11 @@ export default function EpisodeDetail({
   onBack,
   onSave,
   isPublicMode = false,
+  isReadOnly = false,
+  canComment = true,
+  hasOnlyEpisodeAccess = false,
 }: EpisodeDetailProps) {
+  const readOnly = isPublicMode || isReadOnly;
   
   const headerIsDark = Boolean(show.coverImageUrl);
   const [activeTab, setActiveTab] = useState<'overview' | 'av-script' | 'av-preview' | 'av-editing' | 'screenwriting' | 'characters' | 'locations' | 'gadgets'>('overview');
@@ -1389,10 +1396,12 @@ export default function EpisodeDetail({
               <DropdownMenuContent align="end" className="w-64">
                 <DropdownMenuLabel>Screenwriting</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => setShowScreenplayDialog(true)}>
-                  <Wand2 className="h-4 w-4" />
-                <span>Auto-Create</span>
-                </DropdownMenuItem>
+                {!hasOnlyEpisodeAccess && (
+                  <DropdownMenuItem onSelect={() => setShowScreenplayDialog(true)}>
+                    <Wand2 className="h-4 w-4" />
+                    <span>Auto-Create</span>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onSelect={() => setShowNarrativeDialog(true)}>
                   <BookOpen className="h-4 w-4" />
                   <span>Narrative descriptions</span>
@@ -1446,7 +1455,7 @@ export default function EpisodeDetail({
                           }
                         }}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                        disabled={isPublicMode}
+                        disabled={readOnly}
                       >
                         <option value="number">Number</option>
                         <option value="intro">Intro</option>
@@ -1463,7 +1472,7 @@ export default function EpisodeDetail({
                           onChange={(e) => setTempEpisodeNumber(parseInt(e.target.value) || 1)}
                           min="1"
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                          disabled={isPublicMode}
+                          disabled={readOnly}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') handleSaveEpisodeNumber();
                             if (e.key === 'Escape') handleCancelEpisodeNumber();
@@ -1476,7 +1485,7 @@ export default function EpisodeDetail({
                   <div className="flex space-x-2">
                     <button
                       onClick={handleSaveEpisodeNumber}
-                      disabled={isPublicMode}
+                      disabled={readOnly}
                       className="px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm disabled:bg-gray-300 disabled:cursor-not-allowed"
                     >
                       <Save className="w-4 h-4 inline mr-1" />
@@ -1493,15 +1502,15 @@ export default function EpisodeDetail({
               ) : (
                 <div
                   className="cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition-colors"
-                  onClick={() => !isPublicMode && setEditingEpisodeNumber(true)}
-                  title={isPublicMode ? undefined : "Click to edit sequence number"}
+                  onClick={() => !readOnly && setEditingEpisodeNumber(true)}
+                  title={readOnly ? undefined : "Click to edit sequence number"}
                 >
                   <div className="flex items-center space-x-2">
                     <span className="text-sm font-medium text-gray-700">Current:</span>
                     <span className="text-lg font-semibold text-gray-900">
                       {localEpisode.episodeNumber === 'intro' ? 'Intro' : `Episode ${localEpisode.episodeNumber}`}
                     </span>
-                    {!isPublicMode && (
+                    {!readOnly && (
                       <Edit3 className="w-4 h-4 text-gray-400" />
                     )}
                   </div>
@@ -1539,7 +1548,7 @@ export default function EpisodeDetail({
                     };
                     updateEpisodeAndSave(updatedEpisode);
                   }}
-                  disabled={isPublicMode}
+                  disabled={readOnly}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-100"
                 >
                   <option value="">No theme selected</option>
@@ -1826,17 +1835,19 @@ export default function EpisodeDetail({
 
         {activeTab === 'screenwriting' && (
           <div className="bg-white md:rounded-lg md:shadow-sm h-full flex flex-col">
-            {/* Mobile Auto-Create Button */}
-            <div className="md:hidden p-4 border-b border-gray-200">
-              <button
-                onClick={() => setShowScreenplayDialog(true)}
-                className="w-full px-4 py-2 rounded-md text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 flex items-center justify-center gap-2"
-                title="Auto-Create Screenplay with AI"
-              >
-                <Wand2 className="w-4 h-4" />
-                <span>Auto-Create Screenplay</span>
-              </button>
-            </div>
+            {/* Mobile Auto-Create Button - Hidden if user only has episode access */}
+            {!hasOnlyEpisodeAccess && (
+              <div className="md:hidden p-4 border-b border-gray-200">
+                <button
+                  onClick={() => setShowScreenplayDialog(true)}
+                  className="w-full px-4 py-2 rounded-md text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 flex items-center justify-center gap-2"
+                  title="Auto-Create Screenplay with AI"
+                >
+                  <Wand2 className="w-4 h-4" />
+                  <span>Auto-Create Screenplay</span>
+                </button>
+              </div>
+            )}
             <div className="flex-1 overflow-auto">
               <ScreenplayEditor
                 key={`screenplay-${localEpisode.screenplayData?.elements?.length || 0}-${localEpisode.screenplayData?.elements?.[0]?.id || 'empty'}-${localEpisode.screenplayData?.elements?.[0]?.content?.substring(0, 20) || ''}`}

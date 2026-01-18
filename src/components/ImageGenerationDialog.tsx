@@ -4260,65 +4260,65 @@ export function ImageGenerationDialog({
                       <div className="mt-1 px-1 space-y-0.5">
                         {editingVideoCost?.id === vid.id ? (
                           <div className="flex flex-col gap-1">
-                            <div className="flex items-center gap-1">
-                              <span className="text-xs font-medium text-gray-700">Cost: $</span>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={editingVideoCost.cost}
-                                onChange={(e) => {
-                                  const value = parseFloat(e.target.value) || 0;
-                                  setEditingVideoCost({ id: vid.id, cost: value });
-                                }}
-                                onBlur={() => {
-                                  if (editingVideoCost) {
-                                    setUploadedVideos(prev => prev.map(v => 
-                                      v.id === vid.id ? { ...v, manualCost: editingVideoCost.cost } : v
-                                    ));
-                                    setEditingVideoCost(null);
-                                  }
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    if (editingVideoCost) {
-                                      setUploadedVideos(prev => prev.map(v => 
-                                        v.id === vid.id ? { ...v, manualCost: editingVideoCost.cost } : v
-                                      ));
-                                      setEditingVideoCost(null);
-                                    }
-                                  } else if (e.key === 'Escape') {
-                                    setEditingVideoCost(null);
-                                  }
-                                }}
-                                className="w-16 px-1 py-0.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                                autoFocus
-                              />
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (editingVideoCost) {
-                                    setUploadedVideos(prev => prev.map(v => 
-                                      v.id === vid.id ? { ...v, manualCost: editingVideoCost.cost } : v
-                                    ));
-                                    setEditingVideoCost(null);
-                                  }
-                                }}
-                                className="text-green-600 hover:text-green-800"
-                                title="Save cost"
-                              >
-                                <Check className="w-3 h-3" />
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs font-medium text-gray-700">Cost: $</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={editingVideoCost.cost}
+                              onChange={(e) => {
+                                const value = parseFloat(e.target.value) || 0;
+                                setEditingVideoCost({ id: vid.id, cost: value });
+                              }}
+                              onBlur={() => {
+                                if (editingVideoCost) {
+                                  setUploadedVideos(prev => prev.map(v => 
+                                    v.id === vid.id ? { ...v, manualCost: editingVideoCost.cost } : v
+                                  ));
                                   setEditingVideoCost(null);
-                                }}
-                                className="text-red-600 hover:text-red-800"
-                                title="Cancel"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
+                                }
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  if (editingVideoCost) {
+                                    setUploadedVideos(prev => prev.map(v => 
+                                      v.id === vid.id ? { ...v, manualCost: editingVideoCost.cost } : v
+                                    ));
+                                    setEditingVideoCost(null);
+                                  }
+                                } else if (e.key === 'Escape') {
+                                  setEditingVideoCost(null);
+                                }
+                              }}
+                              className="w-16 px-1 py-0.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                              autoFocus
+                            />
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (editingVideoCost) {
+                                  setUploadedVideos(prev => prev.map(v => 
+                                    v.id === vid.id ? { ...v, manualCost: editingVideoCost.cost } : v
+                                  ));
+                                  setEditingVideoCost(null);
+                                }
+                              }}
+                              className="text-green-600 hover:text-green-800"
+                              title="Save cost"
+                            >
+                              <Check className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingVideoCost(null);
+                              }}
+                              className="text-red-600 hover:text-red-800"
+                              title="Cancel"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
                             </div>
                           </div>
                         ) : editingVideoModel?.id === vid.id ? (
@@ -4388,21 +4388,21 @@ export function ImageGenerationDialog({
                           </div>
                         ) : (
                           <div className="flex flex-col gap-1">
-                            <div className="flex items-center gap-1">
-                              <div className="text-xs font-semibold text-blue-700">
-                                <span className="font-medium">Cost:</span>{' '}
-                                ${(vid.manualCost || 0).toFixed(2)}
-                              </div>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setEditingVideoCost({ id: vid.id, cost: vid.manualCost || 0 });
-                                }}
-                                className="text-gray-500 hover:text-gray-700"
-                                title="Edit cost"
-                              >
-                                <Edit3 className="w-3 h-3" />
-                              </button>
+                          <div className="flex items-center gap-1">
+                            <div className="text-xs font-semibold text-blue-700">
+                              <span className="font-medium">Cost:</span>{' '}
+                              ${(vid.manualCost || 0).toFixed(2)}
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingVideoCost({ id: vid.id, cost: vid.manualCost || 0 });
+                              }}
+                              className="text-gray-500 hover:text-gray-700"
+                              title="Edit cost"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                            </button>
                             </div>
                             <div className="flex items-center gap-1">
                               <span className="text-xs font-medium text-gray-700">Model:</span>
@@ -7002,26 +7002,26 @@ export function ImageGenerationDialog({
                 
                 return (
                   <>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (uploadedImg) {
-                          handleToggleMain(`uploaded-image-${uploadedImg.id}`);
-                        } else if (generatedImg) {
-                          handleToggleMain(generatedImg.id);
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (uploadedImg) {
+                      handleToggleMain(`uploaded-image-${uploadedImg.id}`);
+                    } else if (generatedImg) {
+                      handleToggleMain(generatedImg.id);
                         } else if (isReferenceImage) {
                           handleToggleMain('referenceImage');
                         } else if (isStartFrame) {
                           handleToggleMain('startFrame');
                         } else if (isEndFrame) {
                           handleToggleMain('endFrame');
-                        }
-                        setEnlargedContent(null);
-                      }}
+                    }
+                    setEnlargedContent(null);
+                  }}
                       className="px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-sm"
-                    >
+                >
                       Main
-                    </button>
+                </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();

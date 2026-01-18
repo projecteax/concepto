@@ -2,6 +2,7 @@ import {
   collection, 
   doc, 
   addDoc, 
+  setDoc,
   updateDoc, 
   deleteDoc, 
   getDocs, 
@@ -11,7 +12,7 @@ import {
   Timestamp 
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { Show, GlobalAsset, Episode, AssetConcept, EpisodeIdea, GeneralIdea, PlotTheme } from '@/types';
+import { Show, GlobalAsset, Episode, AssetConcept, EpisodeIdea, GeneralIdea, PlotTheme, UserProfile, ShowAccess, EpisodeAccess, PermissionRole } from '@/types';
 
 // Shows
 export const showService = {
@@ -245,6 +246,63 @@ export const episodeService = {
     
     const docSnap = await getDoc(docRef);
     return { id: docRef.id, ...docSnap.data() } as Episode;
+  },
+
+  async getAll(): Promise<Episode[]> {
+    try {
+      const querySnapshot = await getDocs(collection(db, 'episodes'));
+      const episodes = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+
+        const convertTimestamps = (obj: unknown): unknown => {
+          if (obj === null || obj === undefined) return obj;
+          if (Array.isArray(obj)) {
+            return obj.map(convertTimestamps);
+          }
+          if (typeof obj === 'object' && obj !== null && 'toDate' in obj && typeof (obj as {toDate: () => Date}).toDate === 'function') {
+            return (obj as {toDate: () => Date}).toDate();
+          }
+          if (typeof obj === 'object' && obj !== null) {
+            const converted: Record<string, unknown> = {};
+            for (const [key, value] of Object.entries(obj)) {
+              if (value && typeof value === 'object' && 'toDate' in value && typeof (value as {toDate: () => Date}).toDate === 'function') {
+                converted[key] = (value as {toDate: () => Date}).toDate();
+              } else {
+                converted[key] = convertTimestamps(value);
+              }
+            }
+            return converted;
+          }
+          return obj;
+        };
+
+        const safeToDate = (timestamp: unknown): Date => {
+          if (!timestamp) return new Date();
+          if (timestamp instanceof Date) return timestamp;
+          if (timestamp && typeof timestamp === 'object' && 'toDate' in timestamp && typeof (timestamp as {toDate: () => Date}).toDate === 'function') {
+            return (timestamp as {toDate: () => Date}).toDate();
+          }
+          if (typeof timestamp === 'string' || typeof timestamp === 'number') {
+            const date = new Date(timestamp);
+            return isNaN(date.getTime()) ? new Date() : date;
+          }
+          return new Date();
+        };
+
+        return {
+          id: doc.id,
+          ...data,
+          scenes: convertTimestamps(data.scenes) || [],
+          createdAt: safeToDate(data.createdAt),
+          updatedAt: safeToDate(data.updatedAt),
+        } as Episode;
+      });
+
+      return episodes;
+    } catch (error) {
+      console.error('Error fetching episodes:', error);
+      return [];
+    }
   },
 
   async getByShow(showId: string): Promise<Episode[]> {
@@ -832,5 +890,306 @@ export const plotThemeService = {
 
   async delete(id: string): Promise<void> {
     await deleteDoc(doc(db, 'plotThemes', id));
+  }
+};
+
+// Users
+const safeToDate = (timestamp: unknown): Date => {
+  if (!timestamp) return new Date();
+  if (timestamp instanceof Date) return timestamp;
+  if (timestamp && typeof timestamp === 'object' && 'toDate' in timestamp && typeof (timestamp as {toDate: () => Date}).toDate === 'function') {
+    return (timestamp as {toDate: () => Date}).toDate();
+  }
+  if (typeof timestamp === 'string' || typeof timestamp === 'number') {
+    const date = new Date(timestamp);
+    return isNaN(date.getTime()) ? new Date() : date;
+  }
+  return new Date();
+};
+
+export const userService = {
+  async createOrUpdateProfile(profile: UserProfile): Promise<void> {
+    await setDoc(doc(db, 'users', profile.id), {
+      username: profile.username,
+      name: profile.name,
+      email: profile.email,
+      role: profile.role,
+      createdAt: Timestamp.fromDate(profile.createdAt),
+      updatedAt: Timestamp.fromDate(profile.updatedAt),
+    }, { merge: true });
+  },
+
+  async getProfile(userId: string): Promise<UserProfile | null> {
+    const docSnap = await getDoc(doc(db, 'users', userId));
+    if (!docSnap.exists()) {
+      return null;
+    }
+    const data = docSnap.data();
+    return {
+      id: docSnap.id,
+      username: data.username,
+      name: data.name,
+      email: data.email,
+      role: data.role,
+      createdAt: safeToDate(data.createdAt),
+      updatedAt: safeToDate(data.updatedAt),
+    } as UserProfile;
+  },
+
+  async getByUsername(username: string): Promise<UserProfile | null> {
+    const q = query(collection(db, 'users'), where('username', '==', username));
+    const snapshot = await getDocs(q);
+    if (snapshot.empty) {
+      return null;
+    }
+    const docSnap = snapshot.docs[0];
+    const data = docSnap.data();
+    return {
+      id: docSnap.id,
+      username: data.username,
+      name: data.name,
+      email: data.email,
+      role: data.role,
+      createdAt: safeToDate(data.createdAt),
+      updatedAt: safeToDate(data.updatedAt),
+    } as UserProfile;
+  },
+
+  async getAll(): Promise<UserProfile[]> {
+    const snapshot = await getDocs(collection(db, 'users'));
+    return snapshot.docs.map(docSnap => {
+      const data = docSnap.data();
+      return {
+        id: docSnap.id,
+        username: data.username,
+        name: data.name,
+        email: data.email,
+        role: data.role,
+        createdAt: safeToDate(data.createdAt),
+        updatedAt: safeToDate(data.updatedAt),
+      } as UserProfile;
+    });
+  },
+
+  async updateRole(userId: string, role: UserProfile['role']): Promise<void> {
+    await updateDoc(doc(db, 'users', userId), {
+      role,
+      updatedAt: Timestamp.now(),
+    });
+  }
+};
+
+// Show access
+export const showAccessService = {
+  async getAll(): Promise<ShowAccess[]> {
+    const snapshot = await getDocs(collection(db, 'showAccess'));
+    return snapshot.docs.map(docSnap => {
+      const data = docSnap.data();
+      return {
+        id: docSnap.id,
+        showId: data.showId,
+        userId: data.userId,
+        role: data.role as PermissionRole,
+        createdAt: safeToDate(data.createdAt),
+        updatedAt: safeToDate(data.updatedAt),
+      } as ShowAccess;
+    });
+  },
+
+  async getByUser(userId: string): Promise<ShowAccess[]> {
+    const q = query(collection(db, 'showAccess'), where('userId', '==', userId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(docSnap => {
+      const data = docSnap.data();
+      return {
+        id: docSnap.id,
+        showId: data.showId,
+        userId: data.userId,
+        role: data.role as PermissionRole,
+        createdAt: safeToDate(data.createdAt),
+        updatedAt: safeToDate(data.updatedAt),
+      } as ShowAccess;
+    });
+  },
+
+  async getByShow(showId: string): Promise<ShowAccess[]> {
+    const q = query(collection(db, 'showAccess'), where('showId', '==', showId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(docSnap => {
+      const data = docSnap.data();
+      return {
+        id: docSnap.id,
+        showId: data.showId,
+        userId: data.userId,
+        role: data.role as PermissionRole,
+        createdAt: safeToDate(data.createdAt),
+        updatedAt: safeToDate(data.updatedAt),
+      } as ShowAccess;
+    });
+  },
+
+  async setAccess(showId: string, userId: string, role: PermissionRole): Promise<ShowAccess> {
+    const q = query(
+      collection(db, 'showAccess'),
+      where('showId', '==', showId),
+      where('userId', '==', userId),
+    );
+    const snapshot = await getDocs(q);
+    if (!snapshot.empty) {
+      const docSnap = snapshot.docs[0];
+      await updateDoc(doc(db, 'showAccess', docSnap.id), {
+        role,
+        updatedAt: Timestamp.now(),
+      });
+      const data = docSnap.data();
+      return {
+        id: docSnap.id,
+        showId,
+        userId,
+        role,
+        createdAt: safeToDate(data.createdAt),
+        updatedAt: new Date(),
+      };
+    }
+    const docRef = await addDoc(collection(db, 'showAccess'), {
+      showId,
+      userId,
+      role,
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+    const docSnap = await getDoc(docRef);
+    const data = docSnap.data() || {};
+    return {
+      id: docRef.id,
+      showId,
+      userId,
+      role,
+      createdAt: safeToDate(data.createdAt),
+      updatedAt: safeToDate(data.updatedAt),
+    } as ShowAccess;
+  },
+
+  async removeAccess(accessId: string): Promise<void> {
+    await deleteDoc(doc(db, 'showAccess', accessId));
+  }
+};
+
+// Episode access
+export const episodeAccessService = {
+  async getAll(): Promise<EpisodeAccess[]> {
+    const snapshot = await getDocs(collection(db, 'episodeAccess'));
+    return snapshot.docs.map(docSnap => {
+      const data = docSnap.data();
+      return {
+        id: docSnap.id,
+        showId: data.showId,
+        episodeId: data.episodeId,
+        userId: data.userId,
+        role: data.role as PermissionRole,
+        createdAt: safeToDate(data.createdAt),
+        updatedAt: safeToDate(data.updatedAt),
+      } as EpisodeAccess;
+    });
+  },
+
+  async getByUser(userId: string): Promise<EpisodeAccess[]> {
+    const q = query(collection(db, 'episodeAccess'), where('userId', '==', userId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(docSnap => {
+      const data = docSnap.data();
+      return {
+        id: docSnap.id,
+        showId: data.showId,
+        episodeId: data.episodeId,
+        userId: data.userId,
+        role: data.role as PermissionRole,
+        createdAt: safeToDate(data.createdAt),
+        updatedAt: safeToDate(data.updatedAt),
+      } as EpisodeAccess;
+    });
+  },
+
+  async getByShow(showId: string): Promise<EpisodeAccess[]> {
+    const q = query(collection(db, 'episodeAccess'), where('showId', '==', showId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(docSnap => {
+      const data = docSnap.data();
+      return {
+        id: docSnap.id,
+        showId: data.showId,
+        episodeId: data.episodeId,
+        userId: data.userId,
+        role: data.role as PermissionRole,
+        createdAt: safeToDate(data.createdAt),
+        updatedAt: safeToDate(data.updatedAt),
+      } as EpisodeAccess;
+    });
+  },
+
+  async getByEpisode(episodeId: string): Promise<EpisodeAccess[]> {
+    const q = query(collection(db, 'episodeAccess'), where('episodeId', '==', episodeId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(docSnap => {
+      const data = docSnap.data();
+      return {
+        id: docSnap.id,
+        showId: data.showId,
+        episodeId: data.episodeId,
+        userId: data.userId,
+        role: data.role as PermissionRole,
+        createdAt: safeToDate(data.createdAt),
+        updatedAt: safeToDate(data.updatedAt),
+      } as EpisodeAccess;
+    });
+  },
+
+  async setAccess(showId: string, episodeId: string, userId: string, role: PermissionRole): Promise<EpisodeAccess> {
+    const q = query(
+      collection(db, 'episodeAccess'),
+      where('episodeId', '==', episodeId),
+      where('userId', '==', userId),
+    );
+    const snapshot = await getDocs(q);
+    if (!snapshot.empty) {
+      const docSnap = snapshot.docs[0];
+      await updateDoc(doc(db, 'episodeAccess', docSnap.id), {
+        role,
+        updatedAt: Timestamp.now(),
+      });
+      const data = docSnap.data();
+      return {
+        id: docSnap.id,
+        showId,
+        episodeId,
+        userId,
+        role,
+        createdAt: safeToDate(data.createdAt),
+        updatedAt: new Date(),
+      };
+    }
+    const docRef = await addDoc(collection(db, 'episodeAccess'), {
+      showId,
+      episodeId,
+      userId,
+      role,
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+    const docSnap = await getDoc(docRef);
+    const data = docSnap.data() || {};
+    return {
+      id: docRef.id,
+      showId,
+      episodeId,
+      userId,
+      role,
+      createdAt: safeToDate(data.createdAt),
+      updatedAt: safeToDate(data.updatedAt),
+    } as EpisodeAccess;
+  },
+
+  async removeAccess(accessId: string): Promise<void> {
+    await deleteDoc(doc(db, 'episodeAccess', accessId));
   }
 };

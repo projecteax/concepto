@@ -24,6 +24,7 @@ interface PlotThemesProps {
   onAddTheme: (themeData: Omit<PlotTheme, 'id' | 'createdAt' | 'updatedAt'>) => void;
   onEditTheme: (theme: PlotTheme) => void;
   onDeleteTheme: (themeId: string) => void;
+  isReadOnly?: boolean;
 }
 
 export function PlotThemes({
@@ -32,8 +33,10 @@ export function PlotThemes({
   onBack,
   onAddTheme,
   onEditTheme,
-  onDeleteTheme
+  onDeleteTheme,
+  isReadOnly = false,
 }: PlotThemesProps) {
+  const readOnly = isReadOnly;
   const basePath = useBasePath();
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
@@ -168,16 +171,18 @@ export function PlotThemes({
         ]}
         subtitle="Reusable themes across episodes"
         actions={
-          <button
-            onClick={() => {
-              resetForm();
-              setShowAddForm(true);
-            }}
-            className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            <span>New Theme</span>
-          </button>
+          !readOnly ? (
+            <button
+              onClick={() => {
+                resetForm();
+                setShowAddForm(true);
+              }}
+              className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              <span>New Theme</span>
+            </button>
+          ) : null
         }
       />
 
@@ -206,7 +211,7 @@ export function PlotThemes({
         </div>
 
         {/* Add/Edit Form */}
-        {showAddForm && (
+        {showAddForm && !readOnly && (
           <div className="mb-8 bg-white rounded-lg border border-gray-200 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">
               {editingTheme ? 'Edit Plot Theme' : 'New Plot Theme'}
@@ -361,16 +366,18 @@ export function PlotThemes({
             <BookOpen className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">No Plot Themes Yet</h3>
             <p className="text-gray-600 mb-4">Create your first plot theme to get started</p>
-            <button
-              onClick={() => {
-                resetForm();
-                setShowAddForm(true);
-              }}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Create Theme</span>
-            </button>
+            {!readOnly ? (
+              <button
+                onClick={() => {
+                  resetForm();
+                  setShowAddForm(true);
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Create Theme</span>
+              </button>
+            ) : null}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -381,22 +388,24 @@ export function PlotThemes({
               >
                 <div className="flex items-start justify-between mb-3">
                   <h3 className="text-lg font-semibold text-gray-900 flex-1">{theme.name}</h3>
-                  <div className="flex items-center gap-1 ml-2">
-                    <button
-                      onClick={() => handleStartEdit(theme)}
-                      className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                      title="Edit theme"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => setShowDeleteConfirm(theme)}
-                      className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                      title="Delete theme"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
+                  {!readOnly ? (
+                    <div className="flex items-center gap-1 ml-2">
+                      <button
+                        onClick={() => handleStartEdit(theme)}
+                        className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                        title="Edit theme"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setShowDeleteConfirm(theme)}
+                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Delete theme"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
 
                 {theme.description && (

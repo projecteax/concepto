@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { ScreenplayElement, ScreenplayData, ScreenplayComment, ScreenplayStableVersion } from '@/types';
 import { useS3Upload } from '@/hooks/useS3Upload';
+import { useAuth } from '@/contexts/AuthContext';
 import { TranslationDialog } from './TranslationDialog';
 import { EnhanceDialog } from './EnhanceDialog';
 
@@ -47,6 +48,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   onSave,
   episodeId
 }, ref) => {
+  const { user } = useAuth();
   const [localData, setLocalData] = useState<ScreenplayData>(screenplayData);
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
   const [editingElementId, setEditingElementId] = useState<string | null>(null);
@@ -75,6 +77,8 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   const [enhanceElementId, setEnhanceElementId] = useState<string | null>(null);
   const [originalContent, setOriginalContent] = useState<{ [key: string]: string }>({});
   const [isMobile, setIsMobile] = useState(false);
+  const elementContainerRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
+  const [commentsPanelTop, setCommentsPanelTop] = useState<number>(0);
   
   // Stable versions state
   // Helper to convert createdAt to Date (handles Firestore Timestamp, string, number, or Date)
@@ -890,8 +894,41 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   }, [localData]);
 
   useEffect(() => {
-    if (activeCommentElementId && commentsPanelRef.current) {
-      commentsPanelRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+    if (activeCommentElementId) {
+      // Position comments panel at same level as the commented element
+      const elementContainer = elementContainerRefs.current[activeCommentElementId];
+      if (elementContainer) {
+        const updatePosition = () => {
+          const rect = elementContainer.getBoundingClientRect();
+          const scrollContainer = elementContainer.closest('.flex-1.overflow-auto');
+          if (scrollContainer) {
+            const containerRect = scrollContainer.getBoundingClientRect();
+            // Calculate position relative to scroll container
+            const relativeTop = rect.top - containerRect.top + scrollContainer.scrollTop;
+            setCommentsPanelTop(relativeTop);
+          }
+        };
+        
+        updatePosition();
+        
+        // Scroll element into view gently
+        elementContainer.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'nearest', 
+          inline: 'nearest' 
+        });
+        
+        // Update position after scroll
+        setTimeout(updatePosition, 300);
+        
+        // Update on scroll
+        const handleScroll = () => updatePosition();
+        const scrollContainer = elementContainer.closest('.flex-1.overflow-auto');
+        if (scrollContainer) {
+          scrollContainer.addEventListener('scroll', handleScroll);
+          return () => scrollContainer.removeEventListener('scroll', handleScroll);
+        }
+      }
     }
   }, [activeCommentElementId]);
 
@@ -914,17 +951,37 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
     const comment: ScreenplayComment = {
       id: `cmt-${Date.now()}`,
       createdAt: Date.now(),
+      author: user?.name || user?.username || 'Unknown',
       text: newCommentText.trim(),
       images: imageUrls,
     };
 
-    setLocalData(prev => ({
-      ...prev,
-      elements: prev.elements.map(e => e.id === elementId
-        ? { ...e, comments: [...(e.comments || []), comment] }
-        : e
-      )
-    }));
+    // Find the base element ID (remove en-/pl- prefix if present)
+    const baseId = elementId.replace(/^(en-|pl-)/, '');
+    
+    setLocalData(prev => {
+      // Update both PL and EN elements with the same base ID
+      const updatedPL = prev.elements.map(e => {
+        const eBaseId = e.id.replace(/^(en-|pl-)/, '');
+        return eBaseId === baseId
+          ? { ...e, comments: [...(e.comments || []), comment] }
+          : e;
+      });
+      
+      const updatedEN = (prev.elementsEN || []).map(e => {
+        const eBaseId = e.id.replace(/^(en-|pl-)/, '');
+        return eBaseId === baseId
+          ? { ...e, comments: [...(e.comments || []), comment] }
+          : e;
+      });
+      
+      return {
+        ...prev,
+        elements: updatedPL,
+        elementsEN: updatedEN,
+      };
+    });
+    
     setNewCommentText('');
   };
 
@@ -935,13 +992,33 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   const confirmDeleteCommentAction = () => {
     if (!confirmDeleteComment) return;
     const { elementId, commentId } = confirmDeleteComment;
-    setLocalData(prev => ({
-      ...prev,
-      elements: prev.elements.map(e => e.id === elementId
-        ? { ...e, comments: (e.comments || []).filter(c => c.id !== commentId) }
-        : e
-      )
-    }));
+    
+    // Find the base element ID (remove en-/pl- prefix if present)
+    const baseId = elementId.replace(/^(en-|pl-)/, '');
+    
+    setLocalData(prev => {
+      // Update both PL and EN elements with the same base ID
+      const updatedPL = prev.elements.map(e => {
+        const eBaseId = e.id.replace(/^(en-|pl-)/, '');
+        return eBaseId === baseId
+          ? { ...e, comments: (e.comments || []).filter(c => c.id !== commentId) }
+          : e;
+      });
+      
+      const updatedEN = (prev.elementsEN || []).map(e => {
+        const eBaseId = e.id.replace(/^(en-|pl-)/, '');
+        return eBaseId === baseId
+          ? { ...e, comments: (e.comments || []).filter(c => c.id !== commentId) }
+          : e;
+      });
+      
+      return {
+        ...prev,
+        elements: updatedPL,
+        elementsEN: updatedEN,
+      };
+    });
+    
     setConfirmDeleteComment(null);
   };
 
@@ -1582,6 +1659,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
       <div key={element.id}>
         
         <div
+          ref={(el) => { elementContainerRefs.current[element.id] = el; }}
           className={`relative group mb-2 ${isEditing ? 'ring-2 ring-blue-500 rounded-lg' : ''} ${
             isEdited ? 'ring-2 ring-yellow-400 bg-yellow-50 rounded-lg' : ''
           } ${
@@ -1825,7 +1903,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
       `}</style>
       <div className="h-full flex flex-col bg-white screenplay-editor" style={{ direction: 'ltr', unicodeBidi: 'embed' }} dir="ltr">
         {/* Editor with left sidebar */}
-        <div className="flex-1 bg-gray-100 p-4 sm:p-6 flex flex-col lg:flex-row">
+        <div className="flex-1 bg-gray-100 p-4 sm:p-6 flex flex-col lg:flex-row relative">
           {!isPreviewMode && (
             <div className="mb-4 lg:mb-0 lg:w-16 lg:mr-6 lg:sticky top-4 self-start">
               <div className="flex flex-row items-center gap-3 overflow-x-auto pb-2 lg:pb-0 lg:flex-col lg:items-center lg:gap-3">
@@ -1935,7 +2013,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
             </div>
           )}
 
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 overflow-auto relative">
             <div className={`${isMobile ? 'w-full px-[5px]' : 'max-w-4xl mx-auto'}`}>
           <div
             ref={editorRef}
@@ -2154,39 +2232,14 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
             </div>
           )}
 
-          {/* Restore Version Confirmation Dialog */}
-          {versionToRestore && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg max-w-md w-full mx-4 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Restore Stable Version</h3>
-                <p className="text-gray-600 mb-6">
-                  Are you sure you want to restore &quot;{versionToRestore.name}&quot;? This will override your current screenplay state.
-                </p>
-                <div className="flex space-x-3">
-                  <button
-                    onClick={handleRestoreVersion}
-                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    Restore
-                  </button>
-                  <button
-                    onClick={() => setVersionToRestore(null)}
-                    className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Right comments panel */}
+          {/* Comments Panel - Right side, positioned at same level as commented element (Google Docs style) */}
           {!isPreviewMode && activeCommentElementId && (
             <div
               ref={commentsPanelRef}
-              className="w-full mt-4 lg:mt-0 lg:w-80 lg:ml-6 lg:sticky top-4 self-start bg-white border border-gray-200 rounded-lg shadow-sm p-3 h-fit max-h-[80vh] overflow-auto"
+              className="hidden lg:block w-full mt-4 lg:mt-0 lg:w-80 lg:ml-6 lg:absolute bg-white border border-gray-200 rounded-lg shadow-lg h-fit max-h-[80vh] overflow-auto z-10"
+              style={{ top: `${commentsPanelTop}px`, right: '1.5rem' }}
             >
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between p-3 border-b border-gray-200 bg-gray-50">
                 <h4 className="font-medium text-gray-800 text-sm">Comments</h4>
                 <button
                   className="text-gray-500 hover:text-gray-700 text-xs"
@@ -2195,10 +2248,17 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                   Close
                 </button>
               </div>
-              <div className="space-y-3 mb-3">
+              <div className="p-3 space-y-3 max-h-[60vh] overflow-y-auto">
                 {(getCurrentElements().find(e => e.id === activeCommentElementId)?.comments || []).map((c) => (
-                  <div key={c.id} className="border border-gray-200 rounded p-2">
-                    <div className="text-xs text-gray-500 mb-1">{new Date(c.createdAt).toLocaleString()}</div>
+                  <div key={c.id} className="border border-gray-200 rounded p-2 bg-white">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="text-xs font-medium text-gray-700">
+                        {c.author || 'Unknown'}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {new Date(c.createdAt).toLocaleString()}
+                      </div>
+                    </div>
                     <div className="flex items-start justify-between gap-2">
                       <div className="text-sm text-gray-900 whitespace-pre-wrap flex-1">{c.text}</div>
                       <button
@@ -2226,30 +2286,62 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
               </div>
 
               {/* Add comment */}
-              <div className="border-t pt-2">
+              <div className="border-t border-gray-200 p-3 bg-gray-50">
                 <textarea
                   value={newCommentText}
                   onChange={(e) => setNewCommentText(e.target.value)}
-                  placeholder="Add a note..."
+                  placeholder="Add a comment..."
                   rows={3}
-                  className="w-full text-sm border rounded p-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full text-sm border border-gray-300 rounded p-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
                 />
                 <div className="flex items-center justify-between mt-2">
-                  <label className="text-xs text-gray-600 cursor-pointer">
+                  <label className="text-xs text-gray-600 cursor-pointer hover:text-gray-800">
                     <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => addCommentToElement(activeCommentElementId!, e.target.files)} />
                     Attach images
                   </label>
                   <button
                     disabled={isUploading || newCommentText.trim().length === 0}
                     onClick={() => addCommentToElement(activeCommentElementId!)}
-                    className={`px-3 py-1.5 rounded text-xs font-medium ${isUploading || newCommentText.trim().length === 0 ? 'bg-gray-200 text-gray-500' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                    className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+                      isUploading || newCommentText.trim().length === 0
+                        ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                        : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                    }`}
                   >
-                    {isUploading ? 'Uploading...' : 'Add Comment'}
+                    {isUploading ? 'Uploading...' : 'Comment'}
                   </button>
                 </div>
               </div>
             </div>
           )}
+
+          {/* Restore Version Confirmation Dialog */}
+          {versionToRestore && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg max-w-md w-full mx-4 p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Restore Stable Version</h3>
+                <p className="text-gray-600 mb-6">
+                  Are you sure you want to restore &quot;{versionToRestore.name}&quot;? This will override your current screenplay state.
+                </p>
+                <div className="flex space-x-3">
+                  <button
+                    onClick={handleRestoreVersion}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Restore
+                  </button>
+                  <button
+                    onClick={() => setVersionToRestore(null)}
+                    className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+
       </div>
     </div>
       

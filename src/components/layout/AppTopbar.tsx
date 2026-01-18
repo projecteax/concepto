@@ -2,9 +2,18 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { LogOut, User as UserIcon } from 'lucide-react';
+import { LogOut, User as UserIcon, Settings, Users, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 type AppTopbarProps = {
   mode: 'app' | 'public';
@@ -12,7 +21,8 @@ type AppTopbarProps = {
 };
 
 export function AppTopbar({ mode, title }: AppTopbarProps) {
-  const { user, logout } = useAuth();
+  const { user, logout, clearAuth } = useAuth();
+  const router = useRouter();
 
   return (
     <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -58,15 +68,55 @@ export function AppTopbar({ mode, title }: AppTopbarProps) {
           ) : (
             <>
               {user ? (
-                <div className="hidden sm:flex h-10 items-center gap-2 rounded-md border bg-card px-3">
-                  <div className="h-7 w-7 rounded-full bg-primary/10 text-primary grid place-items-center">
-                    <UserIcon className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0 truncate text-sm font-medium">
-                    <span className="truncate">{user.name}</span>
-                    <span className="ml-2 text-xs font-normal text-muted-foreground">@{user.username}</span>
-                  </div>
-                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="hidden sm:flex h-10 items-center gap-2 rounded-md border bg-card px-3 hover:bg-accent transition-colors cursor-pointer">
+                      <div className="h-7 w-7 rounded-full bg-primary/10 text-primary grid place-items-center">
+                        <UserIcon className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0 truncate text-sm font-medium">
+                        <span className="truncate">{user.name}</span>
+                        <span className="ml-2 text-xs font-normal text-muted-foreground">@{user.username}</span>
+                      </div>
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuLabel>My Account</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => router.push('/settings')}>
+                      <Settings className="w-4 h-4 mr-2" />
+                      My Settings
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => router.push('/collaboration')}>
+                      <Users className="w-4 h-4 mr-2" />
+                      Collaboration
+                    </DropdownMenuItem>
+                    {user.role === 'admin' && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => router.push('/admin')}>
+                          <Shield className="w-4 h-4 mr-2" />
+                          Admin Panel
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={clearAuth}
+                      className="text-red-600 focus:text-red-600 focus:bg-red-50"
+                    >
+                      <LogOut className="w-4 h-4 mr-2" />
+                      Clear All & Logout
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={logout}
+                      className="text-gray-600"
+                    >
+                      <LogOut className="w-4 h-4 mr-2" />
+                      Logout
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               ) : null}
 
               <Button

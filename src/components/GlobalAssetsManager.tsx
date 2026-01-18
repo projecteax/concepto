@@ -29,6 +29,7 @@ interface GlobalAssetsManagerProps {
   onEditAsset: (asset: GlobalAsset) => void;
   onDeleteAsset: (assetId: string) => void;
   onToggleMainCharacter?: (characterId: string, isMain: boolean) => void | Promise<void>;
+  isReadOnly?: boolean;
 }
 
 const categoryIcons = {
@@ -59,8 +60,10 @@ export function GlobalAssetsManager({
   onAddAsset,
   onEditAsset,
   onDeleteAsset,
-  onToggleMainCharacter
+  onToggleMainCharacter,
+  isReadOnly = false,
 }: GlobalAssetsManagerProps) {
+  const readOnly = isReadOnly;
   const basePath = useBasePath();
   const [showAddForm, setShowAddForm] = useState(false);
   const [newAssetName, setNewAssetName] = useState('');
@@ -133,13 +136,15 @@ export function GlobalAssetsManager({
         ]}
         subtitle="Global assets for this show"
         actions={
-          <button
-            onClick={() => setShowAddForm(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Asset</span>
-          </button>
+          !readOnly ? (
+            <button
+              onClick={() => setShowAddForm(true)}
+              className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Asset</span>
+            </button>
+          ) : null
         }
       />
 
@@ -285,7 +290,7 @@ export function GlobalAssetsManager({
                     <div className="p-4 sm:p-6">
                       <div className="relative mb-3 sm:mb-4">
                         {/* Star (top-left) */}
-                        {asset.category === 'character' ? (
+                        {asset.category === 'character' && !readOnly ? (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -306,28 +311,30 @@ export function GlobalAssetsManager({
                         ) : null}
 
                         {/* Actions (top-right, do not affect centering) */}
-                        <div className="absolute right-0 top-0 flex space-x-1">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onEditAsset(asset);
-                            }}
-                            className="p-1 text-gray-400 hover:text-gray-600"
-                            title="Edit asset"
-                          >
-                            <Edit3 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onDeleteAsset(asset.id);
-                            }}
-                            className="p-1 text-gray-400 hover:text-red-600"
-                            title="Delete asset"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+                        {!readOnly ? (
+                          <div className="absolute right-0 top-0 flex space-x-1">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onEditAsset(asset);
+                              }}
+                              className="p-1 text-gray-400 hover:text-gray-600"
+                              title="Edit asset"
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDeleteAsset(asset.id);
+                              }}
+                              className="p-1 text-gray-400 hover:text-red-600"
+                              title="Delete asset"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ) : null}
 
                         {/* Centered header */}
                         <div className="flex flex-col items-center text-center">

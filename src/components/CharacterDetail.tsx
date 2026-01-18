@@ -47,6 +47,7 @@ interface CharacterDetailProps {
   onAddConcept: (concept: Omit<AssetConcept, 'id' | 'createdAt' | 'updatedAt'>) => void;
   onDeleteConcept: (conceptId: string) => void;
   globalAssets?: GlobalAsset[]; // For image generation context
+  isReadOnly?: boolean;
 }
 
 export function CharacterDetail({

@@ -17,6 +17,8 @@ interface ShowSelectionProps {
   onEditShow: (show: Show) => void;
   onDeleteShow: (showId: string) => void;
   onArchiveShow: (showId: string, archived: boolean) => void;
+  canEditShow?: (show: Show) => boolean;
+  canCreateShow?: boolean;
 }
 
 export function ShowSelection({
@@ -25,7 +27,9 @@ export function ShowSelection({
   onAddShow,
   onEditShow,
   onDeleteShow,
-  onArchiveShow
+  onArchiveShow,
+  canEditShow = () => true,
+  canCreateShow = true,
 }: ShowSelectionProps) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newShowName, setNewShowName] = useState('');
@@ -78,7 +82,7 @@ export function ShowSelection({
               <h2 className="text-2xl font-semibold tracking-tight">Your Shows</h2>
               <p className="text-sm text-muted-foreground">Pick a show to continue working.</p>
             </div>
-            {activeTab === 'active' && (
+            {activeTab === 'active' && canCreateShow && (
               <Button onClick={() => setShowAddForm(true)} className="gap-2">
                 <Plus className="w-4 h-4" />
                 <span>Add New Show</span>
@@ -145,31 +149,33 @@ export function ShowSelection({
                       </div>
                       <div className="text-xs text-muted-foreground mt-0.5">Created {formatDate(show.createdAt)}</div>
                     </div>
-                    <div className="flex space-x-1">
-                      <button
-                        onClick={() => onArchiveShow(show.id, !show.archived)}
-                        className="p-1 text-gray-400 hover:text-gray-600"
-                        title={show.archived ? 'Unarchive' : 'Archive'}
-                      >
-                        {show.archived ? (
-                          <ArchiveRestore className="w-4 h-4" />
-                        ) : (
-                          <Archive className="w-4 h-4" />
-                        )}
-                      </button>
-                      <button
-                        onClick={() => onEditShow(show)}
-                        className="p-1 text-gray-400 hover:text-gray-600"
-                      >
-                        <Edit3 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => onDeleteShow(show.id)}
-                        className="p-1 text-gray-400 hover:text-red-600"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                    {canEditShow(show) ? (
+                      <div className="flex space-x-1">
+                        <button
+                          onClick={() => onArchiveShow(show.id, !show.archived)}
+                          className="p-1 text-gray-400 hover:text-gray-600"
+                          title={show.archived ? 'Unarchive' : 'Archive'}
+                        >
+                          {show.archived ? (
+                            <ArchiveRestore className="w-4 h-4" />
+                          ) : (
+                            <Archive className="w-4 h-4" />
+                          )}
+                        </button>
+                        <button
+                          onClick={() => onEditShow(show)}
+                          className="p-1 text-gray-400 hover:text-gray-600"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => onDeleteShow(show.id)}
+                          className="p-1 text-gray-400 hover:text-red-600"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="mb-4">

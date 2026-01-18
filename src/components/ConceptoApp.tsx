@@ -20,6 +20,7 @@ import { PlotThemes } from './PlotThemes';
 import { LoadingPreloader } from './LoadingPreloader';
 import { Show, GlobalAsset, Episode, Character, AssetConcept, EpisodeIdea, GeneralIdea, PlotTheme } from '@/types';
 import { useFirebaseData } from '@/hooks/useFirebaseData';
+import { useAccessControl } from '@/hooks/useAccessControl';
 
 type AppView = 'shows' | 'dashboard' | 'global-assets' | 'asset-detail' | 'character-detail' | 'location-detail' | 'gadget-detail' | 'texture-detail' | 'background-detail' | 'vehicle-detail' | 'episodes' | 'episode-detail' | 'episode-ideas' | 'general-ideas' | 'general-idea-detail' | 'plot-themes';
 
@@ -83,6 +84,19 @@ export function ConceptoApp({
     getLoadedShowId,
   } = useFirebaseData();
 
+  const access = useAccessControl({ shows, episodes });
+  const visibleShows = access.visibleShows;
+  const selectedShowRole = access.getShowAccessRole(selectedShow);
+  const selectedEpisodeRole = access.getEpisodeAccessRole(selectedEpisode, selectedShow);
+  const isShowReadOnly = !access.canEdit(selectedShowRole);
+  const isEpisodeReadOnly = selectedEpisode ? !access.canEdit(selectedEpisodeRole) : isShowReadOnly;
+  const showReadOnly = isPublicMode || isShowReadOnly;
+  const episodeReadOnly = isPublicMode || isEpisodeReadOnly;
+  const canCommentOnShow = access.canComment(selectedShowRole);
+  const canCommentOnEpisode = access.canComment(selectedEpisodeRole);
+  const visibleEpisodes = selectedShow ? access.getVisibleEpisodes(selectedShow) : episodes;
+  const hasOnlyEpisodeLevelAccess = selectedShow ? access.hasOnlyEpisodeLevelAccess(selectedShow) : false;
+
   // Consolidated initialization tracking
   const initializationRef = useRef({
     showId: null as string | null,
@@ -138,7 +152,7 @@ export function ConceptoApp({
   // Single effect to handle all initialization from URL parameters
   useEffect(() => {
     // Wait for shows to be loaded first
-    if (shows.length === 0) {
+    if (visibleShows.length === 0) {
       return;
     }
 
@@ -146,7 +160,7 @@ export function ConceptoApp({
     
     // Initialize show from URL - only once per showId
     if (initialShowId && initialShowId !== init.showId) {
-      const show = shows.find(s => s.id === initialShowId);
+      const show = visibleShows.find(s => s.id === initialShowId);
       if (show && selectedShow?.id !== show.id) {
         console.log('🔄 ConceptoApp: Initializing show from URL', show.id);
         init.showId = initialShowId;
@@ -177,9 +191,13 @@ export function ConceptoApp({
     }
 
     init.hasInitialized = true;
-  }, [initialShowId, initialEpisodeId, initialAssetId, shows.length, episodes.length, globalAssets.length, selectedShow?.id, selectedEpisode?.id, selectedAsset?.id, loadShowDataIfNeeded]);
+  }, [initialShowId, initialEpisodeId, initialAssetId, visibleShows.length, episodes.length, globalAssets.length, selectedShow?.id, selectedEpisode?.id, selectedAsset?.id, loadShowDataIfNeeded]);
 
   const handleSelectShow = (show: Show) => {
+    const role = access.getShowAccessRole(show);
+    if (!access.canView(role)) {
+      return;
+    }
     const basePath = isPublicMode ? '/public' : '/app';
     router.push(`${basePath}/shows/${show.id}`);
   };
@@ -636,12 +654,14 @@ export function ConceptoApp({
     case 'shows':
       return (
         <ShowSelection
-          shows={shows}
+          shows={visibleShows}
           onSelectShow={handleSelectShow}
           onAddShow={isPublicMode ? () => {} : handleAddShow}
           onEditShow={isPublicMode ? () => {} : handleEditShow}
           onDeleteShow={isPublicMode ? () => {} : handleDeleteShow}
           onArchiveShow={isPublicMode ? () => {} : handleArchiveShow}
+          canEditShow={(show) => access.canEdit(access.getShowAccessRole(show))}
+          canCreateShow={!isPublicMode}
         />
       );
 
@@ -650,7 +670,7 @@ export function ConceptoApp({
         <ShowDashboard
           show={selectedShow}
           globalAssets={globalAssets}
-          episodes={episodes}
+          episodes={visibleEpisodes}
           episodeIdeas={episodeIdeas}
           generalIdeas={generalIdeas}
           plotThemes={plotThemes}
@@ -661,10 +681,12 @@ export function ConceptoApp({
           onSelectEpisodeIdeas={handleSelectEpisodeIdeas}
           onSelectGeneralIdeas={handleSelectGeneralIdeas}
           onSelectPlotThemes={handleSelectPlotThemes}
-          onAddGlobalAsset={isPublicMode ? () => {} : handleAddGlobalAsset}
-          onAddEpisode={isPublicMode ? () => {} : handleAddEpisode}
-          onSaveShow={isPublicMode ? undefined : handleEditShow}
+          onAddGlobalAsset={showReadOnly ? undefined : handleAddGlobalAsset}
+          onAddEpisode={showReadOnly ? undefined : handleAddEpisode}
+          onSaveShow={showReadOnly ? undefined : handleEditShow}
           isPublicMode={isPublicMode}
+          isReadOnly={showReadOnly}
+          hasOnlyEpisodeAccess={hasOnlyEpisodeLevelAccess}
         />
       ) : null;
 
@@ -677,10 +699,11 @@ export function ConceptoApp({
           onBack={handleBackToDashboard}
           onSelectCategory={setSelectedCategory}
           onSelectAsset={handleSelectAsset}
-          onAddAsset={isPublicMode ? () => {} : handleAddGlobalAsset}
-          onEditAsset={isPublicMode ? () => {} : (asset) => console.log('Edit asset:', asset)}
-          onDeleteAsset={isPublicMode ? () => {} : handleDeleteGlobalAsset}
-          onToggleMainCharacter={isPublicMode ? undefined : handleToggleMainCharacter}
+          onAddAsset={showReadOnly ? () => {} : handleAddGlobalAsset}
+          onEditAsset={showReadOnly ? () => {} : (asset) => console.log('Edit asset:', asset)}
+          onDeleteAsset={showReadOnly ? () => {} : handleDeleteGlobalAsset}
+          onToggleMainCharacter={showReadOnly ? undefined : handleToggleMainCharacter}
+          isReadOnly={showReadOnly}
         />
       ) : null;
 
@@ -700,10 +723,11 @@ export function ConceptoApp({
                   show={selectedShow as Show}
                   character={selectedAsset as Character}
                   onBack={handleBackToGlobalAssets}
-                  onSave={isPublicMode ? () => {} : handleSaveCharacter}
-                  onAddConcept={isPublicMode ? () => {} : handleAddConcept}
-                  onDeleteConcept={isPublicMode ? () => {} : handleDeleteConcept}
+                  onSave={showReadOnly ? () => {} : handleSaveCharacter}
+                  onAddConcept={showReadOnly ? () => {} : handleAddConcept}
+                  onDeleteConcept={showReadOnly ? () => {} : handleDeleteConcept}
                   globalAssets={globalAssets}
+                  isReadOnly={showReadOnly}
                 />
               );
             case 'location':
@@ -712,9 +736,10 @@ export function ConceptoApp({
                   show={selectedShow as Show}
                   location={selectedAsset}
                   onBack={handleBackToGlobalAssets}
-                  onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
-                  onDeleteConcept={isPublicMode ? () => {} : handleDeleteConcept}
+                  onSave={showReadOnly ? () => {} : handleSaveGlobalAsset}
+                  onDeleteConcept={showReadOnly ? () => {} : handleDeleteConcept}
                   globalAssets={globalAssets}
+                  isReadOnly={showReadOnly}
                 />
               );
             case 'gadget':
@@ -723,9 +748,10 @@ export function ConceptoApp({
                   show={selectedShow as Show}
                   gadget={selectedAsset}
                   onBack={handleBackToGlobalAssets}
-                  onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
-                  onDeleteConcept={isPublicMode ? () => {} : handleDeleteConcept}
+                  onSave={showReadOnly ? () => {} : handleSaveGlobalAsset}
+                  onDeleteConcept={showReadOnly ? () => {} : handleDeleteConcept}
                   globalAssets={globalAssets}
+                  isReadOnly={showReadOnly}
                 />
               );
             case 'texture':
@@ -734,8 +760,9 @@ export function ConceptoApp({
                   show={selectedShow as Show}
                   texture={selectedAsset}
                   onBack={handleBackToGlobalAssets}
-                  onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
-                  onDeleteConcept={isPublicMode ? () => {} : handleDeleteConcept}
+                  onSave={showReadOnly ? () => {} : handleSaveGlobalAsset}
+                  onDeleteConcept={showReadOnly ? () => {} : handleDeleteConcept}
+                  isReadOnly={showReadOnly}
                 />
               );
             case 'background':
@@ -744,8 +771,9 @@ export function ConceptoApp({
                   show={selectedShow as Show}
                   background={selectedAsset}
                   onBack={handleBackToGlobalAssets}
-                  onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
-                  onDeleteConcept={isPublicMode ? () => {} : handleDeleteConcept}
+                  onSave={showReadOnly ? () => {} : handleSaveGlobalAsset}
+                  onDeleteConcept={showReadOnly ? () => {} : handleDeleteConcept}
+                  isReadOnly={showReadOnly}
                 />
               );
             case 'vehicle':
@@ -754,10 +782,11 @@ export function ConceptoApp({
                   show={selectedShow as Show}
                   vehicle={selectedAsset}
                   onBack={handleBackToGlobalAssets}
-                  onSave={isPublicMode ? () => {} : handleSaveGlobalAsset}
-                  onAddConcept={isPublicMode ? () => {} : handleAddConcept}
-                  onDeleteConcept={isPublicMode ? () => {} : handleDeleteConcept}
+                  onSave={showReadOnly ? () => {} : handleSaveGlobalAsset}
+                  onAddConcept={showReadOnly ? () => {} : handleAddConcept}
+                  onDeleteConcept={showReadOnly ? () => {} : handleDeleteConcept}
                   globalAssets={globalAssets}
+                  isReadOnly={showReadOnly}
                 />
               );
             default:
@@ -771,12 +800,13 @@ export function ConceptoApp({
       return selectedShow ? (
         <EpisodeList
           show={selectedShow}
-          episodes={episodes}
+          episodes={visibleEpisodes}
           onBack={handleBackToDashboard}
           onSelectEpisode={handleSelectEpisode}
-          onAddEpisode={isPublicMode ? () => {} : handleAddEpisode}
-          onEditEpisode={isPublicMode ? () => {} : handleEditEpisode}
-          onDeleteEpisode={isPublicMode ? () => {} : handleDeleteEpisode}
+          onAddEpisode={showReadOnly ? () => {} : handleAddEpisode}
+          onEditEpisode={showReadOnly ? () => {} : handleEditEpisode}
+          onDeleteEpisode={showReadOnly ? () => {} : handleDeleteEpisode}
+          isReadOnly={showReadOnly}
         />
       ) : null;
 
@@ -788,7 +818,10 @@ export function ConceptoApp({
           globalAssets={globalAssets}
           plotThemes={plotThemes}
           onBack={handleBackToEpisodes}
-          onSave={isPublicMode ? () => {} : handleSaveEpisode}
+          onSave={episodeReadOnly ? () => {} : handleSaveEpisode}
+          isReadOnly={episodeReadOnly}
+          canComment={canCommentOnEpisode}
+          hasOnlyEpisodeAccess={hasOnlyEpisodeLevelAccess}
         />
       ) : null;
 
@@ -798,9 +831,10 @@ export function ConceptoApp({
           show={selectedShow}
           ideas={episodeIdeas}
           onBack={handleBackToDashboard}
-          onSaveIdea={isPublicMode ? async () => {} : handleSaveEpisodeIdea}
-          onUpdateIdea={isPublicMode ? async () => {} : handleUpdateEpisodeIdea}
-          onDeleteIdea={isPublicMode ? async () => {} : handleDeleteEpisodeIdea}
+          onSaveIdea={showReadOnly ? async () => {} : handleSaveEpisodeIdea}
+          onUpdateIdea={showReadOnly ? async () => {} : handleUpdateEpisodeIdea}
+          onDeleteIdea={showReadOnly ? async () => {} : handleDeleteEpisodeIdea}
+          isReadOnly={showReadOnly}
         />
       ) : null;
 
@@ -811,9 +845,10 @@ export function ConceptoApp({
           ideas={generalIdeas}
           onBack={handleBackToDashboard}
           onSelectIdea={handleSelectGeneralIdea}
-          onAddIdea={isPublicMode ? () => {} : handleAddGeneralIdea}
-          onEditIdea={isPublicMode ? () => {} : handleEditGeneralIdea}
-          onDeleteIdea={isPublicMode ? () => {} : handleDeleteGeneralIdea}
+          onAddIdea={showReadOnly ? () => {} : handleAddGeneralIdea}
+          onEditIdea={showReadOnly ? () => {} : handleEditGeneralIdea}
+          onDeleteIdea={showReadOnly ? () => {} : handleDeleteGeneralIdea}
+          isReadOnly={showReadOnly}
         />
       ) : null;
 
@@ -823,9 +858,10 @@ export function ConceptoApp({
           show={selectedShow}
           themes={plotThemes}
           onBack={handleBackToDashboard}
-          onAddTheme={isPublicMode ? () => {} : handleAddPlotTheme}
-          onEditTheme={isPublicMode ? () => {} : handleEditPlotTheme}
-          onDeleteTheme={isPublicMode ? () => {} : handleDeletePlotTheme}
+          onAddTheme={showReadOnly ? () => {} : handleAddPlotTheme}
+          onEditTheme={showReadOnly ? () => {} : handleEditPlotTheme}
+          onDeleteTheme={showReadOnly ? () => {} : handleDeletePlotTheme}
+          isReadOnly={showReadOnly}
         />
       ) : null;
 
@@ -835,7 +871,9 @@ export function ConceptoApp({
           show={selectedShow}
           idea={selectedGeneralIdea}
           onBack={handleBackToGeneralIdeas}
-          onSave={isPublicMode ? () => {} : handleSaveGeneralIdea}
+          onSave={showReadOnly ? () => {} : handleSaveGeneralIdea}
+          isReadOnly={showReadOnly}
+          canComment={canCommentOnShow}
         />
       ) : null;
 

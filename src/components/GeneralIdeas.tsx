@@ -26,6 +26,7 @@ interface GeneralIdeasProps {
   onAddIdea: (ideaData: Omit<GeneralIdea, 'id' | 'createdAt' | 'updatedAt'>) => void;
   onEditIdea: (idea: GeneralIdea) => void;
   onDeleteIdea: (ideaId: string) => void;
+  isReadOnly?: boolean;
 }
 
 export function GeneralIdeas({
@@ -35,8 +36,10 @@ export function GeneralIdeas({
   onSelectIdea,
   onAddIdea,
   onEditIdea,
-  onDeleteIdea
+  onDeleteIdea,
+  isReadOnly = false,
 }: GeneralIdeasProps) {
+  const readOnly = isReadOnly;
   const basePath = useBasePath();
   const { getCommentsForTarget } = useComments();
   const [searchTerm, setSearchTerm] = useState('');
@@ -102,13 +105,15 @@ export function GeneralIdeas({
         ]}
         subtitle="Show-level idea bank"
         actions={
-          <button
-            onClick={() => setShowAddForm(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            <span>New Idea</span>
-          </button>
+          !readOnly ? (
+            <button
+              onClick={() => setShowAddForm(true)}
+              className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              <span>New Idea</span>
+            </button>
+          ) : null
         }
       />
 
@@ -154,7 +159,7 @@ export function GeneralIdeas({
       {/* Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Add Form Modal */}
-        {showAddForm && (
+      {showAddForm && !readOnly && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg p-6 max-w-md w-full">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Add New General Idea</h3>
@@ -278,27 +283,29 @@ export function GeneralIdeas({
                     <h3 className="font-medium text-gray-900 line-clamp-1">
                       {idea.name}
                     </h3>
-                    <div className="flex space-x-1 ml-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEditIdea(idea);
-                        }}
-                        className="p-1 text-gray-400 hover:text-indigo-600 rounded"
-                      >
-                        <Edit3 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setShowDeleteConfirm(idea);
-                        }}
-                        className="p-1 text-gray-400 hover:text-red-600 rounded"
-                        title="Delete idea"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                    {!readOnly ? (
+                      <div className="flex space-x-1 ml-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEditIdea(idea);
+                          }}
+                          className="p-1 text-gray-400 hover:text-indigo-600 rounded"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowDeleteConfirm(idea);
+                          }}
+                          className="p-1 text-gray-400 hover:text-red-600 rounded"
+                          title="Delete idea"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                   
                   <p className="text-sm text-gray-600 line-clamp-2 mb-3">
@@ -357,7 +364,7 @@ export function GeneralIdeas({
                 : 'Start by adding your first general idea to capture random concepts and inspiration.'
               }
             </p>
-            {!searchTerm && (
+            {!searchTerm && !readOnly && (
               <button
                 onClick={() => setShowAddForm(true)}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
