@@ -1950,10 +1950,12 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                   type="text"
                   value={getCurrentTitle()}
                   onChange={(e) => setCurrentTitle(e.target.value)}
-                  className="text-3xl font-bold text-black text-center bg-transparent border-none outline-none w-full"
+                  className="text-3xl font-bold text-black text-center bg-transparent border-b-2 border-transparent hover:border-gray-300 focus:border-blue-500 focus:outline-none w-full transition-colors"
                   placeholder="Untitled Screenplay"
                   style={{ direction: 'ltr', color: '#000000' }}
                   dir="ltr"
+                  onClick={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
                 />
               ) : (
                 <div className="text-3xl font-bold text-black" style={{ direction: 'ltr', color: '#000000' }} dir="ltr">
