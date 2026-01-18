@@ -63,11 +63,44 @@ export function ChatWidget({ show, isDisabled = false }: ChatWidgetProps) {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
   const [hasUnread, setHasUnread] = useState(false);
-  const [readTimestamps, setReadTimestamps] = useState<Record<string, number>>({});
+  // Load read timestamps from localStorage on mount
+  const [readTimestamps, setReadTimestamps] = useState<Record<string, number>>(() => {
+    if (typeof window !== 'undefined' && user && show?.id) {
+      const key = `concepto:chat:readTimestamps:${user.id}:${show.id}`;
+      const stored = localStorage.getItem(key);
+      if (stored) {
+        try {
+          return JSON.parse(stored);
+        } catch {
+          return {};
+        }
+      }
+    }
+    return {};
+  });
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const lastSeenMessageRef = useRef<Record<string, number>>({});
 
   const showId = show?.id || null;
+
+  // Sync read timestamps from localStorage when user or show changes
+  useEffect(() => {
+    if (!user || !showId || typeof window === 'undefined') return;
+    const key = `concepto:chat:readTimestamps:${user.id}:${showId}`;
+    const stored = localStorage.getItem(key);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        setReadTimestamps(parsed);
+        // Also update ref
+        Object.entries(parsed).forEach(([chatId, timestamp]) => {
+          lastSeenMessageRef.current[chatId] = timestamp as number;
+        });
+      } catch {
+        // Ignore parse errors
+      }
+    }
+  }, [user?.id, showId]);
 
   useEffect(() => {
     if (!user || !showId) {
@@ -176,16 +209,24 @@ export function ChatWidget({ show, isDisabled = false }: ChatWidgetProps) {
 
   // Mark messages as read when chat is opened
   useEffect(() => {
-    if (!isOpen || !selectedChat || !user) return;
+    if (!isOpen || !selectedChat || !user || !show?.id) return;
     
     // Mark as read using current timestamp - this ensures we're always ahead of any message
     const timestamp = Date.now();
     lastSeenMessageRef.current[selectedChat.id] = timestamp;
-    setReadTimestamps(prev => ({
-      ...prev,
-      [selectedChat.id]: timestamp,
-    }));
-  }, [isOpen, selectedChat?.id, user?.id]);
+    setReadTimestamps(prev => {
+      const updated = {
+        ...prev,
+        [selectedChat.id]: timestamp,
+      };
+      // Persist to localStorage
+      if (typeof window !== 'undefined') {
+        const key = `concepto:chat:readTimestamps:${user.id}:${show.id}`;
+        localStorage.setItem(key, JSON.stringify(updated));
+      }
+      return updated;
+    });
+  }, [isOpen, selectedChat?.id, user?.id, show?.id]);
 
   // Calculate unread status for all chats
   useEffect(() => {
