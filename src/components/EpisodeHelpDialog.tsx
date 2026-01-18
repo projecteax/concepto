@@ -398,7 +398,7 @@ export function EpisodeHelpDialog({ isOpen, onClose, activeTab }: EpisodeHelpDia
                   <li>Changes are automatically saved at regular intervals as you work</li>
                   <li>Use the <Save className="w-4 h-4 inline" /> <strong>&quot;Save&quot;</strong> button to manually save your work</li>
                   <li><strong>Important:</strong> Always use the manual save button when finishing your work to ensure all changes are saved</li>
-                  <li>The "Last saved" timestamp shows when your work was last saved</li>
+                  <li>The &quot;Last saved&quot; timestamp shows when your work was last saved</li>
                 </ul>
               </div>
 

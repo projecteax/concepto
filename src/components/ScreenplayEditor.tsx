@@ -1650,7 +1650,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
       setLocalData(prev => ({
         ...prev,
         elements: translatedElements,
-        title: prev.title || prev.titleEN
+        title: prev.title || prev.titleEN || 'Untitled Screenplay'
       }));
     }
   };
