@@ -144,15 +144,16 @@ export default function SettingsPage() {
       setConfirmPassword('');
       setPasswordSuccess('Password changed successfully');
       
-    } catch (err: any) {
-      if (err.code === 'auth/wrong-password') {
+    } catch (err) {
+      const error = err as { code?: string; message?: string };
+      if (error.code === 'auth/wrong-password') {
         setPasswordError('Current password is incorrect');
-      } else if (err.code === 'auth/weak-password') {
+      } else if (error.code === 'auth/weak-password') {
         setPasswordError('New password is too weak');
-      } else if (err.code === 'auth/requires-recent-login') {
+      } else if (error.code === 'auth/requires-recent-login') {
         setPasswordError('Please log out and log back in before changing your password');
       } else {
-        setPasswordError(err.message || 'Failed to change password');
+        setPasswordError(error.message || 'Failed to change password');
       }
     } finally {
       setIsChangingPassword(false);

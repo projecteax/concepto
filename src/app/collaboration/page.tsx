@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { Episode, EpisodeAccess, PermissionRole, Show, ShowAccess, UserProfile } from '@/types';
 import { episodeService, showAccessService, showService, userService, episodeAccessService } from '@/lib/firebase-services';
-import { isAdminUser, getShowRole } from '@/lib/access-control';
+import { isAdminUser } from '@/lib/access-control';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
