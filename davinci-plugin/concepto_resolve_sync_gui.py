@@ -6,7 +6,7 @@ Goals:
 - User config (API endpoint, API key, Episode ID) saved locally (no retyping).
 - Fetch episode (avScript + avPreviewData.videoClipStartTimes) and show name.
 - For a selected Segment (scene):
-  - Download ALL assets for each take into: C:\\davinci_projects\\[show_name]\\[episode]\\[take]\\
+  - Download ALL assets for each take into: [download_root]/[show_name]/[episode]/[take]/
   - Create a Bin per take in Resolve and import those files.
   - Add ONLY the currently selected MAIN asset (shot.videoUrl or shot.imageUrl) to the timeline.
   - Place each clip at the correct startTime from AV Preview (videoClipStartTimes override, else sequential).
@@ -21,11 +21,12 @@ falls back where needed.
 from __future__ import annotations
 
 # Version timestamp - updated when plugin is modified
-PLUGIN_VERSION_TIMESTAMP = "2026-01-20 01:15"
+PLUGIN_VERSION_TIMESTAMP = "2026-01-20 01:45"
 
 import traceback
 import json
 import os
+import platform
 import re
 import sys
 import threading
@@ -34,16 +35,36 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+# Platform detection
+IS_WINDOWS = platform.system() == "Windows"
+IS_MAC = platform.system() == "Darwin"
+IS_LINUX = platform.system() == "Linux"
+
 try:
     import DaVinciResolveScript as dvr_script
 except ImportError:
     # Try to locate modules (typical Resolve installs)
-    possible_paths = [
-        os.path.expandvars(r"%PROGRAMDATA%\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting\Modules"),
-        os.path.expandvars(r"%APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting\Modules"),
-        r"C:\ProgramData\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting\Modules",
-        r"C:\Program Files\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting\Modules",
-    ]
+    possible_paths = []
+    
+    if IS_WINDOWS:
+        possible_paths = [
+            os.path.expandvars(r"%PROGRAMDATA%\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting\Modules"),
+            os.path.expandvars(r"%APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting\Modules"),
+            r"C:\ProgramData\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting\Modules",
+            r"C:\Program Files\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting\Modules",
+        ]
+    elif IS_MAC:
+        possible_paths = [
+            os.path.expanduser("~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Support/Developer/Scripting/Modules"),
+            "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Support/Developer/Scripting/Modules",
+            "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript",
+        ]
+    elif IS_LINUX:
+        possible_paths = [
+            os.path.expanduser("~/.local/share/DaVinciResolve/Support/Developer/Scripting/Modules"),
+            "/opt/resolve/Developer/Scripting/Modules",
+        ]
+    
     for p in possible_paths:
         if os.path.isdir(p) and p not in sys.path:
             sys.path.insert(0, p)
@@ -55,44 +76,59 @@ except ImportError:
     else:
         raise
 
-# Try to locate PySide - check Resolve's Python site-packages too
+# Try to locate GUI libraries - prefer tkinter for consistency across platforms
 USE_PYSIDE = False
 USE_TKINTER = False
 
+# Try tkinter first (preferred for consistency across Windows/Mac)
 try:
-    from PySide2 import QtCore, QtGui, QtWidgets  # type: ignore
-    USE_PYSIDE = True
+    import tkinter as tk  # type: ignore
+    from tkinter import ttk, messagebox, scrolledtext  # type: ignore
+    USE_TKINTER = True
+    QtCore = None  # type: ignore
+    QtGui = None  # type: ignore
+    QtWidgets = None  # type: ignore
 except ImportError:
+    # Fallback to PySide if tkinter is not available
     try:
-        from PySide6 import QtCore, QtGui, QtWidgets  # type: ignore
+        from PySide2 import QtCore, QtGui, QtWidgets  # type: ignore
         USE_PYSIDE = True
     except ImportError:
-        # Try searching Resolve's Python paths
-        resolve_python_paths = [
-            os.path.join(os.path.dirname(sys.executable), "Lib", "site-packages"),
-            r"C:\Program Files\Blackmagic Design\DaVinci Resolve\fusionscript\python\Lib\site-packages",
-            os.path.expandvars(r"%PROGRAMDATA%\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting\Lib\site-packages"),
-        ]
-        for sp_path in resolve_python_paths:
-            if os.path.isdir(sp_path) and sp_path not in sys.path:
-                sys.path.insert(0, sp_path)
-        # Try again after adding paths
         try:
-            from PySide2 import QtCore, QtGui, QtWidgets  # type: ignore
+            from PySide6 import QtCore, QtGui, QtWidgets  # type: ignore
             USE_PYSIDE = True
         except ImportError:
+            # Try searching Resolve's Python paths for PySide
+            resolve_python_paths = []
+            
+            if IS_WINDOWS:
+                resolve_python_paths = [
+                    os.path.join(os.path.dirname(sys.executable), "Lib", "site-packages"),
+                    r"C:\Program Files\Blackmagic Design\DaVinci Resolve\fusionscript\python\Lib\site-packages",
+                    os.path.expandvars(r"%PROGRAMDATA%\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting\Lib\site-packages"),
+                ]
+            elif IS_MAC:
+                resolve_python_paths = [
+                    os.path.join(os.path.dirname(sys.executable), "Lib", "site-packages"),
+                    "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript/python/Lib/site-packages",
+                    os.path.expanduser("~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Support/Developer/Scripting/Lib/site-packages"),
+                ]
+            elif IS_LINUX:
+                resolve_python_paths = [
+                    os.path.join(os.path.dirname(sys.executable), "Lib", "site-packages"),
+                    "/opt/resolve/Developer/Scripting/Lib/site-packages",
+                ]
+            for sp_path in resolve_python_paths:
+                if os.path.isdir(sp_path) and sp_path not in sys.path:
+                    sys.path.insert(0, sp_path)
+            # Try again after adding paths
             try:
-                from PySide6 import QtCore, QtGui, QtWidgets  # type: ignore
+                from PySide2 import QtCore, QtGui, QtWidgets  # type: ignore
                 USE_PYSIDE = True
             except ImportError:
-                # Fallback to tkinter
                 try:
-                    import tkinter as tk  # type: ignore
-                    from tkinter import ttk, messagebox, scrolledtext  # type: ignore
-                    USE_TKINTER = True
-                    QtCore = None  # type: ignore
-                    QtGui = None  # type: ignore
-                    QtWidgets = None  # type: ignore
+                    from PySide6 import QtCore, QtGui, QtWidgets  # type: ignore
+                    USE_PYSIDE = True
                 except ImportError:
                     QtCore = None  # type: ignore
                     QtGui = None  # type: ignore
@@ -103,8 +139,20 @@ import urllib.error
 import urllib.parse
 
 
-UTILITY_DIR_DEFAULT = r"C:\Users\caspi\AppData\Roaming\Blackmagic Design\DaVinci Resolve\Support\Fusion\Scripts\Utility"
-DOWNLOAD_ROOT_DEFAULT = r"C:\davinci_projects"
+# Platform-specific default paths
+if IS_WINDOWS:
+    UTILITY_DIR_DEFAULT = os.path.expandvars(r"%APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Fusion\Scripts\Utility")
+    DOWNLOAD_ROOT_DEFAULT = r"C:\davinci_projects"
+elif IS_MAC:
+    UTILITY_DIR_DEFAULT = os.path.expanduser("~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Support/Fusion/Scripts/Utility")
+    DOWNLOAD_ROOT_DEFAULT = os.path.expanduser("~/davinci_projects")
+elif IS_LINUX:
+    UTILITY_DIR_DEFAULT = os.path.expanduser("~/.local/share/DaVinciResolve/Support/Fusion/Scripts/Utility")
+    DOWNLOAD_ROOT_DEFAULT = os.path.expanduser("~/davinci_projects")
+else:
+    # Fallback
+    UTILITY_DIR_DEFAULT = os.path.join(Path.home(), "concepto_resolve_utility")
+    DOWNLOAD_ROOT_DEFAULT = os.path.join(Path.home(), "davinci_projects")
 
 LOG_PATH_DEFAULT = os.path.join(UTILITY_DIR_DEFAULT, "concepto_resolve_sync_gui.log")
 
@@ -127,9 +175,9 @@ def _log_to_file(msg: str) -> None:
 
 # Log GUI library selection after _log_to_file is defined
 if USE_TKINTER:
-    _log_to_file("Using tkinter as GUI fallback (PySide2/6 not available)")
+    _log_to_file("Using tkinter for GUI (preferred for cross-platform consistency)")
 elif USE_PYSIDE:
-    _log_to_file("Using PySide2/6 for GUI")
+    _log_to_file("Using PySide2/6 for GUI (tkinter not available)")
 else:
     _log_to_file("WARNING: No GUI library available")
 
@@ -6794,10 +6842,11 @@ def _main_tkinter():
 
 
 def main():
-    if USE_PYSIDE:
-        _main_pyside()
-    elif USE_TKINTER:
+    # Prefer tkinter for consistency across platforms
+    if USE_TKINTER:
         _main_tkinter()
+    elif USE_PYSIDE:
+        _main_pyside()
     else:
         error_msg = (
             "No GUI library available.\n\n"

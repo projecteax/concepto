@@ -53,8 +53,25 @@ export async function GET() {
           controller.error(err);
         });
 
-        // Add all files from the plugin directory
-        addDirectoryToArchive(archive, pluginDir, 'davinci-plugin');
+        // Only include the main plugin file and essential documentation
+        const filesToInclude = [
+          'concepto_resolve_sync_gui.py',
+          'README.md',
+          'INSTALLATION.md',
+        ];
+
+        for (const file of filesToInclude) {
+          const filePath = join(pluginDir, file);
+          try {
+            const stats = statSync(filePath);
+            if (stats.isFile()) {
+              archive.file(filePath, { name: file });
+            }
+          } catch {
+            // Skip if file doesn't exist
+            continue;
+          }
+        }
 
         // Finalize the archive
         archive.finalize();
@@ -69,33 +86,6 @@ export async function GET() {
       { error: 'Failed to create plugin zip file', details: errorMessage },
       { status: 500 }
     );
-  }
-}
-
-/**
- * Recursively add directory contents to archive
- */
-function addDirectoryToArchive(archive: archiver.Archiver, dirPath: string, basePath: string) {
-  const files = readdirSync(dirPath);
-
-  for (const file of files) {
-    const filePath = join(dirPath, file);
-    const relativePath = join(basePath, file);
-    const stats = statSync(filePath);
-
-    if (stats.isDirectory()) {
-      // Skip node_modules and other unnecessary directories
-      if (file === 'node_modules' || file === '__pycache__' || file === '.git') {
-        continue;
-      }
-      addDirectoryToArchive(archive, filePath, relativePath);
-    } else {
-      // Skip zip files and other unnecessary files
-      if (file.endsWith('.zip') || file.endsWith('.pyc')) {
-        continue;
-      }
-      archive.file(filePath, { name: relativePath });
-    }
   }
 }
 
