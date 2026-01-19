@@ -132,9 +132,22 @@ export async function PUT(
       updates['avPreviewData.videoClipStartTimes'] = merged;
     }
 
-    // Replace audioTracks if provided (not merge, full replace)
+    // Merge audioTracks by track name (add/update tracks, don't remove existing ones)
     if (body.audioTracks !== undefined) {
-      updates['avPreviewData.audioTracks'] = body.audioTracks;
+      const existingTracks = (existing?.audioTracks || []) as AVPreviewTrack[];
+      const trackMap = new Map<string, AVPreviewTrack>();
+      
+      // Add existing tracks to map
+      existingTracks.forEach(track => {
+        trackMap.set(track.name, track);
+      });
+      
+      // Update/add new tracks
+      body.audioTracks.forEach(newTrack => {
+        trackMap.set(newTrack.name, newTrack);
+      });
+      
+      updates['avPreviewData.audioTracks'] = Array.from(trackMap.values());
     }
 
     await updateDoc(episodeRef, updates);

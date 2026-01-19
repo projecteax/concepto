@@ -21,7 +21,7 @@ falls back where needed.
 from __future__ import annotations
 
 # Version timestamp - updated when plugin is modified
-PLUGIN_VERSION_TIMESTAMP = "2026-01-05 00:00"
+PLUGIN_VERSION_TIMESTAMP = "2026-01-20 01:15"
 
 import traceback
 import json
@@ -372,6 +372,188 @@ class ConceptoClient:
         if not payload.get("success"):
             raise RuntimeError(payload.get("error", "Failed to update audio tracks"))
 
+    def import_av_script(self, episode_id: str, shots: List[Dict[str, Any]], target_segment_id: Optional[str] = None) -> Dict[str, Any]:
+        """Import/update AV Script shots from Resolve (SRT-derived)"""
+        body: Dict[str, Any] = {"shots": shots}
+        if target_segment_id:
+            body["targetSegmentId"] = target_segment_id
+        endpoints = [
+            f"{self.endpoint}/episodes/{episode_id}/av-script/import",
+            f"{self.endpoint}/episodes/{episode_id}/av-script",
+        ]
+        last_error = None
+        last_url = None
+        for url in endpoints:
+            last_url = url
+            _log_to_file(f"IMPORT AV SCRIPT: Trying POST {url}")
+            try:
+                payload = self._request_json("POST", url, body)
+                if payload.get("success"):
+                    _log_to_file(f"IMPORT AV SCRIPT: Success via {url}")
+                    return payload.get("data", {})
+                last_error = payload.get("error", "Failed to import AV Script shots")
+                _log_to_file(f"IMPORT AV SCRIPT: {url} returned error: {last_error}")
+                # Retry on method not allowed if route not available
+                if str(last_error).startswith("HTTP 405"):
+                    _log_to_file(f"IMPORT AV SCRIPT: HTTP 405 on {url}, trying next endpoint...")
+                    continue
+                break
+            except Exception as e:
+                last_error = str(e)
+                _log_to_file(f"IMPORT AV SCRIPT: Exception on {url}: {e}")
+                if "405" in str(e) or "Method Not Allowed" in str(e):
+                    continue
+                break
+        error_msg = f"Failed to import AV Script shots. Last endpoint tried: {last_url}. Error: {last_error}"
+        _log_to_file(f"IMPORT AV SCRIPT: All endpoints failed. {error_msg}")
+        raise RuntimeError(error_msg)
+
+    def upload_shot_image(
+        self,
+        shot_id: str,
+        image_file_path: str,
+        episode_id: Optional[str] = None,
+        segment_id: Optional[str] = None,
+        mode: str = "replace",
+    ) -> str:
+        """Upload image file to a shot and return URL"""
+        import mimetypes
+        url = f"{self.endpoint}/shots/{shot_id}/images"
+
+        with open(image_file_path, "rb") as f:
+            file_data = f.read()
+
+        content_type, _ = mimetypes.guess_type(image_file_path)
+        if not content_type:
+            content_type = "image/png"
+
+        boundary = f"----WebKitFormBoundary{os.urandom(16).hex()}"
+        filename = os.path.basename(image_file_path)
+
+        body_parts = []
+        body_parts.append(f"--{boundary}".encode())
+        body_parts.append(f'Content-Disposition: form-data; name="mainImage"; filename="{filename}"'.encode())
+        body_parts.append(f"Content-Type: {content_type}".encode())
+        body_parts.append(b"")
+        body_parts.append(file_data)
+
+        # Optional fields
+        body_parts.append(f"--{boundary}".encode())
+        body_parts.append(b'Content-Disposition: form-data; name="mode"')
+        body_parts.append(b"")
+        body_parts.append(mode.encode())
+
+        if episode_id:
+            body_parts.append(f"--{boundary}".encode())
+            body_parts.append(b'Content-Disposition: form-data; name="episodeId"')
+            body_parts.append(b"")
+            body_parts.append(str(episode_id).encode())
+        if segment_id:
+            body_parts.append(f"--{boundary}".encode())
+            body_parts.append(b'Content-Disposition: form-data; name="segmentId"')
+            body_parts.append(b"")
+            body_parts.append(str(segment_id).encode())
+
+        body_parts.append(f"--{boundary}--".encode())
+        body = b"\r\n".join(body_parts)
+
+        headers = {
+            "X-API-Key": self.api_key,
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        }
+
+        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+                payload = json.loads(raw)
+                if not payload.get("success"):
+                    raise RuntimeError(payload.get("error", "Failed to upload image"))
+                return payload["data"].get("mainImage") or payload["data"].get("url") or ""
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode("utf-8", errors="replace") if hasattr(e, "read") else ""
+            try:
+                payload = json.loads(raw) if raw else {"error": f"HTTP {e.code}"}
+                raise RuntimeError(payload.get("error", f"HTTP {e.code}"))
+            except Exception:
+                raise RuntimeError(f"HTTP {e.code}: {raw[:300]}")
+
+    def upload_shot_video(
+        self,
+        shot_id: str,
+        video_file_path: str,
+        episode_id: Optional[str] = None,
+        segment_id: Optional[str] = None,
+        mode: str = "replace",
+        set_main: bool = True,
+    ) -> str:
+        """Upload video file to a shot and return URL"""
+        import mimetypes
+        url = f"{self.endpoint}/shots/{shot_id}/videos"
+
+        with open(video_file_path, "rb") as f:
+            file_data = f.read()
+
+        content_type, _ = mimetypes.guess_type(video_file_path)
+        if not content_type:
+            content_type = "video/mp4"
+
+        boundary = f"----WebKitFormBoundary{os.urandom(16).hex()}"
+        filename = os.path.basename(video_file_path)
+
+        body_parts = []
+        body_parts.append(f"--{boundary}".encode())
+        body_parts.append(f'Content-Disposition: form-data; name="video"; filename="{filename}"'.encode())
+        body_parts.append(f"Content-Type: {content_type}".encode())
+        body_parts.append(b"")
+        body_parts.append(file_data)
+
+        # Optional fields
+        body_parts.append(f"--{boundary}".encode())
+        body_parts.append(b'Content-Disposition: form-data; name="mode"')
+        body_parts.append(b"")
+        body_parts.append(mode.encode())
+
+        body_parts.append(f"--{boundary}".encode())
+        body_parts.append(b'Content-Disposition: form-data; name="setMain"')
+        body_parts.append(b"")
+        body_parts.append(b"true" if set_main else b"false")
+
+        if episode_id:
+            body_parts.append(f"--{boundary}".encode())
+            body_parts.append(b'Content-Disposition: form-data; name="episodeId"')
+            body_parts.append(b"")
+            body_parts.append(str(episode_id).encode())
+        if segment_id:
+            body_parts.append(f"--{boundary}".encode())
+            body_parts.append(b'Content-Disposition: form-data; name="segmentId"')
+            body_parts.append(b"")
+            body_parts.append(str(segment_id).encode())
+
+        body_parts.append(f"--{boundary}--".encode())
+        body = b"\r\n".join(body_parts)
+
+        headers = {
+            "X-API-Key": self.api_key,
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        }
+
+        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+                payload = json.loads(raw)
+                if not payload.get("success"):
+                    raise RuntimeError(payload.get("error", "Failed to upload video"))
+                return payload["data"].get("videoUrl") or payload["data"].get("url") or ""
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode("utf-8", errors="replace") if hasattr(e, "read") else ""
+            try:
+                payload = json.loads(raw) if raw else {"error": f"HTTP {e.code}"}
+                raise RuntimeError(payload.get("error", f"HTTP {e.code}"))
+            except Exception:
+                raise RuntimeError(f"HTTP {e.code}: {raw[:300]}")
+
 
 def _collect_take_assets(shot: Dict[str, Any], api_endpoint: str = "") -> List[Tuple[str, str]]:
     """
@@ -555,6 +737,277 @@ def _collect_audio_track_assets(
     
     log(f"INFO: Collected {len(assets)} audio track asset(s) total")
     return assets
+
+
+def _get_timeline_settings(timeline: Any) -> Tuple[float, float, str]:
+    fps_raw = timeline.GetSetting("timelineFrameRate")
+    fps = float(fps_raw) if fps_raw else 24.0
+    start_tc = timeline.GetStartTimecode() or "00:00:00:00"
+    parts = start_tc.split(":")
+    tl_start_sec = 0.0
+    if len(parts) == 4:
+        tl_start_sec = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2]) + (int(parts[3]) / fps)
+    return fps, tl_start_sec, start_tc
+
+
+def _extract_take_and_visual(content: str) -> Tuple[Optional[str], str]:
+    take_match = re.search(r"\[?\s*(SC\d{2}T\d{2})\s*\]?", content, re.IGNORECASE)
+    if take_match:
+        take = take_match.group(1).upper()
+        visual_desc = re.sub(r"\[?\s*SC\d{2}T\d{2}\s*\]?\s*-?\s*", "", content, flags=re.IGNORECASE).strip()
+        return take, visual_desc
+    return None, content.strip()
+
+
+def _collect_subtitle_entries(
+    timeline: Any,
+    fps: float,
+    tl_start_sec: float,
+    log_callback: Optional[Callable[[str], None]] = None
+) -> List[Dict[str, Any]]:
+    get_track_count = _method(timeline, "GetTrackCount")
+    get_items = _method(timeline, "GetItemListInTrack")
+    if not get_track_count or not get_items:
+        raise RuntimeError("Cannot read timeline tracks (API missing).")
+
+    s_tracks = int(timeline.GetTrackCount("subtitle") or 0)
+    if s_tracks == 0:
+        raise RuntimeError("No subtitle tracks found. Create subtitles first in format: [SC01T01] - Visual description")
+
+    if log_callback:
+        log_callback(f"EXPORT: Scanning {s_tracks} subtitle track(s)...")
+
+    entries: List[Dict[str, Any]] = []
+    for t in range(1, s_tracks + 1):
+        items = timeline.GetItemListInTrack("subtitle", t) or []
+        for it in items:
+            try:
+                content = ""
+                try:
+                    content = it.GetName()
+                except Exception:
+                    pass
+                if not content:
+                    try:
+                        fn = _method(it, "GetText")
+                        if fn:
+                            content = fn()
+                    except Exception:
+                        pass
+                if not content:
+                    try:
+                        prop_fn = _method(it, "GetProperty")
+                        if prop_fn:
+                            content = prop_fn("Text") or prop_fn("Caption")
+                    except Exception:
+                        pass
+                if not content:
+                    continue
+
+                start_frame = None
+                dur_frame = None
+                for m in ["GetStart", "GetStartFrame"]:
+                    fn = _method(it, m)
+                    if fn:
+                        try:
+                            start_frame = int(fn())
+                            break
+                        except Exception:
+                            pass
+                for m in ["GetDuration", "GetDurationFrames"]:
+                    fn = _method(it, m)
+                    if fn:
+                        try:
+                            dur_frame = int(fn())
+                            break
+                        except Exception:
+                            pass
+                if start_frame is None or dur_frame is None:
+                    if log_callback:
+                        log_callback("EXPORT: Skipping subtitle - could not read timing")
+                    continue
+
+                rel_start_sec = (start_frame - int(tl_start_sec * fps)) / fps
+                dur_sec = dur_frame / fps
+                take, visual_desc = _extract_take_and_visual(content)
+                entries.append({
+                    "take": take,
+                    "visual": visual_desc,
+                    "start": rel_start_sec,
+                    "duration": dur_sec,
+                    "text": content,
+                })
+            except Exception as e:
+                if log_callback:
+                    log_callback(f"EXPORT: Error reading subtitle item: {e}")
+                continue
+
+    entries.sort(key=lambda x: x["start"])
+    return entries
+
+
+def _collect_main_track_clips(
+    timeline: Any,
+    fps: float,
+    tl_start_sec: float,
+    log_callback: Optional[Callable[[str], None]] = None
+) -> List[Dict[str, Any]]:
+    get_track_count = _method(timeline, "GetTrackCount")
+    get_items = _method(timeline, "GetItemListInTrack")
+    if not get_track_count or not get_items:
+        raise RuntimeError("Cannot read timeline tracks (API missing).")
+
+    v_tracks = int(timeline.GetTrackCount("video") or 0)
+    if v_tracks == 0:
+        raise RuntimeError("No video tracks found in timeline.")
+
+    main_track_idx = None
+    for idx in range(1, v_tracks + 1):
+        try:
+            get_track_name = _method(timeline, "GetTrackName")
+            if get_track_name:
+                name_result = timeline.GetTrackName("video", idx)
+                if name_result and str(name_result).strip().upper() == "MAIN":
+                    main_track_idx = idx
+                    break
+        except Exception:
+            pass
+
+    if main_track_idx is None:
+        raise RuntimeError("No video track named 'MAIN' found. Please rename your main track to MAIN.")
+
+    items = timeline.GetItemListInTrack("video", main_track_idx) or []
+    clips: List[Dict[str, Any]] = []
+    for item_idx, item in enumerate(items):
+        try:
+            item_name = getattr(item, "GetName", lambda: "(unknown)")()
+            start_frame = None
+            dur_frame = None
+            for m in ["GetStart", "GetStartFrame"]:
+                fn = _method(item, m)
+                if fn:
+                    try:
+                        start_frame = int(fn())
+                        break
+                    except Exception:
+                        pass
+            for m in ["GetDuration", "GetDurationFrames"]:
+                fn = _method(item, m)
+                if fn:
+                    try:
+                        dur_frame = int(fn())
+                        break
+                    except Exception:
+                        pass
+            if start_frame is None or dur_frame is None:
+                if log_callback:
+                    log_callback(f"EXPORT SRT+VIDEO: Skipping clip '{item_name}' - could not read timing")
+                continue
+
+            rel_start_sec = (start_frame - int(tl_start_sec * fps)) / fps
+            dur_sec = dur_frame / fps
+
+            offset_frame = 0
+            for prop_name in ["SourceStart", "In", "StartFrame"]:
+                try:
+                    get_prop = _method(item, "GetProperty")
+                    if get_prop:
+                        prop_val = get_prop(prop_name)
+                        if prop_val is not None:
+                            offset_frame = int(prop_val)
+                            break
+                except Exception:
+                    pass
+            offset_sec = offset_frame / fps
+
+            media_pool_item = None
+            try:
+                get_mp_item = _method(item, "GetMediaPoolItem")
+                if get_mp_item:
+                    media_pool_item = item.GetMediaPoolItem()
+            except Exception:
+                pass
+            if not media_pool_item:
+                if log_callback:
+                    log_callback(f"EXPORT SRT+VIDEO: Warning: no MediaPoolItem for '{item_name}', skipping")
+                continue
+
+            # Extract take code from item name first (this is the source of truth)
+            take_match = re.search(r"(SC\d{2}T\d{2})", item_name, re.IGNORECASE)
+            if not take_match:
+                if log_callback:
+                    log_callback(f"EXPORT SRT+VIDEO: Skipping '{item_name}' - no SCxxTxx in item name")
+                continue
+            take = take_match.group(1).upper()  # Keep this - don't overwrite!
+
+            file_path = None
+            try:
+                get_file_path = _method(media_pool_item, "GetClipProperty")
+                if get_file_path:
+                    # Try multiple property names
+                    for prop_name in ["File Path", "FilePath", "File"]:
+                        try:
+                            props = media_pool_item.GetClipProperty([prop_name])
+                            if props and isinstance(props, dict):
+                                file_path = props.get(prop_name) or props.get("File Path") or props.get("FilePath")
+                                if file_path:
+                                    break
+                        except Exception:
+                            pass
+                    
+                    # If dict didn't work, try direct property access
+                    if not file_path:
+                        try:
+                            file_path = media_pool_item.GetClipProperty("File Path")
+                        except Exception:
+                            pass
+            except Exception as e:
+                if log_callback:
+                    log_callback(f"EXPORT SRT+VIDEO: Error getting file path: {e}")
+            
+            if not file_path:
+                if log_callback:
+                    log_callback(f"EXPORT SRT+VIDEO: Warning: Could not get file path for '{item_name}', but found take {take} - will try to use item name")
+                # Use item name as fallback - extract extension from it
+                base_name = item_name
+            elif not os.path.exists(file_path):
+                if log_callback:
+                    log_callback(f"EXPORT SRT+VIDEO: Warning: Source file not found at '{file_path}' for '{item_name}', but found take {take} - will try to use item name")
+                # File doesn't exist, but we have take code - use item name
+                base_name = item_name
+            else:
+                base_name = os.path.basename(file_path)
+            
+            # IMPORTANT: Don't overwrite take code from filename - item_name is the source of truth
+            # The file path might be in a folder with a different take code, but the timeline item name is correct
+            # Only log if there's a mismatch for debugging
+            filename_take_match = re.search(r"(SC\d{2}T\d{2})", base_name, re.IGNORECASE)
+            if filename_take_match:
+                filename_take = filename_take_match.group(1).upper()
+                if filename_take != take:
+                    if log_callback:
+                        log_callback(f"EXPORT SRT+VIDEO: Note: Item name has take {take} but filename has {filename_take} - using {take} from item name")
+            ext = os.path.splitext(base_name)[1].lower()
+            is_image = ext in [".png", ".jpg", ".jpeg", ".webp", ".gif"]
+            clip_type = "image" if is_image else "video"
+
+            clips.append({
+                "take": take,
+                "file_path": file_path,  # May be None if file not found, but we still have take code
+                "start": rel_start_sec,
+                "duration": dur_sec,
+                "offset": offset_sec,
+                "item_name": item_name,
+                "clip_type": clip_type,
+                "track_index": main_track_idx,
+                "item_index": item_idx,
+            })
+        except Exception as e:
+            if log_callback:
+                log_callback(f"EXPORT SRT+VIDEO: Error processing clip: {e}")
+            continue
+
+    return clips
 
 
 def _download_file(url: str, dest: Path) -> None:
@@ -1166,6 +1619,8 @@ class MainWindow(QtWidgets.QWidget):  # type: ignore
         row2 = QtWidgets.QHBoxLayout()
         self.export_av_script_btn = QtWidgets.QPushButton("Export to AV Script (SRT)")
         self.export_av_script_btn.setEnabled(True)
+        self.export_srt_video_btn = QtWidgets.QPushButton("Export SRT + Video")
+        self.export_srt_video_btn.setEnabled(True)
         self.export_audio_btn = QtWidgets.QPushButton("Export Audio to AV Preview")
         self.export_audio_btn.setEnabled(False)
         self.import_to_timeline_btn = QtWidgets.QPushButton("Import to Current Timeline")
@@ -1173,6 +1628,7 @@ class MainWindow(QtWidgets.QWidget):  # type: ignore
         self.diagnose_btn = QtWidgets.QPushButton("Diagnose Resolve API")
         self.diagnose_btn.setEnabled(True)
         row2.addWidget(self.export_av_script_btn, 1)
+        row2.addWidget(self.export_srt_video_btn, 1)
         row2.addWidget(self.export_audio_btn, 1)
         row2.addWidget(self.import_to_timeline_btn, 1)
         row2.addWidget(self.diagnose_btn, 1)
@@ -1196,6 +1652,7 @@ class MainWindow(QtWidgets.QWidget):  # type: ignore
         self.sync_btn.clicked.connect(self.on_sync)
         self.sync_from_concepto_btn.clicked.connect(self.on_sync_from_concepto)
         self.export_av_script_btn.clicked.connect(self.on_export_av_script)
+        self.export_srt_video_btn.clicked.connect(self.on_export_srt_video)
         self.export_audio_btn.clicked.connect(self.on_export_audio)
         self.import_to_timeline_btn.clicked.connect(self.on_import_to_timeline)
         self.diagnose_btn.clicked.connect(self.on_diagnose)
@@ -2342,6 +2799,120 @@ class MainWindow(QtWidgets.QWidget):  # type: ignore
                         concepto_duration = float(sh.get("duration") or 0)
                         concepto_offset = float(sh.get("videoOffset") or 0)
                         
+                        # Check if main video/image has changed and needs to be replaced
+                        concepto_main_video_url = sh.get("videoUrl")
+                        concepto_main_image_url = sh.get("imageUrl")
+                        concepto_main_url = concepto_main_video_url or concepto_main_image_url
+                        
+                        # Get current clip's MediaPoolItem and file path
+                        current_mp_item = None
+                        current_file_path = None
+                        try:
+                            get_mp_item = _method(it, "GetMediaPoolItem")
+                            if get_mp_item:
+                                current_mp_item = it.GetMediaPoolItem()
+                                if current_mp_item:
+                                    # Try to get file path from MediaPoolItem
+                                    try:
+                                        props = current_mp_item.GetClipProperty(["File Path"])
+                                        if props and isinstance(props, dict):
+                                            current_file_path = props.get("File Path") or props.get("FilePath")
+                                    except Exception:
+                                        pass
+                        except Exception:
+                            pass
+                        
+                        # Check if we need to download and replace the file
+                        needs_file_replacement = False
+                        new_mp_item = None
+                        
+                        if concepto_main_url:
+                            # Determine expected filename based on take and type
+                            url_filename = os.path.basename(concepto_main_url.split("?")[0])
+                            if concepto_main_video_url:
+                                expected_filename = f"{take}_MAIN_video.mp4"
+                            else:
+                                # Image - try to get extension from URL
+                                ext = ".jpg"
+                                if "." in url_filename:
+                                    url_ext = os.path.splitext(url_filename)[1].lower()
+                                    if url_ext in [".jpg", ".jpeg", ".png", ".webp", ".gif"]:
+                                        ext = url_ext
+                                expected_filename = f"{take}_MAIN_image{ext}"
+                            
+                            # Get episode directory structure
+                            show_name = _safe_slug((self.show or {}).get("name") or self.episode.get("showId") or "UnknownShow")
+                            episode_name = _safe_slug(self.episode.get("title") or self.cfg.episode_id)
+                            episode_dir = Path(self.cfg.download_root) / show_name / episode_name
+                            take_dir = episode_dir / take
+                            expected_file_path = take_dir / expected_filename
+                            
+                            # Check if current clip's file matches expected file path
+                            current_filename = os.path.basename(current_file_path) if current_file_path else ""
+                            current_file_matches = current_file_path and os.path.exists(current_file_path) and os.path.normpath(current_file_path) == os.path.normpath(str(expected_file_path))
+                            
+                            # Always download if URL exists (to ensure we have latest version from Concepto)
+                            self._log(f"SYNC FROM CONCEPTO: [{take}] Downloading main file from Concepto: {expected_filename}")
+                            try:
+                                take_dir.mkdir(parents=True, exist_ok=True)
+                                
+                                # Download file
+                                dest_file = expected_file_path
+                                # Resolve URL if needed
+                                resolved_url = _resolve_url(concepto_main_url, self.cfg.api_endpoint)
+                                _download_file(resolved_url, dest_file)
+                                self._log(f"SYNC FROM CONCEPTO: [{take}] ✓ Downloaded main file: {dest_file.name}")
+                                
+                                # Check if we need to replace on timeline
+                                if not current_file_matches:
+                                    self._log(f"SYNC FROM CONCEPTO: [{take}] File path changed: current='{current_filename}', expected='{expected_filename}' - will replace on timeline")
+                                    needs_file_replacement = True
+                                else:
+                                    self._log(f"SYNC FROM CONCEPTO: [{take}] File path matches, but checking if MediaPoolItem needs update")
+                                    # Even if file path matches, we might need to update if MediaPoolItem is different
+                                    needs_file_replacement = True  # Always replace to ensure we're using the latest file
+                                
+                                # Import to media pool
+                                seg_label = f"SC{int(seg.get('segmentNumber',0)):02d}_{_safe_slug(seg.get('title',''))}"[:80]
+                                take_folder = resolve_ensure_bins(media_pool, "CONCEPTO", seg_label, take)
+                                
+                                # Check if item already exists in folder with same file path
+                                found_item = None
+                                try:
+                                    folder_items = take_folder.GetClipList() if hasattr(take_folder, "GetClipList") else []
+                                    for folder_item in folder_items or []:
+                                        try:
+                                            item_path = None
+                                            props = folder_item.GetClipProperty(["File Path"])
+                                            if props and isinstance(props, dict):
+                                                item_path = props.get("File Path") or props.get("FilePath")
+                                            if item_path and os.path.normpath(item_path) == os.path.normpath(str(dest_file)):
+                                                found_item = folder_item
+                                                break
+                                        except Exception:
+                                            pass
+                                except Exception:
+                                    pass
+                                
+                                if found_item:
+                                    new_mp_item = found_item
+                                    self._log(f"SYNC FROM CONCEPTO: [{take}] Found existing MediaPoolItem for file")
+                                else:
+                                    # Import it
+                                    imported_items = resolve_import_files(media_pool, take_folder, [str(dest_file)])
+                                    if imported_items:
+                                        new_mp_item = imported_items[0]
+                                        self._log(f"SYNC FROM CONCEPTO: [{take}] ✓ Imported file to bin")
+                                    else:
+                                        self._log(f"SYNC FROM CONCEPTO: [{take}] WARNING: Failed to import file")
+                                        needs_file_replacement = False
+                                        
+                            except Exception as e:
+                                self._log(f"SYNC FROM CONCEPTO: [{take}] ERROR downloading/replacing file: {e}")
+                                import traceback
+                                self._log(f"Traceback: {traceback.format_exc()}")
+                                needs_file_replacement = False
+                        
                         if concepto_start_sec is None:
                             self._log(f"SYNC FROM CONCEPTO: [{take}] No startTime in Concepto, skipping")
                             continue
@@ -2363,12 +2934,18 @@ class MainWindow(QtWidgets.QWidget):  # type: ignore
                         target_frame = int(round(concepto_start_sec * fps)) + timeline_start_frame
                         target_tc = _frames_to_timecode(target_frame, fps)
                         
+                        # If file needs replacement, use new_mp_item; otherwise use current
+                        mp_item_to_use = new_mp_item if new_mp_item else current_mp_item
+                        
                         if current_pos_frame is not None:
                             current_pos_sec = (current_pos_frame - timeline_start_frame) / fps
                             self._log(f"SYNC FROM CONCEPTO: [{take}] Current pos={current_pos_sec:.3f}s (frame {current_pos_frame}), Target={concepto_start_sec:.3f}s (frame {target_frame})")
                             
-                            # If already at correct position, skip
-                            if abs(current_pos_frame - target_frame) <= 1:
+                            # If file was replaced, we need to update even if position is correct
+                            # Also check if we need to replace the file on timeline
+                            if needs_file_replacement:
+                                self._log(f"SYNC FROM CONCEPTO: [{take}] File needs replacement on timeline, will update")
+                            elif abs(current_pos_frame - target_frame) <= 1:
                                 self._log(f"SYNC FROM CONCEPTO: [{take}] Already at correct position, skipping move")
                                 updated_count += 1
                                 continue
@@ -2380,16 +2957,18 @@ class MainWindow(QtWidgets.QWidget):  # type: ignore
                         # Try to move/update the clip - use multiple methods
                         moved = False
                         try:
+                            # If we need to replace the file, we must use the new MediaPoolItem
+                            if needs_file_replacement and new_mp_item:
+                                mp_item_to_use = new_mp_item
+                                self._log(f"SYNC FROM CONCEPTO: [{take}] Using new MediaPoolItem for replacement")
+                            
                             # Method 1: Try DeleteClipAtTrack + InsertClipAtTrack (most reliable)
                             delete_at_track = _method(timeline, "DeleteClipAtTrack")
                             insert_at_track = _method(timeline, "InsertClipAtTrack")
                             if delete_at_track and insert_at_track and current_pos_frame is not None:
                                 try:
-                                    # Get media pool item
-                                    mp_item = None
-                                    get_mp_item = _method(it, "GetMediaPoolItem")
-                                    if get_mp_item:
-                                        mp_item = it.GetMediaPoolItem()
+                                    # Use the appropriate media pool item (new if replaced, current otherwise)
+                                    mp_item = mp_item_to_use
                                     
                                     if mp_item:
                                         # Get current track index and trim info
@@ -2736,6 +3315,399 @@ class MainWindow(QtWidgets.QWidget):  # type: ignore
                 
             except Exception as e:
                 self._log(f"EXPORT ERROR: {e}")
+                import traceback
+                self._log(f"Traceback: {traceback.format_exc()}")
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def on_export_srt_video(self):
+        """Export SRT + MAIN track media and sync to Concepto AV Script/Preview"""
+        def worker():
+            try:
+                if not self.client or not self.episode:
+                    raise RuntimeError("Load an episode first.")
+
+                self._log("EXPORT SRT+VIDEO: Connecting to Resolve...")
+                _resolve, project, _media_pool = resolve_get_context()
+                timeline = project.GetCurrentTimeline()
+                if not timeline:
+                    raise RuntimeError("No current timeline open.")
+
+                fps, tl_start_sec, start_tc = _get_timeline_settings(timeline)
+                self._log(f"EXPORT SRT+VIDEO: Timeline starts at {start_tc} ({tl_start_sec:.3f}s offset)")
+
+                subtitle_entries = _collect_subtitle_entries(timeline, fps, tl_start_sec, self._log)
+                if not subtitle_entries:
+                    raise RuntimeError("No valid subtitles found. Use format: [SC01T01] - Visual description")
+
+                shots_payload: List[Dict[str, Any]] = []
+                for idx, entry in enumerate(subtitle_entries):
+                    take = entry.get("take")
+                    if not take:
+                        self._log("EXPORT SRT+VIDEO: Skipping subtitle without take code")
+                        continue
+                    seg_num = 1
+                    take_match = re.search(r"SC(\d{2})T(\d{2})", take, re.IGNORECASE)
+                    if take_match:
+                        seg_num = int(take_match.group(1))
+                    shots_payload.append({
+                        "take": take,
+                        "visual": entry.get("visual") or "",
+                        "audio": "",
+                        "duration": float(entry.get("duration") or 0),
+                        "segmentNumber": seg_num,
+                        "order": idx,
+                    })
+
+                if not shots_payload:
+                    raise RuntimeError("No valid subtitles with SCxxTxx codes found.")
+
+                self._log(f"EXPORT SRT+VIDEO: Importing {len(shots_payload)} shots to Concepto...")
+                self.client.import_av_script(self.cfg.episode_id, shots_payload)
+
+                # Refresh episode
+                ep = self.client.get_episode(self.cfg.episode_id)
+                self.episode = ep
+
+                segments = ((ep.get("avScript") or {}).get("segments") or [])
+                take_to_shot: Dict[str, Dict[str, Any]] = {}
+                for seg in segments:
+                    for shot in seg.get("shots") or []:
+                        take_val = (shot.get("take") or "").upper()
+                        if take_val:
+                            take_to_shot[take_val] = {"shot": shot, "segment": seg}
+
+                clips = _collect_main_track_clips(timeline, fps, tl_start_sec, self._log)
+                if not clips:
+                    self._log("EXPORT SRT+VIDEO: No MAIN track clips found.")
+                else:
+                    self._log(f"EXPORT SRT+VIDEO: Found {len(clips)} clip(s) on MAIN track:")
+                    for clip in clips:
+                        self._log(f"  - {clip.get('item_name')} -> take: {clip.get('take')}, file: {clip.get('file_path') or 'NOT FOUND'}")
+
+                self._log(f"EXPORT SRT+VIDEO: Available shots in Concepto after import: {list(take_to_shot.keys())}")
+
+                take_to_clip_id: Dict[str, str] = {}
+                for seg in segments:
+                    for idx, shot in enumerate(seg.get("shots") or []):
+                        take_val = (shot.get("take") or "").upper()
+                        if take_val:
+                            take_to_clip_id[take_val] = f"{seg.get('id')}-{shot.get('id')}-{idx}"
+
+                video_start_times: Dict[str, float] = {}
+                for clip in clips:
+                    clip_id = take_to_clip_id.get(clip["take"])
+                    if clip_id:
+                        video_start_times[clip_id] = float(clip["start"])
+                    else:
+                        self._log(f"EXPORT SRT+VIDEO: No clip_id mapping for take {clip['take']} (shot not in Concepto yet)")
+
+                if video_start_times:
+                    self.client.update_video_clip_start_times(self.cfg.episode_id, video_start_times)
+                    self._log(f"EXPORT SRT+VIDEO: Updated {len(video_start_times)} clip start times")
+
+                # Upload media + update duration/offset
+                processed_takes = set()
+                for clip in clips:
+                    take = clip["take"]
+                    self._log(f"EXPORT SRT+VIDEO: Processing clip: {clip.get('item_name')} (take: {take})")
+                    if take in processed_takes:
+                        self._log(f"EXPORT SRT+VIDEO: Duplicate take {take} on MAIN track, skipping")
+                        continue
+                    processed_takes.add(take)
+                    mapping = take_to_shot.get(take)
+                    if not mapping:
+                        self._log(f"EXPORT SRT+VIDEO: No matching shot for take {take}, skipping upload")
+                        self._log(f"EXPORT SRT+VIDEO: Available takes in Concepto: {list(take_to_shot.keys())}")
+                        self._log(f"EXPORT SRT+VIDEO: This usually means the shot wasn't created from SRT import. Check if subtitle had [{take}] format.")
+                        continue
+
+                    shot = mapping["shot"]
+                    seg = mapping["segment"]
+
+                    # Always update duration and offset from timeline (this reflects current state)
+                    try:
+                        new_duration = float(clip["duration"])
+                        new_offset = float(clip["offset"])
+                        old_duration = float(shot.get("duration") or 0)
+                        old_offset = float(shot.get("videoOffset") or 0)
+                        
+                        if abs(new_duration - old_duration) > 0.01 or abs(new_offset - old_offset) > 0.01:
+                            self._log(f"[{take}] Updating duration: {old_duration:.2f}s -> {new_duration:.2f}s, offset: {old_offset:.2f}s -> {new_offset:.2f}s")
+                            self.client.update_shot(shot.get("id"), {
+                                "duration": new_duration,
+                                "videoOffset": new_offset,
+                            })
+                        else:
+                            self._log(f"[{take}] Duration/offset unchanged: {new_duration:.2f}s, offset: {new_offset:.2f}s")
+                    except Exception as e:
+                        self._log(f"[{take}] Warning: Could not update duration/offset: {e}")
+
+                    file_path = clip.get("file_path")
+                    if not file_path:
+                        self._log(f"[{take}] Warning: No file path available for '{clip.get('item_name')}'. Cannot upload.")
+                        self._log(f"[{take}] Tip: The clip is on the timeline but source file path could not be determined.")
+                        continue
+                    
+                    if not os.path.exists(file_path):
+                        self._log(f"[{take}] Warning: File not found at '{file_path}' for '{clip.get('item_name')}'. Cannot upload.")
+                        continue
+                    
+                    # Check if file with same name already exists in Concepto
+                    file_name = os.path.basename(file_path)
+                    existing_url = shot.get("videoUrl") if clip["clip_type"] == "video" else shot.get("imageUrl")
+                    should_upload = True
+                    
+                    if existing_url:
+                        # Extract filename from URL (handle both full URLs and relative paths)
+                        existing_filename = os.path.basename(existing_url.split("?")[0])  # Remove query params
+                        if existing_filename.lower() == file_name.lower():
+                            self._log(f"[{take}] File '{file_name}' already exists in Concepto with same name, skipping upload")
+                            should_upload = False
+                        else:
+                            self._log(f"[{take}] Different file name: existing='{existing_filename}', new='{file_name}' - will upload")
+                    
+                    if should_upload:
+                        if clip["clip_type"] == "video":
+                            self._log(f"[{take}] Uploading video: {file_name}")
+                            try:
+                                url = self.client.upload_shot_video(
+                                    shot.get("id"),
+                                    file_path,
+                                    self.cfg.episode_id,
+                                    seg.get("id"),
+                                    mode="replace",  # Use replace to update existing video
+                                    set_main=True,
+                                )
+                                self._log(f"[{take}] ✓ Uploaded video -> {url}")
+                            except Exception as e:
+                                self._log(f"[{take}] ✗ Video upload failed: {e}")
+                        else:
+                            self._log(f"[{take}] Uploading image: {file_name}")
+                            try:
+                                url = self.client.upload_shot_image(
+                                    shot.get("id"),
+                                    file_path,
+                                    self.cfg.episode_id,
+                                    seg.get("id"),
+                                    mode="replace",  # Use replace to update existing image
+                                )
+                                self._log(f"[{take}] ✓ Uploaded image -> {url}")
+                            except Exception as e:
+                                self._log(f"[{take}] ✗ Image upload failed: {e}")
+
+                # Export audio tracks to AV Preview
+                self._log("EXPORT SRT+VIDEO: Exporting audio tracks...")
+                try:
+                    a_tracks = int(timeline.GetTrackCount("audio") or 0)
+                    if a_tracks > 0:
+                        self._log(f"EXPORT SRT+VIDEO: Found {a_tracks} audio track(s)")
+                        
+                        audio_tracks_data: List[Dict[str, Any]] = []
+                        temp_audio_files: List[str] = []
+                        
+                        for track_idx in range(1, a_tracks + 1):
+                            items = timeline.GetItemListInTrack("audio", track_idx) or []
+                            if not items:
+                                continue
+                            
+                            # Get track name (try various methods)
+                            track_name = f"Audio {track_idx}"
+                            try:
+                                get_track_name = _method(timeline, "GetTrackName")
+                                if get_track_name:
+                                    name_result = timeline.GetTrackName("audio", track_idx)
+                                    if name_result:
+                                        track_name = name_result
+                            except Exception:
+                                pass
+                            
+                            self._log(f"EXPORT SRT+VIDEO: Processing audio track {track_idx}: '{track_name}' ({len(items)} clips)")
+                            
+                            clips_data: List[Dict[str, Any]] = []
+                            
+                            for item_idx, item in enumerate(items):
+                                try:
+                                    item_name = getattr(item, "GetName", lambda: "(unknown)")()
+                                    
+                                    # Get timeline position
+                                    start_frame = None
+                                    for m in ["GetStart", "GetStartFrame"]:
+                                        fn = _method(item, m)
+                                        if fn:
+                                            try:
+                                                start_frame = int(fn())
+                                                break
+                                            except Exception:
+                                                pass
+                                    
+                                    # Get duration
+                                    dur_frame = None
+                                    for m in ["GetDuration", "GetDurationFrames"]:
+                                        fn = _method(item, m)
+                                        if fn:
+                                            try:
+                                                dur_frame = int(fn())
+                                                break
+                                            except Exception:
+                                                pass
+                                    
+                                    if start_frame is None or dur_frame is None:
+                                        self._log(f"EXPORT SRT+VIDEO: Skipping audio clip '{item_name}' - could not read timing")
+                                        continue
+                                    
+                                    # Convert to relative seconds
+                                    rel_start_sec = (start_frame - int(tl_start_sec * fps)) / fps
+                                    dur_sec = dur_frame / fps
+                                    
+                                    # Get source offset
+                                    offset_frame = 0
+                                    for prop_name in ["SourceStart", "In", "StartFrame"]:
+                                        try:
+                                            get_prop = _method(item, "GetProperty")
+                                            if get_prop:
+                                                prop_val = get_prop(prop_name)
+                                                if prop_val is not None:
+                                                    offset_frame = int(prop_val)
+                                                    break
+                                        except Exception:
+                                            pass
+                                    offset_sec = offset_frame / fps
+                                    
+                                    # Get volume
+                                    volume = 1.0
+                                    try:
+                                        get_prop = _method(item, "GetProperty")
+                                        if get_prop:
+                                            vol_val = get_prop("AudioLevels") or get_prop("Volume")
+                                            if vol_val is not None:
+                                                if isinstance(vol_val, (list, tuple)) and len(vol_val) > 0:
+                                                    vol_db = float(vol_val[0])
+                                                    volume = max(0.0, min(1.0, 10 ** (vol_db / 20)))
+                                                elif isinstance(vol_val, (int, float)):
+                                                    volume = max(0.0, min(1.0, float(vol_val)))
+                                    except Exception:
+                                        pass
+                                    
+                                    # Get MediaPoolItem
+                                    media_pool_item = None
+                                    try:
+                                        get_mp_item = _method(item, "GetMediaPoolItem")
+                                        if get_mp_item:
+                                            media_pool_item = item.GetMediaPoolItem()
+                                    except Exception:
+                                        pass
+                                    
+                                    if not media_pool_item:
+                                        self._log(f"EXPORT SRT+VIDEO: Warning: Could not get MediaPoolItem for '{item_name}', skipping")
+                                        continue
+                                    
+                                    # Get file path
+                                    file_path = None
+                                    try:
+                                        get_file_path = _method(media_pool_item, "GetClipProperty")
+                                        if get_file_path:
+                                            props = media_pool_item.GetClipProperty(["File Path"])
+                                            if props and isinstance(props, dict):
+                                                file_path = props.get("File Path") or props.get("FilePath")
+                                    except Exception:
+                                        pass
+                                    
+                                    if not file_path or not os.path.exists(file_path):
+                                        self._log(f"EXPORT SRT+VIDEO: Warning: Source file not found for '{item_name}', skipping")
+                                        continue
+                                    
+                                    # Copy file to temp location
+                                    file_ext = os.path.splitext(file_path)[1][1:] or 'mp3'
+                                    export_filename = f"{_safe_slug(track_name)}_{item_idx+1}_{_safe_slug(item_name)}.{file_ext}"
+                                    export_dir = Path(self.cfg.download_root) / "_temp_audio_export"
+                                    export_dir.mkdir(parents=True, exist_ok=True)
+                                    export_path = export_dir / export_filename
+                                    
+                                    import shutil
+                                    shutil.copy2(file_path, export_path)
+                                    temp_audio_files.append(str(export_path))
+                                    
+                                    # Upload to Concepto
+                                    try:
+                                        audio_url = self.client.upload_audio_clip(self.cfg.episode_id, str(export_path))
+                                        
+                                        # Get source duration
+                                        source_duration_sec = 0.0
+                                        try:
+                                            src_dur_val = media_pool_item.GetClipProperty("Duration")
+                                            if src_dur_val:
+                                                if ":" in str(src_dur_val):
+                                                    parts = str(src_dur_val).split(":")
+                                                    if len(parts) == 4:
+                                                        source_duration_sec = int(parts[0])*3600 + int(parts[1])*60 + int(parts[2]) + (int(parts[3])/fps)
+                                                else:
+                                                    source_duration_sec = float(src_dur_val) / fps
+                                        except Exception:
+                                            pass
+                                        
+                                        clips_data.append({
+                                            "id": f"clip_{track_idx}_{item_idx}_{int(time.time())}",
+                                            "name": item_name,
+                                            "url": audio_url,
+                                            "startTime": rel_start_sec,
+                                            "duration": dur_sec,
+                                            "offset": offset_sec,
+                                            "volume": volume,
+                                            "sourceDuration": source_duration_sec or dur_sec
+                                        })
+                                        self._log(f"EXPORT SRT+VIDEO: ✓ Uploaded audio clip '{item_name}' from track '{track_name}'")
+                                    except Exception as e:
+                                        self._log(f"EXPORT SRT+VIDEO: ✗ Failed to upload audio clip '{item_name}': {e}")
+                                
+                                except Exception as e:
+                                    self._log(f"EXPORT SRT+VIDEO: Error processing audio clip: {e}")
+                                    continue
+                            
+                            if clips_data:
+                                audio_tracks_data.append({
+                                    "id": f"track_{track_idx}",
+                                    "name": track_name,
+                                    "type": "audio",
+                                    "clips": clips_data,
+                                    "isMuted": False,
+                                    "volume": 1.0
+                                })
+                        
+                        if audio_tracks_data:
+                            self._log(f"EXPORT SRT+VIDEO: Sending {len(audio_tracks_data)} audio track(s) to Concepto...")
+                            self.client.update_audio_tracks(self.cfg.episode_id, audio_tracks_data)
+                            self._log(f"EXPORT SRT+VIDEO: ✓ Successfully exported {len(audio_tracks_data)} audio track(s) to AV Preview")
+                        else:
+                            self._log("EXPORT SRT+VIDEO: No audio clips were successfully exported")
+                        
+                        # Cleanup temp files
+                        for temp_file in temp_audio_files:
+                            try:
+                                if os.path.exists(temp_file):
+                                    os.remove(temp_file)
+                            except Exception:
+                                pass
+                        # Remove temp directory if empty
+                        try:
+                            export_dir = Path(self.cfg.download_root) / "_temp_audio_export"
+                            if export_dir.exists():
+                                try:
+                                    export_dir.rmdir()
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+                    else:
+                        self._log("EXPORT SRT+VIDEO: No audio tracks found in timeline")
+                except Exception as e:
+                    self._log(f"EXPORT SRT+VIDEO: Error exporting audio tracks: {e}")
+                    import traceback
+                    self._log(f"Traceback: {traceback.format_exc()}")
+
+                self._log("EXPORT SRT+VIDEO: Complete.")
+            except Exception as e:
+                self._log(f"EXPORT SRT+VIDEO ERROR: {e}")
                 import traceback
                 self._log(f"Traceback: {traceback.format_exc()}")
 
@@ -3494,6 +4466,10 @@ class MainWindowTk:
         self.export_av_script_btn = ttk.Button(act_row2, text="Export to AV Script (SRT)", 
                                                    command=self.on_export_av_script)
         self.export_av_script_btn.pack(side=tk.LEFT, padx=2)
+
+        self.export_srt_video_btn = ttk.Button(act_row2, text="Export SRT + Video",
+                                                  command=self.on_export_srt_video)
+        self.export_srt_video_btn.pack(side=tk.LEFT, padx=2)
         
         self.export_audio_btn = ttk.Button(act_row2, text="Export Audio to AV Preview",
                                                command=self.on_export_audio, state=tk.DISABLED)
@@ -4873,6 +5849,399 @@ class MainWindowTk:
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def on_export_srt_video(self):
+        """Export SRT + MAIN track media and sync to Concepto AV Script/Preview (Tkinter version)"""
+        def worker():
+            try:
+                if not self.client or not self.episode:
+                    raise RuntimeError("Load an episode first.")
+
+                self._log("EXPORT SRT+VIDEO: Connecting to Resolve...")
+                _resolve, project, _media_pool = resolve_get_context()
+                timeline = project.GetCurrentTimeline()
+                if not timeline:
+                    raise RuntimeError("No current timeline open.")
+
+                fps, tl_start_sec, start_tc = _get_timeline_settings(timeline)
+                self._log(f"EXPORT SRT+VIDEO: Timeline starts at {start_tc} ({tl_start_sec:.3f}s offset)")
+
+                subtitle_entries = _collect_subtitle_entries(timeline, fps, tl_start_sec, self._log)
+                if not subtitle_entries:
+                    raise RuntimeError("No valid subtitles found. Use format: [SC01T01] - Visual description")
+
+                shots_payload: List[Dict[str, Any]] = []
+                for idx, entry in enumerate(subtitle_entries):
+                    take = entry.get("take")
+                    if not take:
+                        self._log("EXPORT SRT+VIDEO: Skipping subtitle without take code")
+                        continue
+                    seg_num = 1
+                    take_match = re.search(r"SC(\d{2})T(\d{2})", take, re.IGNORECASE)
+                    if take_match:
+                        seg_num = int(take_match.group(1))
+                    shots_payload.append({
+                        "take": take,
+                        "visual": entry.get("visual") or "",
+                        "audio": "",
+                        "duration": float(entry.get("duration") or 0),
+                        "segmentNumber": seg_num,
+                        "order": idx,
+                    })
+
+                if not shots_payload:
+                    raise RuntimeError("No valid subtitles with SCxxTxx codes found.")
+
+                self._log(f"EXPORT SRT+VIDEO: Importing {len(shots_payload)} shots to Concepto...")
+                self.client.import_av_script(self.cfg.episode_id, shots_payload)
+
+                # Refresh episode
+                ep = self.client.get_episode(self.cfg.episode_id)
+                self.episode = ep
+
+                segments = ((ep.get("avScript") or {}).get("segments") or [])
+                take_to_shot: Dict[str, Dict[str, Any]] = {}
+                for seg in segments:
+                    for shot in seg.get("shots") or []:
+                        take_val = (shot.get("take") or "").upper()
+                        if take_val:
+                            take_to_shot[take_val] = {"shot": shot, "segment": seg}
+
+                clips = _collect_main_track_clips(timeline, fps, tl_start_sec, self._log)
+                if not clips:
+                    self._log("EXPORT SRT+VIDEO: No MAIN track clips found.")
+                else:
+                    self._log(f"EXPORT SRT+VIDEO: Found {len(clips)} clip(s) on MAIN track:")
+                    for clip in clips:
+                        self._log(f"  - {clip.get('item_name')} -> take: {clip.get('take')}, file: {clip.get('file_path') or 'NOT FOUND'}")
+
+                self._log(f"EXPORT SRT+VIDEO: Available shots in Concepto after import: {list(take_to_shot.keys())}")
+
+                take_to_clip_id: Dict[str, str] = {}
+                for seg in segments:
+                    for idx, shot in enumerate(seg.get("shots") or []):
+                        take_val = (shot.get("take") or "").upper()
+                        if take_val:
+                            take_to_clip_id[take_val] = f"{seg.get('id')}-{shot.get('id')}-{idx}"
+
+                video_start_times: Dict[str, float] = {}
+                for clip in clips:
+                    clip_id = take_to_clip_id.get(clip["take"])
+                    if clip_id:
+                        video_start_times[clip_id] = float(clip["start"])
+                    else:
+                        self._log(f"EXPORT SRT+VIDEO: No clip_id mapping for take {clip['take']} (shot not in Concepto yet)")
+
+                if video_start_times:
+                    self.client.update_video_clip_start_times(self.cfg.episode_id, video_start_times)
+                    self._log(f"EXPORT SRT+VIDEO: Updated {len(video_start_times)} clip start times")
+
+                # Upload media + update duration/offset
+                processed_takes = set()
+                for clip in clips:
+                    take = clip["take"]
+                    self._log(f"EXPORT SRT+VIDEO: Processing clip: {clip.get('item_name')} (take: {take})")
+                    if take in processed_takes:
+                        self._log(f"EXPORT SRT+VIDEO: Duplicate take {take} on MAIN track, skipping")
+                        continue
+                    processed_takes.add(take)
+                    mapping = take_to_shot.get(take)
+                    if not mapping:
+                        self._log(f"EXPORT SRT+VIDEO: No matching shot for take {take}, skipping upload")
+                        self._log(f"EXPORT SRT+VIDEO: Available takes in Concepto: {list(take_to_shot.keys())}")
+                        self._log(f"EXPORT SRT+VIDEO: This usually means the shot wasn't created from SRT import. Check if subtitle had [{take}] format.")
+                        continue
+
+                    shot = mapping["shot"]
+                    seg = mapping["segment"]
+
+                    # Always update duration and offset from timeline (this reflects current state)
+                    try:
+                        new_duration = float(clip["duration"])
+                        new_offset = float(clip["offset"])
+                        old_duration = float(shot.get("duration") or 0)
+                        old_offset = float(shot.get("videoOffset") or 0)
+                        
+                        if abs(new_duration - old_duration) > 0.01 or abs(new_offset - old_offset) > 0.01:
+                            self._log(f"[{take}] Updating duration: {old_duration:.2f}s -> {new_duration:.2f}s, offset: {old_offset:.2f}s -> {new_offset:.2f}s")
+                            self.client.update_shot(shot.get("id"), {
+                                "duration": new_duration,
+                                "videoOffset": new_offset,
+                            })
+                        else:
+                            self._log(f"[{take}] Duration/offset unchanged: {new_duration:.2f}s, offset: {new_offset:.2f}s")
+                    except Exception as e:
+                        self._log(f"[{take}] Warning: Could not update duration/offset: {e}")
+
+                    file_path = clip.get("file_path")
+                    if not file_path:
+                        self._log(f"[{take}] Warning: No file path available for '{clip.get('item_name')}'. Cannot upload.")
+                        self._log(f"[{take}] Tip: The clip is on the timeline but source file path could not be determined.")
+                        continue
+                    
+                    if not os.path.exists(file_path):
+                        self._log(f"[{take}] Warning: File not found at '{file_path}' for '{clip.get('item_name')}'. Cannot upload.")
+                        continue
+                    
+                    # Check if file with same name already exists in Concepto
+                    file_name = os.path.basename(file_path)
+                    existing_url = shot.get("videoUrl") if clip["clip_type"] == "video" else shot.get("imageUrl")
+                    should_upload = True
+                    
+                    if existing_url:
+                        # Extract filename from URL (handle both full URLs and relative paths)
+                        existing_filename = os.path.basename(existing_url.split("?")[0])  # Remove query params
+                        if existing_filename.lower() == file_name.lower():
+                            self._log(f"[{take}] File '{file_name}' already exists in Concepto with same name, skipping upload")
+                            should_upload = False
+                        else:
+                            self._log(f"[{take}] Different file name: existing='{existing_filename}', new='{file_name}' - will upload")
+                    
+                    if should_upload:
+                        if clip["clip_type"] == "video":
+                            self._log(f"[{take}] Uploading video: {file_name}")
+                            try:
+                                url = self.client.upload_shot_video(
+                                    shot.get("id"),
+                                    file_path,
+                                    self.cfg.episode_id,
+                                    seg.get("id"),
+                                    mode="replace",  # Use replace to update existing video
+                                    set_main=True,
+                                )
+                                self._log(f"[{take}] ✓ Uploaded video -> {url}")
+                            except Exception as e:
+                                self._log(f"[{take}] ✗ Video upload failed: {e}")
+                        else:
+                            self._log(f"[{take}] Uploading image: {file_name}")
+                            try:
+                                url = self.client.upload_shot_image(
+                                    shot.get("id"),
+                                    file_path,
+                                    self.cfg.episode_id,
+                                    seg.get("id"),
+                                    mode="replace",  # Use replace to update existing image
+                                )
+                                self._log(f"[{take}] ✓ Uploaded image -> {url}")
+                            except Exception as e:
+                                self._log(f"[{take}] ✗ Image upload failed: {e}")
+
+                # Export audio tracks to AV Preview
+                self._log("EXPORT SRT+VIDEO: Exporting audio tracks...")
+                try:
+                    a_tracks = int(timeline.GetTrackCount("audio") or 0)
+                    if a_tracks > 0:
+                        self._log(f"EXPORT SRT+VIDEO: Found {a_tracks} audio track(s)")
+                        
+                        audio_tracks_data: List[Dict[str, Any]] = []
+                        temp_audio_files: List[str] = []
+                        
+                        for track_idx in range(1, a_tracks + 1):
+                            items = timeline.GetItemListInTrack("audio", track_idx) or []
+                            if not items:
+                                continue
+                            
+                            # Get track name (try various methods)
+                            track_name = f"Audio {track_idx}"
+                            try:
+                                get_track_name = _method(timeline, "GetTrackName")
+                                if get_track_name:
+                                    name_result = timeline.GetTrackName("audio", track_idx)
+                                    if name_result:
+                                        track_name = name_result
+                            except Exception:
+                                pass
+                            
+                            self._log(f"EXPORT SRT+VIDEO: Processing audio track {track_idx}: '{track_name}' ({len(items)} clips)")
+                            
+                            clips_data: List[Dict[str, Any]] = []
+                            
+                            for item_idx, item in enumerate(items):
+                                try:
+                                    item_name = getattr(item, "GetName", lambda: "(unknown)")()
+                                    
+                                    # Get timeline position
+                                    start_frame = None
+                                    for m in ["GetStart", "GetStartFrame"]:
+                                        fn = _method(item, m)
+                                        if fn:
+                                            try:
+                                                start_frame = int(fn())
+                                                break
+                                            except Exception:
+                                                pass
+                                    
+                                    # Get duration
+                                    dur_frame = None
+                                    for m in ["GetDuration", "GetDurationFrames"]:
+                                        fn = _method(item, m)
+                                        if fn:
+                                            try:
+                                                dur_frame = int(fn())
+                                                break
+                                            except Exception:
+                                                pass
+                                    
+                                    if start_frame is None or dur_frame is None:
+                                        self._log(f"EXPORT SRT+VIDEO: Skipping audio clip '{item_name}' - could not read timing")
+                                        continue
+                                    
+                                    # Convert to relative seconds
+                                    rel_start_sec = (start_frame - int(tl_start_sec * fps)) / fps
+                                    dur_sec = dur_frame / fps
+                                    
+                                    # Get source offset
+                                    offset_frame = 0
+                                    for prop_name in ["SourceStart", "In", "StartFrame"]:
+                                        try:
+                                            get_prop = _method(item, "GetProperty")
+                                            if get_prop:
+                                                prop_val = get_prop(prop_name)
+                                                if prop_val is not None:
+                                                    offset_frame = int(prop_val)
+                                                    break
+                                        except Exception:
+                                            pass
+                                    offset_sec = offset_frame / fps
+                                    
+                                    # Get volume
+                                    volume = 1.0
+                                    try:
+                                        get_prop = _method(item, "GetProperty")
+                                        if get_prop:
+                                            vol_val = get_prop("AudioLevels") or get_prop("Volume")
+                                            if vol_val is not None:
+                                                if isinstance(vol_val, (list, tuple)) and len(vol_val) > 0:
+                                                    vol_db = float(vol_val[0])
+                                                    volume = max(0.0, min(1.0, 10 ** (vol_db / 20)))
+                                                elif isinstance(vol_val, (int, float)):
+                                                    volume = max(0.0, min(1.0, float(vol_val)))
+                                    except Exception:
+                                        pass
+                                    
+                                    # Get MediaPoolItem
+                                    media_pool_item = None
+                                    try:
+                                        get_mp_item = _method(item, "GetMediaPoolItem")
+                                        if get_mp_item:
+                                            media_pool_item = item.GetMediaPoolItem()
+                                    except Exception:
+                                        pass
+                                    
+                                    if not media_pool_item:
+                                        self._log(f"EXPORT SRT+VIDEO: Warning: Could not get MediaPoolItem for '{item_name}', skipping")
+                                        continue
+                                    
+                                    # Get file path
+                                    file_path = None
+                                    try:
+                                        get_file_path = _method(media_pool_item, "GetClipProperty")
+                                        if get_file_path:
+                                            props = media_pool_item.GetClipProperty(["File Path"])
+                                            if props and isinstance(props, dict):
+                                                file_path = props.get("File Path") or props.get("FilePath")
+                                    except Exception:
+                                        pass
+                                    
+                                    if not file_path or not os.path.exists(file_path):
+                                        self._log(f"EXPORT SRT+VIDEO: Warning: Source file not found for '{item_name}', skipping")
+                                        continue
+                                    
+                                    # Copy file to temp location
+                                    file_ext = os.path.splitext(file_path)[1][1:] or 'mp3'
+                                    export_filename = f"{_safe_slug(track_name)}_{item_idx+1}_{_safe_slug(item_name)}.{file_ext}"
+                                    export_dir = Path(self.cfg.download_root) / "_temp_audio_export"
+                                    export_dir.mkdir(parents=True, exist_ok=True)
+                                    export_path = export_dir / export_filename
+                                    
+                                    import shutil
+                                    shutil.copy2(file_path, export_path)
+                                    temp_audio_files.append(str(export_path))
+                                    
+                                    # Upload to Concepto
+                                    try:
+                                        audio_url = self.client.upload_audio_clip(self.cfg.episode_id, str(export_path))
+                                        
+                                        # Get source duration
+                                        source_duration_sec = 0.0
+                                        try:
+                                            src_dur_val = media_pool_item.GetClipProperty("Duration")
+                                            if src_dur_val:
+                                                if ":" in str(src_dur_val):
+                                                    parts = str(src_dur_val).split(":")
+                                                    if len(parts) == 4:
+                                                        source_duration_sec = int(parts[0])*3600 + int(parts[1])*60 + int(parts[2]) + (int(parts[3])/fps)
+                                                else:
+                                                    source_duration_sec = float(src_dur_val) / fps
+                                        except Exception:
+                                            pass
+                                        
+                                        clips_data.append({
+                                            "id": f"clip_{track_idx}_{item_idx}_{int(time.time())}",
+                                            "name": item_name,
+                                            "url": audio_url,
+                                            "startTime": rel_start_sec,
+                                            "duration": dur_sec,
+                                            "offset": offset_sec,
+                                            "volume": volume,
+                                            "sourceDuration": source_duration_sec or dur_sec
+                                        })
+                                        self._log(f"EXPORT SRT+VIDEO: ✓ Uploaded audio clip '{item_name}' from track '{track_name}'")
+                                    except Exception as e:
+                                        self._log(f"EXPORT SRT+VIDEO: ✗ Failed to upload audio clip '{item_name}': {e}")
+                                
+                                except Exception as e:
+                                    self._log(f"EXPORT SRT+VIDEO: Error processing audio clip: {e}")
+                                    continue
+                            
+                            if clips_data:
+                                audio_tracks_data.append({
+                                    "id": f"track_{track_idx}",
+                                    "name": track_name,
+                                    "type": "audio",
+                                    "clips": clips_data,
+                                    "isMuted": False,
+                                    "volume": 1.0
+                                })
+                        
+                        if audio_tracks_data:
+                            self._log(f"EXPORT SRT+VIDEO: Sending {len(audio_tracks_data)} audio track(s) to Concepto...")
+                            self.client.update_audio_tracks(self.cfg.episode_id, audio_tracks_data)
+                            self._log(f"EXPORT SRT+VIDEO: ✓ Successfully exported {len(audio_tracks_data)} audio track(s) to AV Preview")
+                        else:
+                            self._log("EXPORT SRT+VIDEO: No audio clips were successfully exported")
+                        
+                        # Cleanup temp files
+                        for temp_file in temp_audio_files:
+                            try:
+                                if os.path.exists(temp_file):
+                                    os.remove(temp_file)
+                            except Exception:
+                                pass
+                        # Remove temp directory if empty
+                        try:
+                            export_dir = Path(self.cfg.download_root) / "_temp_audio_export"
+                            if export_dir.exists():
+                                try:
+                                    export_dir.rmdir()
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+                    else:
+                        self._log("EXPORT SRT+VIDEO: No audio tracks found in timeline")
+                except Exception as e:
+                    self._log(f"EXPORT SRT+VIDEO: Error exporting audio tracks: {e}")
+                    import traceback
+                    self._log(f"Traceback: {traceback.format_exc()}")
+
+                self._log("EXPORT SRT+VIDEO: Complete.")
+            except Exception as e:
+                self._log(f"EXPORT SRT+VIDEO ERROR: {e}")
+                import traceback
+                self._log(f"Traceback: {traceback.format_exc()}")
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def on_export_audio(self):
         """Export audio tracks from Resolve timeline to Concepto AV Preview (Tkinter version)"""
         def worker():
@@ -4986,35 +6355,35 @@ class MainWindowTk:
                             shutil.copy2(file_path, export_path)
                             temp_audio_files.append(str(export_path))
                             
-                                self._log(f"  -> Uploading: {item_name} ({dur_sec:.1f}s)")
-                                audio_url = self.client.upload_audio_clip(self.cfg.episode_id, str(export_path))
-                                
-                                # Get source duration for AV Preview to avoid metadata loading timeout
-                                source_duration_sec = 0.0
-                                try:
-                                    # Get full source duration from MediaPoolItem properties
-                                    src_dur_val = media_pool_item.GetClipProperty("Duration")
-                                    if src_dur_val:
-                                        # Parse duration string "HH:MM:SS:FF" or frame count
-                                        if ":" in str(src_dur_val):
-                                            parts = str(src_dur_val).split(":")
-                                            if len(parts) == 4:
-                                                source_duration_sec = int(parts[0])*3600 + int(parts[1])*60 + int(parts[2]) + (int(parts[3])/fps)
-                                        else:
-                                            source_duration_sec = float(src_dur_val) / fps
-                                except:
-                                    pass
+                            self._log(f"  -> Uploading: {item_name} ({dur_sec:.1f}s)")
+                            audio_url = self.client.upload_audio_clip(self.cfg.episode_id, str(export_path))
+                            
+                            # Get source duration for AV Preview to avoid metadata loading timeout
+                            source_duration_sec = 0.0
+                            try:
+                                # Get full source duration from MediaPoolItem properties
+                                src_dur_val = media_pool_item.GetClipProperty("Duration")
+                                if src_dur_val:
+                                    # Parse duration string "HH:MM:SS:FF" or frame count
+                                    if ":" in str(src_dur_val):
+                                        parts = str(src_dur_val).split(":")
+                                        if len(parts) == 4:
+                                            source_duration_sec = int(parts[0])*3600 + int(parts[1])*60 + int(parts[2]) + (int(parts[3])/fps)
+                                    else:
+                                        source_duration_sec = float(src_dur_val) / fps
+                            except:
+                                pass
 
-                                clips_data.append({
-                                    "id": f"clip_{track_idx}_{item_idx}_{int(time.time())}",
-                                    "name": item_name,
-                                    "url": audio_url,
-                                    "startTime": rel_start_sec,
-                                    "duration": dur_sec,
-                                    "offset": offset_sec,
-                                    "volume": 1.0,
-                                    "sourceDuration": source_duration_sec or dur_sec # Fallback to clip duration if source fails
-                                })
+                            clips_data.append({
+                                "id": f"clip_{track_idx}_{item_idx}_{int(time.time())}",
+                                "name": item_name,
+                                "url": audio_url,
+                                "startTime": rel_start_sec,
+                                "duration": dur_sec,
+                                "offset": offset_sec,
+                                "volume": 1.0,
+                                "sourceDuration": source_duration_sec or dur_sec # Fallback to clip duration if source fails
+                            })
                             total_clips_count += 1
                         except Exception as e:
                             self._log(f"  ✗ Error on clip {item_idx}: {e}")
