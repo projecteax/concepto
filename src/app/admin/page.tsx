@@ -68,6 +68,11 @@ export default function AdminPage() {
     setUsers(prev => prev.map(item => (item.id === userId ? { ...item, role } : item)));
   };
 
+  const handleAiAccessChange = async (userId: string, aiAccessEnabled: boolean) => {
+    await userService.updateAiAccess(userId, aiAccessEnabled);
+    setUsers(prev => prev.map(item => (item.id === userId ? { ...item, aiAccessEnabled } : item)));
+  };
+
   const handleSetShowAccess = async () => {
     if (!selectedUserId || !selectedShowId) return;
     const entry = await showAccessService.setAccess(selectedShowId, selectedUserId, selectedRole);
@@ -143,11 +148,20 @@ export default function AdminPage() {
                 <div className="space-y-3">
                   {users.map(item => (
                     <div key={item.id} className="flex items-center justify-between border-b pb-2 last:border-b-0">
-                      <div>
+                      <div className="flex-1">
                         <p className="text-sm font-medium text-gray-900">{item.name}</p>
                         <p className="text-xs text-gray-500">@{item.username} · {item.email}</p>
                       </div>
-                      <div>
+                      <div className="flex items-center gap-3">
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={item.aiAccessEnabled !== false}
+                            onChange={(e) => handleAiAccessChange(item.id, e.target.checked)}
+                            className="w-4 h-4"
+                          />
+                          <span className="text-xs text-gray-600">AI Access</span>
+                        </label>
                         <select
                           value={item.role}
                           onChange={(e) => handleRoleChange(item.id, e.target.value as UserProfile['role'])}

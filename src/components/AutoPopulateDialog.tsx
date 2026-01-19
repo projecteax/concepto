@@ -9,6 +9,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { ScreenplayData, AVScript, AVSegment, AVShot } from '@/types';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface AutoPopulateDialogProps {
   isOpen: boolean;
@@ -41,6 +42,7 @@ export function AutoPopulateDialog({
   screenplayData,
   avScript,
 }: AutoPopulateDialogProps) {
+  const { user } = useAuth();
   const [selectedLanguage, setSelectedLanguage] = useState<'pl' | 'en'>('pl');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -244,6 +246,12 @@ export function AutoPopulateDialog({
   const handleGenerate = async () => {
     if (!screenplayData) {
       alert('No screenplay data available. Please ensure screenplay data exists.');
+      return;
+    }
+    
+    // Check AI access before making API call
+    if (user?.aiAccessEnabled === false) {
+      alert('You don\'t have permissions to use AI features on this platform.');
       return;
     }
 

@@ -93,3 +93,13 @@ export const hasOnlyEpisodeAccess = (
   
   return false;
 };
+
+/**
+ * Check if user has AI access enabled
+ * Defaults to true if not set (for backward compatibility)
+ */
+export const hasAiAccess = (user: UserProfile | null): boolean => {
+  if (!user) return false;
+  // Default to true if not set (backward compatibility)
+  return user.aiAccessEnabled !== false;
+};

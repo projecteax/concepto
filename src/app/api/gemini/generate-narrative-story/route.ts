@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { checkAiAccessInRoute } from '@/lib/ai-access-check';
 
 const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GEMINI_API_KEY || '');
 
@@ -62,6 +63,11 @@ function safeJsonParse<T>(text: string): T | null {
 
 export async function POST(request: NextRequest) {
   try {
+    // Optional AI access check (safety check - frontend should handle the main check)
+    const accessCheck = await checkAiAccessInRoute(request);
+    if (accessCheck) {
+      return accessCheck;
+    }
     const body = (await request.json()) as {
       language?: Language;
       showName?: string;

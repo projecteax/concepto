@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { X, Sparkles, Loader2 } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface BackstoryGenerationDialogProps {
   isOpen: boolean;
@@ -26,6 +27,7 @@ export function BackstoryGenerationDialog({
   targetAge = '6-8',
   currentBackstory,
 }: BackstoryGenerationDialogProps) {
+  const { user } = useAuth();
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +45,12 @@ export function BackstoryGenerationDialog({
   const handleGenerate = async () => {
     if (!prompt.trim()) {
       setError('Please enter a prompt');
+      return;
+    }
+    
+    // Check AI access before making API call
+    if (user?.aiAccessEnabled === false) {
+      alert('You don\'t have permissions to use AI features on this platform.');
       return;
     }
 

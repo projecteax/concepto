@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { useSessionStorageState } from '@/hooks/useSessionStorageState';
+import { useAuth } from '@/contexts/AuthContext';
 import CommentThread from './CommentThread';
 import { ImageGenerationDialog } from './ImageGenerationDialog';
 import { AVEnhanceDialog } from './AVEnhanceDialog';
@@ -402,8 +403,14 @@ export function AVScriptEditor({
 
   // Calculate totals whenever script changes
   useEffect(() => {
-    const totalWords = script.segments.reduce((sum, segment) => sum + segment.totalWords, 0);
-    const totalRuntime = script.segments.reduce((sum, segment) => sum + segment.totalRuntime, 0);
+    // Calculate totals directly from shots (not from segment totals)
+    const totalWords = script.segments.reduce((sum, segment) => {
+      return sum + segment.shots.reduce((shotSum, shot) => shotSum + shot.wordCount, 0);
+    }, 0);
+    // Calculate totalRuntime from all shot durations (not runtime) across all segments
+    const totalRuntime = script.segments.reduce((sum, segment) => {
+      return sum + segment.shots.reduce((shotSum, shot) => shotSum + (shot.duration || 0), 0);
+    }, 0);
     
     setScript(prev => ({
       ...prev,
@@ -1420,7 +1427,7 @@ export function AVScriptEditor({
 
       // Recalculate segment totals
       targetSegment.totalWords = targetSegment.shots.reduce((sum, s) => sum + s.wordCount, 0);
-      targetSegment.totalRuntime = targetSegment.shots.reduce((sum, s) => sum + s.runtime, 0);
+      targetSegment.totalRuntime = targetSegment.shots.reduce((sum, s) => sum + (s.duration || 0), 0);
       targetSegment.updatedAt = new Date();
     } else {
       // Original logic: Group shots by segment
@@ -1499,7 +1506,7 @@ export function AVScriptEditor({
 
       // Recalculate segment totals
       segment.totalWords = segment.shots.reduce((sum, s) => sum + s.wordCount, 0);
-      segment.totalRuntime = segment.shots.reduce((sum, s) => sum + s.runtime, 0);
+      segment.totalRuntime = segment.shots.reduce((sum, s) => sum + (s.duration || 0), 0);
       segment.updatedAt = new Date();
       });
     }
@@ -2789,6 +2796,7 @@ function ShotRow({
   isAnyPopupOpen = false,
   calculateShotCost
 }: ShotRowProps) {
+  const { user } = useAuth();
   const [showAudioPopup, setShowAudioPopup] = useState(false);
   const [showEnhanceDialog, setShowEnhanceDialog] = useState(false);
   const [videoUploadProgress, setVideoUploadProgress] = useState<number | null>(null);
@@ -2842,6 +2850,12 @@ function ShotRow({
   const handleGenerateAudio = async () => {
     if (!generateText.trim()) {
       alert('Please enter text to generate audio');
+      return;
+    }
+    
+    // Check AI access before making API call
+    if (user?.aiAccessEnabled === false) {
+      alert('You don\'t have permissions to use AI features on this platform.');
       return;
     }
 

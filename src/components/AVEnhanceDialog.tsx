@@ -9,6 +9,7 @@ import {
   Check
 } from 'lucide-react';
 import { AVShot, EnhancementMessage, EnhancementThread } from '@/types';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface AVEnhanceDialogProps {
   isOpen: boolean;
@@ -23,6 +24,7 @@ export function AVEnhanceDialog({
   onEnhancementComplete,
   shot,
 }: AVEnhanceDialogProps) {
+  const { user } = useAuth();
   const [messages, setMessages] = useState<EnhancementMessage[]>([]);
   const [editablePrompt, setEditablePrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);

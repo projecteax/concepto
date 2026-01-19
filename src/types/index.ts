@@ -9,6 +9,7 @@ export interface UserProfile {
   role: 'admin' | 'user';
   avatarUrl?: string;
   lastActiveAt?: Date;
+  aiAccessEnabled?: boolean; // Defaults to true if not set (for backward compatibility)
   createdAt: Date;
   updatedAt: Date;
 }

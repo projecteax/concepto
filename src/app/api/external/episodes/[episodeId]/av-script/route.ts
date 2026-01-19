@@ -129,7 +129,9 @@ export async function POST(
       const visual = incomingShot.visual ?? '';
       const duration = Number(incomingShot.duration ?? 0);
       const wordCount = calculateWordCount(audio);
-      const runtime = calculateRuntime(audio);
+      // If audio is empty but duration is set, use duration for runtime (for images/videos)
+      // Otherwise calculate runtime from audio text
+      const runtime = audio.trim() ? calculateRuntime(audio) : (duration > 0 ? duration : 0);
 
       if (existingShot) {
         existingShot.audio = audio || existingShot.audio;

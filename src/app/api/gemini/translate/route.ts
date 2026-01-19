@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
+import { checkAiAccessInRoute } from '@/lib/ai-access-check';
 
 // Increase body size limit for large screenplays (10MB)
 export const maxDuration = 300; // 5 minutes
@@ -105,6 +106,12 @@ async function translateChunk(
 
 export async function POST(request: NextRequest) {
   try {
+    // Optional AI access check (safety check - frontend should handle the main check)
+    const accessCheck = await checkAiAccessInRoute(request);
+    if (accessCheck) {
+      return accessCheck;
+    }
+    
     // Parse request body with error handling
     let body: { prompt?: string; polishText?: string; screenplayTitle?: string };
     try {

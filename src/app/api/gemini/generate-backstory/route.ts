@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
+import { checkAiAccessInRoute } from '@/lib/ai-access-check';
 
 const genAI = new GoogleGenAI({
   apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY || ''
@@ -10,6 +11,11 @@ export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   try {
+    // Optional AI access check (safety check - frontend should handle the main check)
+    const accessCheck = await checkAiAccessInRoute(request);
+    if (accessCheck) {
+      return accessCheck;
+    }
     const body = await request.json();
     const { 
       characterName, 

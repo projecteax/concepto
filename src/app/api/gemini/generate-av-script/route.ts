@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
+import { checkAiAccessInRoute } from '@/lib/ai-access-check';
 
 export const maxDuration = 300; // 5 minutes per segment for longer scripts
 export const runtime = 'nodejs';
@@ -10,6 +11,11 @@ const genAI = new GoogleGenAI({
 
 export async function POST(request: NextRequest) {
   try {
+    // Optional AI access check (safety check - frontend should handle the main check)
+    const accessCheck = await checkAiAccessInRoute(request);
+    if (accessCheck) {
+      return accessCheck;
+    }
     const body = await request.json();
     const { prompt, scriptContent, segmentNumber, totalSegments } = body;
 

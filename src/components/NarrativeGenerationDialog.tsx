@@ -5,6 +5,7 @@ import { X, Sparkles, Loader2, CheckCircle, AlertCircle, BookOpen, Clock } from 
 import type { NarrativeStoryVersion, ScreenplayData, ScreenplayElement } from '@/types';
 import type { ScreenplayVersion } from './ScreenplayGenerationDialog';
 import { NarrativeReaderDialog } from './NarrativeReaderDialog';
+import { useAuth } from '@/contexts/AuthContext';
 
 type Language = 'PL' | 'EN';
 
@@ -75,6 +76,7 @@ export function NarrativeGenerationDialog({
   selectedNarrativeIdEN,
   onNarrativeSelected,
 }: NarrativeGenerationDialogProps) {
+  const { user } = useAuth();
   const [language, setLanguage] = useState<Language>(preferredLanguage);
   const [selectedSourceId, setSelectedSourceId] = useState<string>('current');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -152,6 +154,12 @@ export function NarrativeGenerationDialog({
   };
 
   const handleGenerate = async () => {
+    // Check AI access before making API call
+    if (user?.aiAccessEnabled === false) {
+      alert('You don\'t have permissions to use AI features on this platform.');
+      return;
+    }
+    
     setError(null);
     const { text: screenplayText, sourceVersionId, sourceLabel } = getScreenplayTextForSelectedSource();
 

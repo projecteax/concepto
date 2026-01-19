@@ -30,6 +30,7 @@ import { GlobalAsset, Character, AVShotImageGenerationThread } from '@/types';
 import { Button } from '@/components/ui/button';
 import { ReactSketchCanvas, ReactSketchCanvasRef } from 'react-sketch-canvas';
 import { useS3Upload } from '@/hooks/useS3Upload';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface ImageGenerationDialogProps {
   isOpen: boolean;
@@ -80,6 +81,8 @@ export function ImageGenerationDialog({
   currentShotImageUrl,
   currentShotVideoUrl,
 }: ImageGenerationDialogProps) {
+  const { user } = useAuth();
+  
   // Helper function to format model names for display
   const formatModelName = (modelName?: string): string => {
     if (!modelName) return 'N/A';
@@ -1780,6 +1783,12 @@ export function ImageGenerationDialog({
     setShowPreview(false);
     if (!previewData) return;
     
+    // Check AI access before making API call
+    if (user?.aiAccessEnabled === false) {
+      alert('You don\'t have permissions to use AI features on this platform.');
+      return;
+    }
+    
     const promptToUse = previewData.prompt;
     const messageText = inputText.trim();
     const isFirstGeneration = generatedImages.length === 0;
@@ -1869,7 +1878,29 @@ export function ImageGenerationDialog({
         
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-          throw new Error(errorData.error || `Server error: ${response.status}`);
+          const errorMessage = errorData.error || errorData.details || `Server error: ${response.status}`;
+          
+          // Log the full error for debugging
+          console.error('Image generation API error:', errorData);
+          console.error('Error message:', errorMessage);
+          console.error('Response status:', response.status);
+          
+          // Provide more helpful error messages for common issues
+          if (errorMessage.includes('not available in your country') || 
+              errorMessage.includes('not available in your region')) {
+            throw new Error('Image generation is not available in your region. This is a limitation of the Gemini API. Please contact support for alternatives.');
+          } else if (errorMessage.includes('only supports text') || 
+                     errorMessage.includes('INVALID_ARGUMENT')) {
+            throw new Error('The selected model does not support image generation. Please try again or contact support.');
+          } else if ((errorMessage.toLowerCase().includes('api key') && errorMessage.toLowerCase().includes('invalid')) ||
+                     (errorMessage.toLowerCase().includes('authentication') && errorMessage.toLowerCase().includes('failed')) ||
+                     errorMessage.includes('401') ||
+                     errorMessage.includes('403')) {
+            throw new Error('API authentication failed. Please check your Gemini API key configuration in your environment variables.');
+          }
+          
+          // For other errors, show the actual error message from the API
+          throw new Error(errorMessage || `Server error: ${response.status}`);
         }
         
         const data = await response.json();

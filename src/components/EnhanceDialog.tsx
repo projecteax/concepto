@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { ScreenplayElement, EnhancementMessage, EnhancementThread } from '@/types';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface EnhanceDialogProps {
   isOpen: boolean;
@@ -24,6 +25,7 @@ export function EnhanceDialog({
   onEnhancementComplete,
   element,
 }: EnhanceDialogProps) {
+  const { user } = useAuth();
   const [messages, setMessages] = useState<EnhancementMessage[]>([]);
   const [editablePrompt, setEditablePrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -69,6 +71,12 @@ export function EnhanceDialog({
   const handleGenerate = async () => {
     if (!editablePrompt.trim()) {
       alert('Please enter a prompt');
+      return;
+    }
+    
+    // Check AI access before making API call
+    if (user?.aiAccessEnabled === false) {
+      alert('You don\'t have permissions to use AI features on this platform.');
       return;
     }
 

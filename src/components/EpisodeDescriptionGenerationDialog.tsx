@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Sparkles, Loader2, CheckCircle } from 'lucide-react';
 import type { PlotTheme } from '@/types';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface EpisodeDescriptionGenerationDialogProps {
   isOpen: boolean;
@@ -32,6 +33,7 @@ export function EpisodeDescriptionGenerationDialog({
   currentDescription,
   plotTheme = null,
 }: EpisodeDescriptionGenerationDialogProps) {
+  const { user } = useAuth();
   const [prompt, setPrompt] = useState('');
   const [generatedDescriptions, setGeneratedDescriptions] = useState<GeneratedDescription[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -60,6 +62,12 @@ export function EpisodeDescriptionGenerationDialog({
   const handleGenerate = async () => {
     if (!prompt.trim()) {
       alert('Please provide a prompt');
+      return;
+    }
+    
+    // Check AI access before making API call
+    if (user?.aiAccessEnabled === false) {
+      alert('You don\'t have permissions to use AI features on this platform.');
       return;
     }
 

@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Sparkles, Loader2, AlertCircle, Clock, CheckCircle, BookOpen, Users, Check, Download, Upload } from 'lucide-react';
 import { ScreenplayElement, PlotTheme, GlobalAsset, Character } from '@/types';
+import { useAuth } from '@/contexts/AuthContext';
 
 export interface ScreenplayVersion {
   id: string;
@@ -60,6 +61,7 @@ export function ScreenplayGenerationDialog({
   initialPlotThemeId,
   initialCharacterIds,
 }: ScreenplayGenerationDialogProps) {
+  const { user } = useAuth();
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);

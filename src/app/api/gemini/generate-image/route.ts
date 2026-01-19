@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
 import { uploadToS3 } from '@/lib/s3-service';
+import { checkAiAccessInRoute } from '@/lib/ai-access-check';
 
 const genAI = new GoogleGenAI({
   apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY || ''
@@ -8,6 +9,24 @@ const genAI = new GoogleGenAI({
 
 export async function POST(request: NextRequest) {
   try {
+    // Check if API key is configured
+    const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+    if (!apiKey || apiKey.trim() === '') {
+      console.error('Gemini API key is not configured');
+      return NextResponse.json(
+        { error: 'API key is not configured. Please check your environment variables.' },
+        { status: 500 }
+      );
+    }
+    
+    // Log API key status (first few chars only for security)
+    console.log(`[Image Generation] API key configured: ${apiKey ? `${apiKey.substring(0, 10)}...` : 'NOT SET'}`);
+    
+    // Optional AI access check (safety check - frontend should handle the main check)
+    const accessCheck = await checkAiAccessInRoute(request);
+    if (accessCheck) {
+      return accessCheck;
+    }
     const body = await request.json() as {
       prompt?: string;
       style?: string;
@@ -225,9 +244,9 @@ export async function POST(request: NextRequest) {
 
     // Generate image using the same pattern as existing gemini.ts
     // Note: For image generation, we need to use a model that supports it
-    // Try gemini-2.5-flash-image-preview first, fallback to gemini-2.5-flash
+    // Try different model names as some may be deprecated or region-restricted
     let response;
-    let modelUsed = "gemini-2.5-flash-image-preview"; // Track which model was used
+    let modelUsed = "gemini-2.5-flash-image"; // Try newer model name first
     
     // If we only have text (no images), pass as string like existing code
     // If we have images, pass as array of parts
@@ -235,48 +254,127 @@ export async function POST(request: NextRequest) {
       ? parts[0].text 
       : parts;
     
-    try {
-      // Type assertion to bypass SDK type limitations for imageConfig
-      const configWithImageConfig = {
-        responseModalities: ["IMAGE"],
-        imageConfig: {
-          aspectRatio: "16:9",
-        },
-      } as never;
-      
-      response = await genAI.models.generateContent({
-        model: "gemini-2.5-flash-image-preview",
-        contents: contents,
-        config: configWithImageConfig,
-      });
-    } catch (error: unknown) {
-      // If image-preview model doesn't work, try regular flash
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.log('Image preview model failed, trying regular flash:', errorMessage);
+    // Type assertion to bypass SDK type limitations for imageConfig
+    const configWithImageConfig = {
+      responseModalities: ["IMAGE"],
+      imageConfig: {
+        aspectRatio: "16:9",
+      },
+    } as never;
+    
+    // Try multiple model names in order of preference
+    const modelsToTry = [
+      "gemini-2.5-flash-image",
+      "gemini-2.5-flash-image-preview",
+      "gemini-2.0-flash-exp-image-generation",
+    ];
+    
+    console.log(`[Image Generation] Attempting to generate image with ${modelsToTry.length} model(s)`);
+    console.log(`[Image Generation] Contents type: ${typeof contents}, is array: ${Array.isArray(contents)}, length: ${Array.isArray(contents) ? contents.length : 'N/A'}`);
+    
+    let lastError: Error | null = null;
+    for (const modelName of modelsToTry) {
       try {
-        // Type assertion to bypass SDK type limitations for imageConfig
-        const configWithImageConfig = {
-          responseModalities: ["IMAGE"],
-          imageConfig: {
-            aspectRatio: "16:9",
-          },
-        } as never;
-        
-        modelUsed = "gemini-2.5-flash"; // Update model name
+        console.log(`[Image Generation] Trying model: ${modelName}`);
+        modelUsed = modelName;
         response = await genAI.models.generateContent({
-          model: "gemini-2.5-flash",
+          model: modelName,
           contents: contents,
           config: configWithImageConfig,
         });
-      } catch (fallbackError: unknown) {
-        const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : 'Unknown error';
-        console.error('Both models failed:', fallbackError);
-        throw new Error(`Image generation failed: ${fallbackMessage}`);
+        console.log(`[Image Generation] Success with model: ${modelName}`);
+        // If we get here, the model worked
+        break;
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorObj = error as { error?: { message?: string; code?: number; status?: string }; message?: string; code?: number; status?: string; response?: { status?: number; statusText?: string } };
+        
+        // Log the full error for debugging
+        console.error(`[Image Generation] Model ${modelName} error:`, error);
+        console.error(`[Image Generation] Error message:`, errorMessage);
+        console.error(`[Image Generation] Error object keys:`, Object.keys(errorObj || {}));
+        
+        // Extract the actual error message from various possible locations
+        const actualErrorMsg = errorObj?.error?.message || errorObj?.message || errorMessage;
+        const errorStatus = errorObj?.error?.status || errorObj?.status;
+        const errorCode = errorObj?.error?.code || errorObj?.code;
+        const httpStatus = errorObj?.response?.status;
+        
+        console.error(`[Image Generation] Actual error message:`, actualErrorMsg);
+        console.error(`[Image Generation] Error status:`, errorStatus);
+        console.error(`[Image Generation] Error code:`, errorCode);
+        console.error(`[Image Generation] HTTP status:`, httpStatus);
+        
+        // Check for API key/authentication errors (only if explicitly about auth)
+        if (actualErrorMsg.toLowerCase().includes('api key') || 
+            actualErrorMsg.toLowerCase().includes('authentication') ||
+            actualErrorMsg.toLowerCase().includes('unauthorized') ||
+            actualErrorMsg.toLowerCase().includes('invalid api key') ||
+            httpStatus === 401 ||
+            httpStatus === 403 ||
+            errorCode === 401 ||
+            errorCode === 403) {
+          lastError = new Error(`API authentication failed: ${actualErrorMsg}. Please check your Gemini API key configuration.`);
+          // Don't try other models if it's an auth error
+          break;
+        }
+        
+        // Check if it's a geo-restriction or model availability error
+        if (actualErrorMsg.includes('not available in your country') ||
+            (actualErrorMsg.includes('not available') && actualErrorMsg.includes('country')) ||
+            errorStatus === 'FAILED_PRECONDITION') {
+          lastError = new Error(`Image generation is not available in your region. Model ${modelName} returned: ${actualErrorMsg}`);
+          continue; // Try next model
+        }
+        
+        // Check if model doesn't support image generation
+        if (actualErrorMsg.includes('only supports text') ||
+            actualErrorMsg.includes('INVALID_ARGUMENT') ||
+            errorStatus === 'INVALID_ARGUMENT') {
+          lastError = new Error(`Model ${modelName} does not support image generation: ${actualErrorMsg}`);
+          continue; // Try next model
+        }
+        
+        // For other errors, log and continue to next model
+        console.log(`Model ${modelName} failed with error:`, actualErrorMsg);
+        lastError = error instanceof Error ? error : new Error(actualErrorMsg || errorMessage);
+        continue;
       }
+    }
+    
+    // If all models failed, throw a helpful error
+    if (!response) {
+      const errorMessage = lastError?.message || 'All image generation models failed';
+      console.error('All image generation models failed. Last error:', lastError);
+      return NextResponse.json(
+        { 
+          error: errorMessage,
+          details: 'Image generation may not be available in your region or with your API key tier. Please check your Gemini API access or try again later.',
+        },
+        { status: 503 }
+      );
     }
 
     // Extract image from response - same pattern as existing code
     let imageData: { data: string; mimeType?: string } | null = null;
+    
+    // Log the response structure for debugging
+    console.log('[Image Generation] Response structure:', {
+      hasCandidates: !!response.candidates,
+      candidatesLength: response.candidates?.length || 0,
+      firstCandidate: response.candidates?.[0] ? {
+        hasContent: !!response.candidates[0].content,
+        hasParts: !!response.candidates[0].content?.parts,
+        partsLength: response.candidates[0].content?.parts?.length || 0,
+        partsTypes: response.candidates[0].content?.parts?.map((p: unknown) => {
+          const part = p as { inlineData?: unknown; text?: unknown };
+          return {
+            hasInlineData: !!part.inlineData,
+            hasText: !!part.text,
+          };
+        }) || [],
+      } : null,
+    });
     
     for (const part of response.candidates?.[0]?.content?.parts || []) {
       if (part.inlineData && part.inlineData.data) {
@@ -284,14 +382,78 @@ export async function POST(request: NextRequest) {
           data: part.inlineData.data,
           mimeType: part.inlineData.mimeType || 'image/png',
         };
+        console.log('[Image Generation] Found image data in response');
         break;
+      } else if (part.text) {
+        // Log if we got text instead of image
+        const textContent = (part as { text: string }).text;
+        console.warn('[Image Generation] Got text response instead of image:', textContent.substring(0, 200));
       }
     }
     
     if (!imageData || !imageData.data) {
-      console.error('No image data in response');
+      console.error('[Image Generation] No image data in response');
+      
+      // Check finish reason and safety ratings
+      const candidate = response.candidates?.[0];
+      const finishReason = candidate?.finishReason;
+      const safetyRatings = candidate?.safetyRatings;
+      
+      console.error('[Image Generation] Finish reason:', finishReason);
+      console.error('[Image Generation] Safety ratings:', safetyRatings);
+      
+      // Check if we got text instead of image
+      const textParts = candidate?.content?.parts?.filter((p: unknown) => {
+        const part = p as { text?: string };
+        return part.text;
+      }) || [];
+      
+      if (textParts.length > 0) {
+        const textContent = (textParts[0] as { text: string }).text;
+        console.error('[Image Generation] Text response received:', textContent);
+        return NextResponse.json(
+          { 
+            error: 'The API returned text instead of an image. This model may not support image generation.',
+            details: textContent.substring(0, 500),
+            finishReason: finishReason,
+          },
+          { status: 500 }
+        );
+      }
+      
+      // Check finish reason for specific errors
+      if (finishReason === 'SAFETY' || finishReason === 'RECITATION') {
+        return NextResponse.json(
+          { 
+            error: 'Image generation was blocked due to safety or content policy restrictions.',
+            details: `Finish reason: ${finishReason}. Please modify your prompt and try again.`,
+            finishReason: finishReason,
+          },
+          { status: 400 }
+        );
+      }
+      
+      if (finishReason === 'OTHER' || finishReason === 'MAX_TOKENS') {
+        return NextResponse.json(
+          { 
+            error: 'Image generation failed due to model limitations.',
+            details: `Finish reason: ${finishReason}. The model may not support image generation or the request was too complex.`,
+            finishReason: finishReason,
+          },
+          { status: 500 }
+        );
+      }
+      
+      // Log full response for debugging (truncated)
+      const responseStr = JSON.stringify(response, null, 2);
+      console.error('[Image Generation] Full response (first 1000 chars):', responseStr.substring(0, 1000));
+      
       return NextResponse.json(
-        { error: 'No image generated. Please check your API key and model availability.' },
+        { 
+          error: 'No image generated. The API response did not contain image data.',
+          details: `Finish reason: ${finishReason || 'UNKNOWN'}. The model may not support image generation. Please check the server logs for more details.`,
+          finishReason: finishReason,
+        },
         { status: 500 }
       );
     }

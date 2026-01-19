@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { ScreenplayData } from '@/types';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface TranslationDialogProps {
   isOpen: boolean;
@@ -35,6 +36,7 @@ export function TranslationDialog({
   fromLanguage = 'PL',
   toLanguage = 'EN',
 }: TranslationDialogProps) {
+  const { user } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [editablePrompt, setEditablePrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);

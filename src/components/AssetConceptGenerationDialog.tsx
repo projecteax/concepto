@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { GlobalAsset, Character, AssetConcept } from '@/types';
 import { useS3Upload } from '@/hooks/useS3Upload';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface AssetConceptGenerationDialogProps {
   isOpen: boolean;
@@ -81,6 +82,7 @@ export function AssetConceptGenerationDialog({
   showId,
   selectedReferenceImages = [],
 }: AssetConceptGenerationDialogProps) {
+  const { user } = useAuth();
   const [selectedStyle, setSelectedStyle] = useState<ArtStyle>('3d-pixar');
   const [selectedConceptType, setSelectedConceptType] = useState<ConceptType>('full-body');
   const [customPrompt, setCustomPrompt] = useState('');
@@ -188,6 +190,12 @@ export function AssetConceptGenerationDialog({
   const handleGenerate = async () => {
     if (!editablePrompt.trim()) {
       alert('Please provide a prompt');
+      return;
+    }
+    
+    // Check AI access before making API call
+    if (user?.aiAccessEnabled === false) {
+      alert('You don\'t have permissions to use AI features on this platform.');
       return;
     }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { ScreenplayElement } from '@/types';
+import { checkAiAccessInRoute } from '@/lib/ai-access-check';
 
 const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GEMINI_API_KEY || '');
 
@@ -261,6 +262,12 @@ OUTPUT JSON SCHEMA (exact keys):
 
 export async function POST(request: NextRequest) {
   try {
+    // Optional AI access check (safety check - frontend should handle the main check)
+    const accessCheck = await checkAiAccessInRoute(request);
+    if (accessCheck) {
+      return accessCheck;
+    }
+    
     const raw = (await request.json()) as unknown;
 
     const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;

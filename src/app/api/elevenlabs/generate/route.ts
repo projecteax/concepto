@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { checkAiAccessInRoute } from '@/lib/ai-access-check';
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 const ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1/text-to-speech';
 
 export async function POST(request: NextRequest) {
   try {
+    // Optional AI access check (safety check - frontend should handle the main check)
+    const accessCheck = await checkAiAccessInRoute(request);
+    if (accessCheck) {
+      return accessCheck;
+    }
     if (!ELEVENLABS_API_KEY) {
       return NextResponse.json(
         { error: 'ElevenLabs API key not configured' },

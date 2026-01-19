@@ -3,6 +3,7 @@ import { uploadToS3 } from '@/lib/s3-service';
 import sharp from 'sharp';
 import { handleRunwayGeneration } from './runway-handler';
 import jwt from 'jsonwebtoken';
+import { checkAiAccessInRoute } from '@/lib/ai-access-check';
 
 // FormData is available in Node.js 18+ (Next.js uses Next.js 18+)
 // No need to import, it's a global in modern Node.js
@@ -20,6 +21,12 @@ const KLING_API_BASE = process.env.KLING_API_BASE_URL || 'https://api-singapore.
 
 export async function POST(request: NextRequest) {
   try {
+    // Optional AI access check (safety check - frontend should handle the main check)
+    const accessCheck = await checkAiAccessInRoute(request);
+    if (accessCheck) {
+      return accessCheck;
+    }
+    
     const body = await request.json() as {
       prompt?: string;
       type?: 'image-to-video' | 'frames-to-video' | 'character-performance';

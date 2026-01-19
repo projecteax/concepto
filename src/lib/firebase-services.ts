@@ -949,6 +949,7 @@ export const userService = {
       email: data.email,
       role: data.role,
       avatarUrl: data.avatarUrl || undefined,
+      aiAccessEnabled: data.aiAccessEnabled !== false, // Default to true if not set
       lastActiveAt: data.lastActiveAt ? safeToDate(data.lastActiveAt) : undefined,
       createdAt: safeToDate(data.createdAt),
       updatedAt: safeToDate(data.updatedAt),
@@ -970,6 +971,7 @@ export const userService = {
       email: data.email,
       role: data.role,
       avatarUrl: data.avatarUrl || undefined,
+      aiAccessEnabled: data.aiAccessEnabled !== false, // Default to true if not set
       lastActiveAt: data.lastActiveAt ? safeToDate(data.lastActiveAt) : undefined,
       createdAt: safeToDate(data.createdAt),
       updatedAt: safeToDate(data.updatedAt),
@@ -987,6 +989,7 @@ export const userService = {
         email: data.email,
         role: data.role,
         avatarUrl: data.avatarUrl || undefined,
+        aiAccessEnabled: data.aiAccessEnabled !== false, // Default to true if not set
         lastActiveAt: data.lastActiveAt ? safeToDate(data.lastActiveAt) : undefined,
         createdAt: safeToDate(data.createdAt),
         updatedAt: safeToDate(data.updatedAt),
@@ -1013,6 +1016,13 @@ export const userService = {
       } as UserProfile;
     }));
     return profiles.filter(Boolean) as UserProfile[];
+  },
+
+  async updateAiAccess(userId: string, aiAccessEnabled: boolean): Promise<void> {
+    await updateDoc(doc(db, 'users', userId), {
+      aiAccessEnabled,
+      updatedAt: Timestamp.now(),
+    });
   },
 
   async updateRole(userId: string, role: UserProfile['role']): Promise<void> {

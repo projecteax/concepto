@@ -256,6 +256,7 @@ export function AVPreview({
   const loadingWaveformsRef = useRef<Set<string>>(new Set());
   const ffmpegRef = useRef(new FFmpeg());
   const messageRef = useRef<HTMLParagraphElement>(null);
+  const justSavedRef = useRef(false);
   
   const { uploadFile } = useS3Upload();
 
@@ -273,6 +274,13 @@ export function AVPreview({
       setSelectedSegmentId(first);
     }
   }, [avScript, selectedSegmentId, setSelectedSegmentId]);
+
+  // Reset currentTime to 0 when segment changes (so timeline starts at 0:00 for each scene)
+  useEffect(() => {
+    if (selectedSegmentId) {
+      setCurrentTime(0);
+    }
+  }, [selectedSegmentId]);
 
   // Initialize tracks from avPreviewData or use defaults if empty (initial mount only)
   useEffect(() => {
@@ -308,25 +316,25 @@ export function AVPreview({
     }
   }, []); // Run only once on mount
 
-  // Update tracks when avPreviewData changes (e.g., after export from Resolve)
+  // Track current tracks in a ref for comparison (avoid dependency on tracks state)
+  const tracksRef = useRef<AVPreviewTrack[]>(tracks);
   useEffect(() => {
-    if (avPreviewData?.audioTracks && avPreviewData.audioTracks.length > 0) {
-      // Check if tracks are different (simple comparison by ID and clip count)
-      const currentTrackIds = new Set(tracks.map(t => t.id));
-      const newTrackIds = new Set(avPreviewData.audioTracks.map(t => t.id));
-      const tracksChanged = 
-        currentTrackIds.size !== newTrackIds.size ||
-        !Array.from(newTrackIds).every(id => currentTrackIds.has(id)) ||
-        avPreviewData.audioTracks.some(newTrack => {
-          const currentTrack = tracks.find(t => t.id === newTrack.id);
-          return !currentTrack || currentTrack.clips.length !== newTrack.clips.length;
-        });
-      
-      if (tracksChanged) {
-        setTracks(avPreviewData.audioTracks);
-      }
-    }
-  }, [avPreviewData?.audioTracks]); // React to changes in avPreviewData.audioTracks
+    tracksRef.current = tracks;
+  }, [tracks]);
+
+  // Track the last time we saved to compare with incoming data
+  const lastSaveTimeRef = useRef<number>(Date.now());
+
+  // DISABLED: Auto-refresh from avPreviewData that was overwriting local changes
+  // Tracks are now only updated on initial mount or when explicitly needed (e.g., Resolve export)
+  // This prevents the frustrating behavior where local changes disappear after a few seconds
+  // 
+  // If you need to sync tracks from external source (like Resolve export), do it explicitly
+  // by calling a manual refresh function or by resetting the component
+  //
+  // useEffect(() => {
+  //   // This was causing local changes to be overwritten
+  // }, [avPreviewData?.audioTracks]);
 
   // Track tab visibility and check for changes when tab becomes active
   useEffect(() => {
@@ -530,6 +538,9 @@ export function AVPreview({
         stableVersions: stableVersions
       };
 
+      // Mark that we just saved to prevent useEffect from overwriting
+      justSavedRef.current = true;
+      
       onSave(avPreviewData, updatedAvScript);
       
       // Show save notification
@@ -772,6 +783,20 @@ export function AVPreview({
       currentEndTime = Math.max(currentEndTime, clipStartTime + shotDuration);
     });
 
+    // Normalize all clip start times to start at 0:00 for the selected segment
+    // This ensures no empty space before the first clip when viewing a scene
+    if (playlist.length > 0) {
+      const minStartTime = Math.min(...playlist.map(clip => clip.startTime));
+      if (minStartTime > 0) {
+        // Shift all clips to start at 0
+        playlist.forEach(clip => {
+          clip.startTime = clip.startTime - minStartTime;
+        });
+        // Update currentEndTime accordingly
+        currentEndTime = currentEndTime - minStartTime;
+      }
+    }
+
     // Calculate total duration based on all clips (including custom positioned ones)
     const allEndTimes = playlist.map(clip => clip.startTime + clip.duration);
     const maxEndTime = allEndTimes.length > 0 ? Math.max(...allEndTimes) : currentEndTime;
@@ -1008,6 +1033,9 @@ export function AVPreview({
             // Store audio duration
             setAudioDurations(prev => ({ ...prev, [result.url]: audioDuration }));
 
+            // Mark that we're making local changes to prevent useEffect from overwriting
+            justSavedRef.current = true;
+            
             setTracks(prev => prev.map(t => {
                 if (t.id === trackId) {
                     return { ...t, clips: [...t.clips, newClip] };
@@ -1018,7 +1046,15 @@ export function AVPreview({
             // Generate waveform data for the new clip
             const waveform = await generateWaveform(result.url, clipId);
             setWaveformData(prev => ({ ...prev, [clipId]: waveform }));
-            triggerAutoSave();
+            
+            // Reset the flag after a short delay to allow auto-save to complete
+            setTimeout(() => {
+              triggerAutoSave();
+              // Keep flag set until after save completes
+              setTimeout(() => {
+                justSavedRef.current = false;
+              }, 1000);
+            }, 100);
         }
     } catch (error) {
         console.error("Upload failed", error);
@@ -1105,6 +1141,9 @@ export function AVPreview({
         stableVersions: stableVersions
       };
 
+      // Mark that we just saved to prevent useEffect from overwriting
+      justSavedRef.current = true;
+      
       onSave(avPreviewData, updatedAvScript);
       
       // Update the hash after saving to reflect the new state
@@ -1147,6 +1186,9 @@ export function AVPreview({
   const confirmDeleteClip = () => {
       if (!clipToDelete) return;
       
+      // Mark that we're making local changes to prevent useEffect from overwriting
+      justSavedRef.current = true;
+      
       saveToHistory(); // Save to history before removal
       setTracks(prev => prev.map(t => {
           if (t.id === clipToDelete.trackId) {
@@ -1165,7 +1207,13 @@ export function AVPreview({
           newSet.delete(clipToDelete.clipId);
           return newSet;
       });
+      
+      // Trigger auto-save and reset flag after save completes
       triggerAutoSave();
+      setTimeout(() => {
+        justSavedRef.current = false;
+      }, 2000); // Keep flag set for 2 seconds to allow auto-save to complete
+      
       setClipToDelete(null);
   };
 

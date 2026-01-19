@@ -1,5 +1,6 @@
 import { db } from './firebase';
-import { collection, doc, getDocs, updateDoc, query, where, Timestamp } from 'firebase/firestore';
+import { collection, doc, getDocs, updateDoc, query, where, Timestamp, getDoc } from 'firebase/firestore';
+import { UserProfile } from '@/types';
 
 export interface ApiKey {
   id: string;
@@ -65,5 +66,43 @@ export async function requireApiKey(request: Request): Promise<{ userId: string;
   }
   
   return validation;
+}
+
+/**
+ * Get user profile by userId
+ */
+export async function getUserProfile(userId: string): Promise<UserProfile | null> {
+  try {
+    const userDoc = await getDoc(doc(db, 'users', userId));
+    if (!userDoc.exists()) {
+      return null;
+    }
+    const data = userDoc.data();
+    return {
+      id: userDoc.id,
+      ...data,
+      createdAt: data.createdAt?.toDate?.() || new Date(),
+      updatedAt: data.updatedAt?.toDate?.() || new Date(),
+      lastActiveAt: data.lastActiveAt?.toDate?.() || undefined,
+    } as UserProfile;
+  } catch (error) {
+    console.error('Error getting user profile:', error);
+    return null;
+  }
+}
+
+/**
+ * Check if user has AI access (works with API keys or user IDs)
+ */
+export async function checkAiAccess(userId: string): Promise<boolean> {
+  try {
+    const user = await getUserProfile(userId);
+    if (!user) return false;
+    // Default to true if not set (backward compatibility)
+    return user.aiAccessEnabled !== false;
+  } catch (error) {
+    console.error('Error checking AI access:', error);
+    return false;
+  }
 }
 
