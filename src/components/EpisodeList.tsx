@@ -41,12 +41,16 @@ export function EpisodeList({
   onDeleteEpisode,
   isReadOnly = false,
 }: EpisodeListProps) {
+  const { user } = useAuth();
+  const isAdmin = isAdminUser(user);
+  
   const readOnly = isReadOnly;
   const basePath = useBasePath();
   const [showAddForm, setShowAddForm] = useState(false);
   const [newEpisodeTitle, setNewEpisodeTitle] = useState('');
   const [newEpisodeNumber, setNewEpisodeNumber] = useState<number | 'intro'>(1);
   const [newEpisodeDescription, setNewEpisodeDescription] = useState('');
+  const [episodeToDelete, setEpisodeToDelete] = useState<Episode | null>(null);
 
   const sortedEpisodes = [...episodes].sort((a, b) => {
     // Intro episodes always come first
