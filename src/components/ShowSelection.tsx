@@ -291,7 +291,7 @@ export function ShowSelection({
             <CardHeader>
               <CardTitle>Delete Show</CardTitle>
               <CardDescription>
-                Are you sure you want to permanently delete "{showToDelete.name}"? This action cannot be undone.
+                Are you sure you want to permanently delete &quot;{showToDelete.name}&quot;? This action cannot be undone.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex justify-end space-x-3">
