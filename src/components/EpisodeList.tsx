@@ -15,6 +15,10 @@ import {
 import { cn } from '@/lib/utils';
 import { AppBreadcrumbHeader } from './AppBreadcrumbHeader';
 import { useBasePath } from '@/hooks/useBasePath';
+import { useAuth } from '@/contexts/AuthContext';
+import { isAdminUser } from '@/lib/access-control';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 
 interface EpisodeListProps {
   show: Show;
@@ -214,16 +218,19 @@ export function EpisodeList({
                           >
                             <Edit3 className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onDeleteEpisode(episode.id);
-                            }}
-                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded transition-colors"
-                            title="Delete episode"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {/* Only show delete button for admins */}
+                          {isAdmin && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEpisodeToDelete(episode);
+                              }}
+                              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded transition-colors"
+                              title="Delete episode (admin only)"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       ) : null}
                     </div>
@@ -319,16 +326,19 @@ export function EpisodeList({
                               >
                                 <Edit3 className="w-4 h-4" />
                               </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onDeleteEpisode(episode.id);
-                                }}
-                                className="p-2 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-lg transition-colors"
-                                title="Delete episode"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              {/* Only show delete button for admins */}
+                              {isAdmin && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEpisodeToDelete(episode);
+                                  }}
+                                  className="p-2 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-lg transition-colors"
+                                  title="Delete episode (admin only)"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
                             </div>
                           ) : null}
                         </div>
@@ -431,6 +441,37 @@ export function EpisodeList({
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {episodeToDelete && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-md mx-4">
+            <CardHeader>
+              <CardTitle>Delete Episode</CardTitle>
+              <CardDescription>
+                Are you sure you want to permanently delete "{episodeToDelete.title}"? This action cannot be undone.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex justify-end space-x-3">
+              <Button
+                variant="secondary"
+                onClick={() => setEpisodeToDelete(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  onDeleteEpisode(episodeToDelete.id);
+                  setEpisodeToDelete(null);
+                }}
+              >
+                Delete
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>

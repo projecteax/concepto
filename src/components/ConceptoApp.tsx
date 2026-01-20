@@ -237,6 +237,13 @@ export function ConceptoApp({
 
   const handleDeleteShow = async (showId: string) => {
     try {
+      // Verify show is archived before deletion
+      const show = shows.find(s => s.id === showId);
+      if (!show?.archived) {
+        console.error('Cannot delete active show. Please archive it first.');
+        return;
+      }
+      
       await deleteShow(showId);
       if (selectedShow?.id === showId) {
         setSelectedShow(null);
@@ -293,6 +300,12 @@ export function ConceptoApp({
 
   const handleDeleteGlobalAsset = async (assetId: string) => {
     try {
+      // Only admins can delete assets
+      if (!user || user.role !== 'admin') {
+        console.error('Only admins can delete assets');
+        return;
+      }
+      
       await deleteGlobalAsset(assetId);
       
     } catch (error) {
@@ -493,6 +506,12 @@ export function ConceptoApp({
 
   const handleDeleteGeneralIdea = async (ideaId: string) => {
     try {
+      // Only admins can delete ideas
+      if (!user || user.role !== 'admin') {
+        console.error('Only admins can delete ideas');
+        return;
+      }
+      
       await deleteGeneralIdea(ideaId);
       if (selectedGeneralIdea?.id === ideaId) {
         setSelectedGeneralIdea(null);
@@ -620,6 +639,12 @@ export function ConceptoApp({
 
   const handleDeletePlotTheme = async (themeId: string) => {
     try {
+      // Only admins can delete plot themes
+      if (!user || user.role !== 'admin') {
+        console.error('Only admins can delete plot themes');
+        return;
+      }
+      
       await deletePlotTheme(themeId);
     } catch (error) {
       console.error('Failed to delete plot theme:', error);
@@ -694,6 +719,12 @@ export function ConceptoApp({
   const handleDeleteConcept = async (conceptId: string) => {
     try {
       if (selectedAsset) {
+        // Only admins can delete asset concepts
+        if (!user || user.role !== 'admin') {
+          console.error('Only admins can delete asset concepts');
+          return;
+        }
+        
         await deleteAssetConcept(conceptId, selectedAsset.id);
         
         // Update the asset to reflect the deleted concept
@@ -741,6 +772,12 @@ export function ConceptoApp({
 
   const handleDeleteEpisode = async (episodeId: string) => {
     try {
+      // Only admins can delete episodes
+      if (!user || user.role !== 'admin') {
+        console.error('Only admins can delete episodes');
+        return;
+      }
+      
       await deleteEpisode(episodeId);
       if (selectedEpisode?.id === episodeId) {
         setSelectedEpisode(null);
@@ -823,6 +860,12 @@ export function ConceptoApp({
 
   const handleDeleteEpisodeIdea = async (id: string) => {
     try {
+      // Only admins can delete episode ideas
+      if (!user || user.role !== 'admin') {
+        console.error('Only admins can delete episode ideas');
+        return;
+      }
+      
       await deleteEpisodeIdea(id);
     } catch (error) {
       console.error('Failed to delete episode idea:', error);

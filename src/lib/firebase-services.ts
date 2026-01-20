@@ -32,14 +32,40 @@ import {
 // Shows
 export const showService = {
   async create(show: Omit<Show, 'id' | 'createdAt' | 'updatedAt'>): Promise<Show> {
+    // Remove undefined values to prevent Firestore errors
+    const cleanShow = Object.fromEntries(
+      Object.entries(show).filter(([_, value]) => value !== undefined)
+    );
+    
     const docRef = await addDoc(collection(db, 'shows'), {
-      ...show,
+      ...cleanShow,
       createdAt: Timestamp.now(),
       updatedAt: Timestamp.now(),
     });
     
     const docSnap = await getDoc(docRef);
-    return { id: docRef.id, ...docSnap.data() } as Show;
+    const data = docSnap.data();
+    
+    // Helper function to safely convert timestamps
+    const safeToDate = (timestamp: unknown): Date => {
+      if (!timestamp) return new Date();
+      if (timestamp instanceof Date) return timestamp;
+      if (timestamp && typeof timestamp === 'object' && 'toDate' in timestamp && typeof (timestamp as {toDate: () => Date}).toDate === 'function') {
+        return (timestamp as {toDate: () => Date}).toDate();
+      }
+      if (typeof timestamp === 'string' || typeof timestamp === 'number') {
+        const date = new Date(timestamp);
+        return isNaN(date.getTime()) ? new Date() : date;
+      }
+      return new Date();
+    };
+    
+    return {
+      id: docRef.id,
+      ...data,
+      createdAt: safeToDate(data?.createdAt),
+      updatedAt: safeToDate(data?.updatedAt),
+    } as Show;
   },
 
   async getAll(): Promise<Show[]> {

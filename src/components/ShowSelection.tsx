@@ -9,6 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { useAuth } from '@/contexts/AuthContext';
+import { isAdminUser } from '@/lib/access-control';
 
 interface ShowSelectionProps {
   shows: Show[];
@@ -31,17 +33,26 @@ export function ShowSelection({
   canEditShow = () => true,
   canCreateShow = true,
 }: ShowSelectionProps) {
+  const { user } = useAuth();
+  const isAdmin = isAdminUser(user);
+  
   const [showAddForm, setShowAddForm] = useState(false);
   const [newShowName, setNewShowName] = useState('');
   const [newShowDescription, setNewShowDescription] = useState('');
   const [activeTab, setActiveTab] = useState<'active' | 'archived'>('active');
+  const [showToDelete, setShowToDelete] = useState<Show | null>(null);
 
   const handleAddShow = () => {
     if (newShowName.trim()) {
-      onAddShow({
+      const showData: { name: string; description?: string } = {
         name: newShowName.trim(),
-        description: newShowDescription.trim() || undefined,
-      });
+      };
+      // Only include description if it has a value (don't set undefined)
+      const trimmedDescription = newShowDescription.trim();
+      if (trimmedDescription) {
+        showData.description = trimmedDescription;
+      }
+      onAddShow(showData);
       setNewShowName('');
       setNewShowDescription('');
       setShowAddForm(false);
@@ -168,12 +179,16 @@ export function ShowSelection({
                         >
                           <Edit3 className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={() => onDeleteShow(show.id)}
-                          className="p-1 text-gray-400 hover:text-red-600"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {/* Only show delete button for admins, and only on archived shows */}
+                        {isAdmin && show.archived && (
+                          <button
+                            onClick={() => setShowToDelete(show)}
+                            className="p-1 text-gray-400 hover:text-red-600"
+                            title="Delete show (admin only, archived shows only)"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     ) : null}
                   </div>
@@ -268,6 +283,37 @@ export function ShowSelection({
           </div>
         </div>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      {showToDelete && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-md mx-4">
+            <CardHeader>
+              <CardTitle>Delete Show</CardTitle>
+              <CardDescription>
+                Are you sure you want to permanently delete "{showToDelete.name}"? This action cannot be undone.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex justify-end space-x-3">
+              <Button
+                variant="secondary"
+                onClick={() => setShowToDelete(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  onDeleteShow(showToDelete.id);
+                  setShowToDelete(null);
+                }}
+              >
+                Delete
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
