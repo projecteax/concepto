@@ -1655,11 +1655,11 @@ export function AVPreview({
 
     // Store original left positions (from computed styles, not getBoundingClientRect for better performance)
     const originalLeftPositions = new Map<string, number>();
-    clipElements.forEach((el, clipId) => {
+    const recordOriginalLeft = (el: HTMLElement, clipId: string) => {
       const computedStyle = window.getComputedStyle(el);
       const left = parseFloat(computedStyle.left) || 0;
       originalLeftPositions.set(clipId, left);
-    });
+    };
 
     // Store drag positions in refs (not state) to avoid React re-renders during drag
     const dragPositions = new Map<string, number>();
@@ -2544,6 +2544,49 @@ export function AVPreview({
       
       return connected;
     };
+
+    // If a single clip is dragged with no multi-select, auto-chain connected clips to the right
+    const isMultiSelect =
+      (selectedVideoClips.size > 1 || hasMixedSelection) &&
+      selectedVideoClips.has(currentDragState.clipId) &&
+      currentMultiDrag;
+    const autoChainedClips = isMultiSelect
+      ? new Set<string>()
+      : findConnectedClips(currentDragState.clipId, selectedVideoClips);
+    if (!autoChainedClips.has(currentDragState.clipId)) {
+      autoChainedClips.add(currentDragState.clipId);
+    }
+    const autoChainedOriginalStartTimes: {[clipId: string]: number} = {};
+    if (!isMultiSelect) {
+      autoChainedClips.forEach(clipId => {
+        const clip = visualPlaylist.find(c => c.id === clipId);
+        if (clip) {
+          autoChainedOriginalStartTimes[clipId] = clip.startTime;
+        }
+      });
+    }
+
+    // If we're auto-chaining, ensure all connected clip elements are in the map
+    if (!isMultiSelect && autoChainedClips.size > 1) {
+      autoChainedClips.forEach(clipId => {
+        if (clipElements.has(clipId)) return;
+        const el = findClipElement(clipId);
+        if (el) {
+          clipElements.set(clipId, el);
+          el.style.willChange = 'transform';
+          el.style.zIndex = '100';
+        }
+      });
+    }
+
+    // Capture original positions for any newly added elements (originalLeftPositions already defined above)
+    clipElements.forEach((el, clipId) => {
+      if (!originalLeftPositions.has(clipId)) {
+        const computedStyle = window.getComputedStyle(el);
+        const left = parseFloat(computedStyle.left) || 0;
+        originalLeftPositions.set(clipId, left);
+      }
+    });
     
     // Helper function to find clips that will be "reached" when dragging (ripple effect)
     // ONLY finds clips to the RIGHT of all dragged clips
@@ -2661,20 +2704,22 @@ export function AVPreview({
           // Video handler is master, continue with updates
         }
         
-        // CRITICAL: Only move SELECTED clips - no automatic chaining
-        // Only selected clips should move, nothing else
-        const clipsToMove = new Set<string>(selectedVideoClips);
+        // Move either selected clips (multi-select) or auto-chained clips (single drag)
+        const clipsToMove = isMultiSelect ? new Set<string>(selectedVideoClips) : autoChainedClips;
         
         const deltaTimeForAll = newStartTime - currentDragStateCheck.originalStartTime;
         
-        // For multi-select or mixed-select, calculate delta for all selected clips
-        if ((selectedVideoClips.size > 1 || hasMixedSelection) && selectedVideoClips.has(currentDragStateCheck.clipId) && currentMultiDrag) {
+        // For multi-select or auto-chained drag, calculate delta for all clips in the group
+        const shouldMoveGroup = clipsToMove.size > 1;
+        if (shouldMoveGroup) {
           // Check collisions for all selected clips - prevent movement if there are unselected clips in the way
           let validMove = true;
           clipsToMove.forEach(clipId => {
             const clip = visualPlaylist.find(c => c.id === clipId);
             if (clip) {
-              const originalTime = currentMultiDrag.originalStartTimes[clipId] ?? clip.startTime;
+              const originalTime = isMultiSelect
+                ? (currentMultiDrag?.originalStartTimes[clipId] ?? clip.startTime)
+                : (autoChainedOriginalStartTimes[clipId] ?? clip.startTime);
               const proposedStart = Math.max(0, originalTime + deltaTimeForAll);
               const proposedEnd = proposedStart + clip.duration;
               
@@ -2697,12 +2742,15 @@ export function AVPreview({
           });
 
           if (validMove) {
-            // Move all selected clips only
-            selectedVideoClips.forEach(clipId => {
+            // Move all clips in the group
+            clipsToMove.forEach(clipId => {
               const clip = visualPlaylist.find(c => c.id === clipId);
               const el = clipElements.get(clipId);
-              if (clip && el && currentMultiDrag.originalStartTimes[clipId] !== undefined) {
-                const proposedStart = Math.max(0, currentMultiDrag.originalStartTimes[clipId] + deltaTimeForAll);
+              if (clip && el) {
+                const originalTime = isMultiSelect
+                  ? (currentMultiDrag?.originalStartTimes[clipId] ?? clip.startTime)
+                  : (autoChainedOriginalStartTimes[clipId] ?? clip.startTime);
+                const proposedStart = Math.max(0, originalTime + deltaTimeForAll);
                 const newLeftPx = proposedStart * scaleRef.current;
                 const originalLeft = originalLeftPositions.get(clipId) || 0;
                 const translateX = newLeftPx - originalLeft;
@@ -2835,18 +2883,75 @@ export function AVPreview({
           const newStartTime = Math.max(0, currentDragState.originalStartTime + deltaTime);
           const deltaTimeForAll = newStartTime - currentDragState.originalStartTime;
           
-          // CRITICAL: Only update SELECTED clips - no automatic chaining
-          const clipsToUpdate = new Set<string>(selectedVideoClips);
-          
-          if ((selectedVideoClips.size > 1 || hasMixedSelection) && selectedVideoClips.has(currentDragState.clipId) && currentMultiDrag) {
-            // Final collision check for all selected clips
+          // Update either selected clips (multi-select) or auto-chained clips (single drag)
+          const isMultiSelect =
+            (selectedVideoClips.size > 1 || hasMixedSelection) &&
+            selectedVideoClips.has(currentDragState.clipId) &&
+            currentMultiDrag;
+          const clipsToUpdate = isMultiSelect ? new Set<string>(selectedVideoClips) : autoChainedClips;
+          const shouldMoveGroup = clipsToUpdate.size > 1;
+
+          // Snap helper for auto-chained or single drag (no prompt needed)
+          const applySnapDelta = (delta: number) => {
+            const snapThreshold = 0.12; // seconds
+            const sortedClips = [...visualPlaylist].sort((a, b) => a.startTime - b.startTime);
+            
+            let movingStart = Infinity;
+            let movingEnd = -Infinity;
+            clipsToUpdate.forEach(clipId => {
+              const clip = visualPlaylist.find(c => c.id === clipId);
+              if (!clip) return;
+              const originalTime = isMultiSelect
+                ? (currentMultiDrag?.originalStartTimes[clipId] ?? clip.startTime)
+                : (autoChainedOriginalStartTimes[clipId] ?? clip.startTime);
+              const proposedStart = Math.max(0, originalTime + delta);
+              const proposedEnd = proposedStart + clip.duration;
+              movingStart = Math.min(movingStart, proposedStart);
+              movingEnd = Math.max(movingEnd, proposedEnd);
+            });
+            
+            const leftNeighbor = [...sortedClips].reverse().find(c => {
+              if (clipsToUpdate.has(c.id)) return false;
+              return c.startTime + c.duration <= movingStart;
+            });
+            const rightNeighbor = sortedClips.find(c => {
+              if (clipsToUpdate.has(c.id)) return false;
+              return c.startTime >= movingEnd;
+            });
+            
+            const candidates: Array<{ delta: number; gap: number }> = [];
+            if (leftNeighbor) {
+              const leftEnd = leftNeighbor.startTime + leftNeighbor.duration;
+              const gap = movingStart - leftEnd;
+              if (Math.abs(gap) <= snapThreshold) {
+                candidates.push({ delta: delta - gap, gap });
+              }
+            }
+            if (rightNeighbor) {
+              const gap = rightNeighbor.startTime - movingEnd;
+              if (Math.abs(gap) <= snapThreshold) {
+                candidates.push({ delta: delta + gap, gap });
+              }
+            }
+            
+            if (candidates.length === 0) return delta;
+            candidates.sort((a, b) => Math.abs(a.gap) - Math.abs(b.gap));
+            return candidates[0].delta;
+          };
+
+          const adjustedDeltaTimeForAll = applySnapDelta(deltaTimeForAll);
+
+          if (shouldMoveGroup) {
+            // Final collision check for all clips in the group
             let validMove = true;
             
             clipsToUpdate.forEach(clipId => {
               const clip = visualPlaylist.find(c => c.id === clipId);
               if (clip) {
-                const originalTime = currentMultiDrag.originalStartTimes[clipId] ?? clip.startTime;
-                const proposedStart = Math.max(0, originalTime + deltaTimeForAll);
+                const originalTime = isMultiSelect
+                  ? (currentMultiDrag?.originalStartTimes[clipId] ?? clip.startTime)
+                  : (autoChainedOriginalStartTimes[clipId] ?? clip.startTime);
+                const proposedStart = Math.max(0, originalTime + adjustedDeltaTimeForAll);
                 const proposedEnd = proposedStart + clip.duration;
                 
                 // Check collision with ALL other clips (not in selected set)
@@ -2868,19 +2973,15 @@ export function AVPreview({
             });
 
             if (validMove) {
-              // Use dragPositions map if available, otherwise calculate
               setVideoClipStartTimes(prev => {
                 const updated = { ...prev };
                 clipsToUpdate.forEach(clipId => {
-                  const finalTime = dragPositions.get(clipId);
-                  if (finalTime !== undefined) {
-                    updated[clipId] = finalTime;
-                  } else {
-                    const clip = visualPlaylist.find(c => c.id === clipId);
-                    const originalTime = currentMultiDrag.originalStartTimes[clipId] ?? clip?.startTime ?? 0;
-                    if (clip) {
-                      updated[clipId] = Math.max(0, originalTime + deltaTimeForAll);
-                    }
+                  const clip = visualPlaylist.find(c => c.id === clipId);
+                  const originalTime = isMultiSelect
+                    ? (currentMultiDrag?.originalStartTimes[clipId] ?? clip?.startTime ?? 0)
+                    : (autoChainedOriginalStartTimes[clipId] ?? clip?.startTime ?? 0);
+                  if (clip) {
+                    updated[clipId] = Math.max(0, originalTime + adjustedDeltaTimeForAll);
                   }
                 });
                 return updated;
@@ -2937,8 +3038,8 @@ export function AVPreview({
                       // Fallback: calculate from original time + delta
                       const originalTime = multiDragState.originalStartTimes[c.id];
                       if (originalTime !== undefined) {
-                        // Use the exact same deltaTimeForAll as video clips for perfect sync
-                        const finalTime = Math.max(0, originalTime + deltaTimeForAll);
+                        // Use the exact same delta as video clips for perfect sync
+                        const finalTime = Math.max(0, originalTime + adjustedDeltaTimeForAll);
                         return { ...c, startTime: finalTime };
                       }
                     }

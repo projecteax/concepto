@@ -64,6 +64,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const [showAutosavedIndicator, setShowAutosavedIndicator] = useState(false);
   const [dropdownDirection, setDropdownDirection] = useState<{ [key: string]: 'up' | 'down' }>({});
   // Load language from localStorage or default to PL
   const [language, setLanguage] = useState<'PL' | 'EN'>(() => {
@@ -78,6 +79,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   const [showEnhanceDialog, setShowEnhanceDialog] = useState(false);
   const [enhanceElementId, setEnhanceElementId] = useState<string | null>(null);
   const [originalContent, setOriginalContent] = useState<{ [key: string]: string }>({});
+  const [originalTitle, setOriginalTitle] = useState<string>('');
   const [isMobile, setIsMobile] = useState(false);
   const elementContainerRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
   const [commentsPanelTop, setCommentsPanelTop] = useState<number>(0);
@@ -697,44 +699,76 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
     }
   };
 
-  const handleElementBlur = (id: string) => {
+  const handleElementBlur = async (id: string) => {
     // Check if content changed
     const currentElements = getCurrentElements();
     const element = currentElements.find(el => el.id === id);
     const original = originalContent[id];
+    
+    // If original content is not tracked, set it now but don't autosave (user might not have actually edited)
+    if (element && original === undefined) {
+      setOriginalContent(prev => ({
+        ...prev,
+        [id]: element.content
+      }));
+      setEditingElementId(null);
+      setSelectedElementId(null);
+      setShowToolbar(false);
+      return;
+    }
     
     if (element && original !== undefined && element.content !== original) {
       // Content changed - mark as edited in CURRENT language
       // This will highlight the corresponding element in the OTHER language
       const currentIndex = currentElements.findIndex(el => el.id === id);
       
-      setLocalData(prev => {
-        if (language === 'EN') {
-          // Edited EN - mark EN as edited, so PL will be highlighted
-          return {
-            ...prev,
-            elementsEN: (prev.elementsEN || []).map((el, idx) =>
-              idx === currentIndex ? { ...el, editedInEN: true, reviewed: false } : el
-            ),
-            // Also mark corresponding PL element
-            elements: prev.elements.map((el, idx) =>
-              idx === currentIndex ? { ...el, editedInEN: true, reviewed: false } : el
-            )
-          };
-        } else {
-          // Edited PL - mark PL as edited, so EN will be highlighted
-          return {
-            ...prev,
-            elements: prev.elements.map((el, idx) =>
-              idx === currentIndex ? { ...el, editedInPL: true, reviewed: false } : el
-            ),
-            // Also mark corresponding EN element
-            elementsEN: (prev.elementsEN || []).map((el, idx) =>
-              idx === currentIndex ? { ...el, editedInPL: true, reviewed: false } : el
-            )
-          };
-        }
-      });
+      // Calculate updated data BEFORE state update
+      let updatedData: ScreenplayData;
+      
+      if (language === 'EN') {
+        // Edited EN - mark EN as edited, so PL will be highlighted
+        updatedData = {
+          ...localData,
+          elementsEN: (localData.elementsEN || []).map((el, idx) =>
+            idx === currentIndex ? { ...el, editedInEN: true, reviewed: false } : el
+          ),
+          // Also mark corresponding PL element
+          elements: localData.elements.map((el, idx) =>
+            idx === currentIndex ? { ...el, editedInEN: true, reviewed: false } : el
+          )
+        };
+      } else {
+        // Edited PL - mark PL as edited, so EN will be highlighted
+        updatedData = {
+          ...localData,
+          elements: localData.elements.map((el, idx) =>
+            idx === currentIndex ? { ...el, editedInPL: true, reviewed: false } : el
+          ),
+          // Also mark corresponding EN element
+          elementsEN: (localData.elementsEN || []).map((el, idx) =>
+            idx === currentIndex ? { ...el, editedInPL: true, reviewed: false } : el
+          )
+        };
+      }
+      
+      // Update local state
+      setLocalData(updatedData);
+      
+      // Trigger autosave
+      setIsSaving(true);
+      try {
+        await onSave({ ...updatedData, stableVersions });
+        setLastSavedAt(Date.now());
+        setShowAutosavedIndicator(true);
+        // Hide indicator after 2 seconds
+        setTimeout(() => {
+          setShowAutosavedIndicator(false);
+        }, 2000);
+      } catch (error) {
+        console.error('Autosave failed:', error);
+      } finally {
+        setIsSaving(false);
+      }
     }
     
     setEditingElementId(null);
@@ -1732,6 +1766,15 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                 updateElement(element.id, e.target.value);
               }
             }}
+            onFocus={() => {
+              // Track original content when focusing (if not already tracked)
+              if (!originalContent[element.id]) {
+                setOriginalContent(prev => ({
+                  ...prev,
+                  [element.id]: element.content
+                }));
+              }
+            }}
             onKeyDown={(e) => handleKeyDown(e, element.id)}
             onBlur={() => handleElementBlur(element.id)}
             className={`w-full outline-none min-h-[1.5em] rounded px-2 py-1 border-2 resize-none ${elementColors[element.type].bg} ${elementColors[element.type].border} ${elementColors[element.type].text}`}
@@ -1912,6 +1955,19 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
             page-break-before: always;
           }
         }
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        .animate-fade-in {
+          animation: fadeIn 0.3s ease-out;
+        }
       `}</style>
       <div className="h-full flex flex-col bg-white screenplay-editor" style={{ direction: 'ltr', unicodeBidi: 'embed' }} dir="ltr">
         {/* Editor with left sidebar */}
@@ -2039,7 +2095,55 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                 <input
                   type="text"
                   value={getCurrentTitle()}
-                  onChange={(e) => setCurrentTitle(e.target.value)}
+                  onChange={(e) => {
+                    setCurrentTitle(e.target.value);
+                    // Track original title on first focus
+                    if (originalTitle === '') {
+                      setOriginalTitle(getCurrentTitle());
+                    }
+                  }}
+                  onFocus={() => {
+                    // Store original title when focusing
+                    setOriginalTitle(getCurrentTitle());
+                  }}
+                  onBlur={async (e) => {
+                    const currentTitle = (e.target as HTMLInputElement).value;
+                    if (originalTitle !== '' && currentTitle !== originalTitle) {
+                      // Title changed - update localData and trigger autosave
+                      let updatedData: ScreenplayData;
+                      if (language === 'EN') {
+                        updatedData = {
+                          ...localData,
+                          titleEN: currentTitle
+                        };
+                      } else {
+                        updatedData = {
+                          ...localData,
+                          title: currentTitle
+                        };
+                      }
+                      
+                      // Update local state
+                      setLocalData(updatedData);
+                      
+                      // Trigger autosave
+                      setIsSaving(true);
+                      try {
+                        await onSave({ ...updatedData, stableVersions });
+                        setLastSavedAt(Date.now());
+                        setShowAutosavedIndicator(true);
+                        // Hide indicator after 2 seconds
+                        setTimeout(() => {
+                          setShowAutosavedIndicator(false);
+                        }, 2000);
+                      } catch (error) {
+                        console.error('Autosave failed:', error);
+                      } finally {
+                        setIsSaving(false);
+                      }
+                    }
+                    setOriginalTitle('');
+                  }}
                   className="text-3xl font-bold text-black text-center bg-transparent border-b-2 border-transparent hover:border-gray-300 focus:border-blue-500 focus:outline-none w-full transition-colors"
                   placeholder="Untitled Screenplay"
                   style={{ direction: 'ltr', color: '#000000' }}
@@ -2506,6 +2610,14 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
           />
         );
       })()}
+      
+      {/* Autosaved Indicator - Bottom Right Corner */}
+      {showAutosavedIndicator && lastSavedAt && (
+        <div className="fixed bottom-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2 animate-fade-in">
+          <Check className="w-4 h-4" />
+          <span className="text-sm font-medium">Autosaved {new Date(lastSavedAt).toLocaleTimeString()}</span>
+        </div>
+      )}
     </>
   );
 });

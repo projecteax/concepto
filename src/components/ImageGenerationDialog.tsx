@@ -430,6 +430,9 @@ export function ImageGenerationDialog({
   const [videoModel, setVideoModel] = useState<string>('veo-3-1-flash');
   const [videoPrompt, setVideoPrompt] = useState<string>('');
   const [selectedVideoInputType, setSelectedVideoInputType] = useState<'main' | 'start-end' | 'reference-video' | 'text-to-video' | 'video-to-video' | null>(null);
+  // For ACT-two, we need to track both main image and reference video selections independently
+  const [actTwoMainImageSelected, setActTwoMainImageSelected] = useState<boolean>(false);
+  const [actTwoReferenceVideoSelected, setActTwoReferenceVideoSelected] = useState<boolean>(false);
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [videoResolution, setVideoResolution] = useState<'720p' | '1080p'>('720p');
   const [videoDuration, setVideoDuration] = useState<4 | 6 | 8>(8);
@@ -5607,10 +5610,20 @@ export function ImageGenerationDialog({
                     }
                   } else if (e.target.value.startsWith('runway')) {
                     setRunwayDuration(5);
+                    // Reset ACT-two specific selections
+                    if (e.target.value === 'runway-act-two') {
+                      setActTwoMainImageSelected(false);
+                      setActTwoReferenceVideoSelected(false);
+                    }
                   } else {
                     setVideoDuration(8);
                   }
                   setSelectedVideoInputType(null);
+                  // Reset ACT-two selections when switching away from ACT-two
+                  if (e.target.value !== 'runway-act-two') {
+                    setActTwoMainImageSelected(false);
+                    setActTwoReferenceVideoSelected(false);
+                  }
                 }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               >
@@ -6007,7 +6020,7 @@ export function ImageGenerationDialog({
             )}
 
             {/* Duration Selection - NOT shown for ACT Two character performance */}
-            {videoModel.startsWith('runway') && !(videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video') ? (
+            {videoModel.startsWith('runway') && !(videoModel === 'runway-act-two' && actTwoMainImageSelected && actTwoReferenceVideoSelected) ? (
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Video Duration: {runwayDuration}s
@@ -6197,153 +6210,211 @@ export function ImageGenerationDialog({
             ) : videoModel !== 'kling-omni-video' ? (
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Select Input Type *
+                {videoModel === 'runway-act-two' ? 'Select Character Image and Reference Video *' : 'Select Input Type *'}
               </label>
-              <div className="grid grid-cols-2 gap-4">
-                {/* Main Image - Image to Video */}
-                <div
-                  onClick={() => {
-                    if (getMainImageUrl()) {
-                      setSelectedVideoInputType('main');
-                    } else {
-                      alert('No main image available. Please set a main image first.');
-                    }
-                  }}
-                  className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video ${
-                    selectedVideoInputType === 'main' ? 'border-indigo-500' : 'border-gray-300'
-                  } ${!getMainImageUrl() ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                  {getMainImageUrl() ? (
-                    <>
-                      <img
-                        src={getMainImageUrl()!}
-                        alt="Main Image"
-                        className="w-full h-full object-cover"
-                      />
-                      {selectedVideoInputType === 'main' && (
-                        <div className="absolute inset-0 bg-indigo-500 bg-opacity-30 flex items-center justify-center">
-                          <Check className="w-8 h-8 text-white" />
+              {videoModel === 'runway-act-two' ? (
+                // ACT-two requires BOTH main image (character) AND reference video
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* Main Image - Character Image for ACT-two */}
+                    <div
+                      onClick={() => {
+                        if (getMainImageUrl()) {
+                          setActTwoMainImageSelected(!actTwoMainImageSelected);
+                          // Also set selectedVideoInputType for compatibility
+                          if (!actTwoMainImageSelected) {
+                            setSelectedVideoInputType('main');
+                          }
+                        } else {
+                          alert('No main image available. Please set a main image first.');
+                        }
+                      }}
+                      className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video ${
+                        actTwoMainImageSelected ? 'border-indigo-500' : 'border-gray-300'
+                      } ${!getMainImageUrl() ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      {getMainImageUrl() ? (
+                        <>
+                          <img
+                            src={getMainImageUrl()!}
+                            alt="Character Image"
+                            className="w-full h-full object-cover"
+                          />
+                          {actTwoMainImageSelected && (
+                            <div className="absolute inset-0 bg-indigo-500 bg-opacity-30 flex items-center justify-center">
+                              <Check className="w-8 h-8 text-white" />
+                            </div>
+                          )}
+                          <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-sm font-medium p-2 text-center">
+                            CHARACTER IMAGE (Required)
+                          </div>
+                        </>
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400 text-sm">
+                          No Main Image
                         </div>
                       )}
-                      <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-sm font-medium p-2 text-center">
-                        MAIN IMAGE (Image to Video)
-                      </div>
-                    </>
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400 text-sm">
-                      No Main Image
                     </div>
+
+                    {/* Reference Video - For ACT-two */}
+                    <div
+                      onClick={() => {
+                        if (referenceVideo) {
+                          setActTwoReferenceVideoSelected(!actTwoReferenceVideoSelected);
+                          // Also set selectedVideoInputType for compatibility
+                          if (!actTwoReferenceVideoSelected) {
+                            setSelectedVideoInputType('reference-video');
+                          }
+                        } else {
+                          alert('No reference video available. Please upload a reference video first.');
+                        }
+                      }}
+                      className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video ${
+                        actTwoReferenceVideoSelected ? 'border-indigo-500' : 'border-gray-300'
+                      } ${!referenceVideo ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      {referenceVideo ? (
+                        <>
+                          <video
+                            src={referenceVideo}
+                            className="w-full h-full object-cover"
+                            muted
+                          />
+                          {actTwoReferenceVideoSelected && (
+                            <div className="absolute inset-0 bg-indigo-500 bg-opacity-30 flex items-center justify-center">
+                              <Check className="w-8 h-8 text-white" />
+                            </div>
+                          )}
+                          <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-sm font-medium p-2 text-center">
+                            REFERENCE VIDEO (Required)
+                          </div>
+                        </>
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400 text-sm">
+                          No Reference Video
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {(!actTwoMainImageSelected || !actTwoReferenceVideoSelected) && (
+                    <p className="text-xs text-amber-500 mt-1">
+                      ACT Two requires both a character image and a reference video. Please select both.
+                    </p>
+                  )}
+                  {actTwoMainImageSelected && actTwoReferenceVideoSelected && (
+                    <p className="text-xs text-green-500 mt-1">
+                      ✓ Both character image and reference video selected. Ready to generate.
+                    </p>
                   )}
                 </div>
+              ) : (
+                // For other Runway models (Gen-4 Turbo), use the original selection logic
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Main Image - Image to Video */}
+                  <div
+                    onClick={() => {
+                      if (getMainImageUrl()) {
+                        setSelectedVideoInputType('main');
+                      } else {
+                        alert('No main image available. Please set a main image first.');
+                      }
+                    }}
+                    className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video ${
+                      selectedVideoInputType === 'main' ? 'border-indigo-500' : 'border-gray-300'
+                    } ${!getMainImageUrl() ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    {getMainImageUrl() ? (
+                      <>
+                        <img
+                          src={getMainImageUrl()!}
+                          alt="Main Image"
+                          className="w-full h-full object-cover"
+                        />
+                        {selectedVideoInputType === 'main' && (
+                          <div className="absolute inset-0 bg-indigo-500 bg-opacity-30 flex items-center justify-center">
+                            <Check className="w-8 h-8 text-white" />
+                          </div>
+                        )}
+                        <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-sm font-medium p-2 text-center">
+                          MAIN IMAGE (Image to Video)
+                        </div>
+                      </>
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400 text-sm">
+                        No Main Image
+                      </div>
+                    )}
+                  </div>
 
-                {/* Start & End Frame - Frames to Video */}
-                <div
-                  onClick={() => {
-                    if (startFrame && endFrame) {
-                      setSelectedVideoInputType('start-end');
-                    } else {
-                      alert('Both start frame and end frame are required for frames-to-video generation.');
-                    }
-                  }}
-                  className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video ${
-                    selectedVideoInputType === 'start-end' ? 'border-indigo-500' : 'border-gray-300'
-                  } ${!startFrame || !endFrame ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                  {startFrame && endFrame ? (
-                    <div className="w-full h-full grid grid-cols-2">
-                      <div className="relative">
-                        <img
-                          src={startFrame}
-                          alt="Start Frame"
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-xs p-1 text-center">
-                          START
+                  {/* Start & End Frame - Frames to Video */}
+                  <div
+                    onClick={() => {
+                      if (startFrame && endFrame) {
+                        setSelectedVideoInputType('start-end');
+                      } else {
+                        alert('Both start frame and end frame are required for frames-to-video generation.');
+                      }
+                    }}
+                    className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video ${
+                      selectedVideoInputType === 'start-end' ? 'border-indigo-500' : 'border-gray-300'
+                    } ${!startFrame || !endFrame ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    {startFrame && endFrame ? (
+                      <div className="w-full h-full grid grid-cols-2">
+                        <div className="relative">
+                          <img
+                            src={startFrame}
+                            alt="Start Frame"
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-xs p-1 text-center">
+                            START
+                          </div>
+                        </div>
+                        <div className="relative">
+                          <img
+                            src={endFrame}
+                            alt="End Frame"
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-xs p-1 text-center">
+                            END
+                          </div>
                         </div>
                       </div>
-                      <div className="relative">
-                        <img
-                          src={endFrame}
-                          alt="End Frame"
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-xs p-1 text-center">
-                          END
-                        </div>
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400 text-sm">
+                        {!startFrame && !endFrame ? 'No Frames' : !startFrame ? 'No Start Frame' : 'No End Frame'}
                       </div>
+                    )}
+                    {selectedVideoInputType === 'start-end' && (
+                      <div className="absolute inset-0 bg-indigo-500 bg-opacity-30 flex items-center justify-center pointer-events-none">
+                        <Check className="w-8 h-8 text-white" />
+                      </div>
+                    )}
+                    <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-sm font-medium p-2 text-center pointer-events-none">
+                      START & END FRAME (Frames to Video)
                     </div>
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400 text-sm">
-                      {!startFrame && !endFrame ? 'No Frames' : !startFrame ? 'No Start Frame' : 'No End Frame'}
-                    </div>
-                  )}
-                  {selectedVideoInputType === 'start-end' && (
-                    <div className="absolute inset-0 bg-indigo-500 bg-opacity-30 flex items-center justify-center pointer-events-none">
-                      <Check className="w-8 h-8 text-white" />
-                    </div>
-                  )}
-                  <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-sm font-medium p-2 text-center pointer-events-none">
-                    START & END FRAME (Frames to Video)
                   </div>
                 </div>
-
-                {/* Reference Video - For Act Two or Placeholder */}
-                <div
-                  onClick={() => {
-                    if (videoModel === 'runway-act-two') {
-                      if (referenceVideo && getMainImageUrl()) {
-                        setSelectedVideoInputType('reference-video');
-                      } else {
-                        alert('Act Two requires a reference video and a character image (main image or generated image).');
-                      }
-                    } else {
-                      alert('Reference video generation is not yet implemented for this model.');
-                    }
-                  }}
-                  className={`relative cursor-pointer border-2 rounded-lg overflow-hidden aspect-video ${
-                    selectedVideoInputType === 'reference-video' ? 'border-indigo-500' : 'border-gray-300'
-                  } ${videoModel === 'runway-act-two' && referenceVideo && getMainImageUrl() ? '' : 'opacity-50 cursor-not-allowed'}`}
-                >
-                  {referenceVideo ? (
-                    <>
-                      <video
-                        src={referenceVideo}
-                        className="w-full h-full object-cover"
-                        muted
-                      />
-                      {selectedVideoInputType === 'reference-video' && (
-                        <div className="absolute inset-0 bg-indigo-500 bg-opacity-30 flex items-center justify-center">
-                          <Check className="w-8 h-8 text-white" />
-                        </div>
-                      )}
-                      <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-sm font-medium p-2 text-center">
-                        {videoModel === 'runway-act-two' ? 'REFERENCE VIDEO (Act Two)' : 'REFERENCE VIDEO (Coming Soon)'}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400 text-sm">
-                      No Reference Video
-                    </div>
-                  )}
-                </div>
-              </div>
-              {!selectedVideoInputType && (
+              )}
+              {videoModel !== 'runway-act-two' && !selectedVideoInputType && (
                 <p className="text-xs text-red-500 mt-1">Please select an input type</p>
               )}
-              {selectedVideoInputType === 'main' && !getMainImageUrl() && (
+              {videoModel !== 'runway-act-two' && selectedVideoInputType === 'main' && !getMainImageUrl() && (
                 <p className="text-xs text-amber-500 mt-1">Main image is required for image-to-video generation</p>
               )}
-              {selectedVideoInputType === 'start-end' && (!startFrame || !endFrame) && (
+              {videoModel !== 'runway-act-two' && selectedVideoInputType === 'start-end' && (!startFrame || !endFrame) && (
                 <p className="text-xs text-amber-500 mt-1">Both start and end frames are required for frames-to-video generation</p>
               )}
-              {selectedVideoInputType === 'start-end' && startFrame && endFrame && (
+              {videoModel !== 'runway-act-two' && selectedVideoInputType === 'start-end' && startFrame && endFrame && (
                 <p className="text-xs text-blue-500 mt-1">Note: Frames-to-video (interpolation) requires 8 seconds duration</p>
               )}
             </div>
             ) : null}
 
             {/* Prompt - NOT shown for ACT Two character performance, but always shown for O1 */}
-            {!(videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video') && (
+            {!(videoModel === 'runway-act-two' && actTwoMainImageSelected && actTwoReferenceVideoSelected) && (
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Prompt {videoModel === 'kling-omni-video' && selectedVideoInputType === 'text-to-video' ? '(Required for text-to-video)' : '(editable)'}
@@ -6360,7 +6431,7 @@ export function ImageGenerationDialog({
                 />
               </div>
             )}
-            {videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video' && (
+            {videoModel === 'runway-act-two' && actTwoMainImageSelected && actTwoReferenceVideoSelected && (
               <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                 <p className="text-sm text-blue-800">
                   <strong>ACT Two Character Performance:</strong> This model controls your character&apos;s facial expressions and body movements based on the reference video. No prompt or duration needed - the character will follow the reference video&apos;s performance.
@@ -6449,7 +6520,11 @@ export function ImageGenerationDialog({
                         return;
                       }
                       
-                      if (videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video') {
+                      if (videoModel === 'runway-act-two') {
+                        if (!actTwoMainImageSelected || !actTwoReferenceVideoSelected) {
+                          alert('Act Two requires both a character image and a reference video. Please select both.');
+                          return;
+                        }
                         if (!referenceVideo || !getMainImageUrl()) {
                           alert('Act Two requires a reference video and a character image (main image or generated image)');
                           return;
@@ -6587,7 +6662,7 @@ export function ImageGenerationDialog({
                         requestBody.resolution = videoResolution;
                         requestBody.duration = 8; // Must be 8 for frames-to-video (interpolation)
                       }
-                    } else if (videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video') {
+                    } else if (videoModel === 'runway-act-two' && actTwoMainImageSelected && actTwoReferenceVideoSelected) {
                       // Act Two character performance - uses image for character (not video)
                       // Note: ACT Two character performance does NOT use prompt or duration
                       requestBody.type = 'character-performance';
@@ -6746,10 +6821,12 @@ export function ImageGenerationDialog({
                   }
                 }}
                 disabled={isGeneratingVideo || 
-                  (!selectedVideoInputType || !videoPrompt.trim() || 
-                   (selectedVideoInputType === 'main' && !getMainImageUrl()) ||
-                   (selectedVideoInputType === 'start-end' && (!startFrame || !endFrame)) ||
-                   (videoModel === 'runway-act-two' && selectedVideoInputType === 'reference-video' && (!referenceVideo || !getMainImageUrl())))}
+                  (videoModel === 'runway-act-two' 
+                    ? (!actTwoMainImageSelected || !actTwoReferenceVideoSelected || !referenceVideo || !getMainImageUrl())
+                    : (!selectedVideoInputType || 
+                       (selectedVideoInputType === 'main' && !getMainImageUrl()) ||
+                       (selectedVideoInputType === 'start-end' && (!startFrame || !endFrame)) ||
+                       (!videoModel.startsWith('runway') && !videoPrompt.trim())))}
                 className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
               >
                 {isGeneratingVideo ? (
