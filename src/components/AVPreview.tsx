@@ -128,6 +128,7 @@ export function AVPreview({
 
   // Auto-save debounce ref
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isSavingRef = useRef(false);
 
   // Tab visibility tracking - prevent autosave when tab is inactive
   const isTabVisibleRef = useRef(true);
@@ -284,10 +285,18 @@ export function AVPreview({
     }
   }, [selectedSegmentId]);
 
-  // Initialize tracks from avPreviewData or use defaults if empty (initial mount only)
+  // Track whether we've loaded tracks from avPreviewData at least once
+  const hasLoadedTracksRef = useRef(false);
+
+  // Initialize tracks from avPreviewData — runs on mount AND when avPreviewData first arrives
+  // Once loaded, it won't overwrite local changes (hasLoadedTracksRef guards against that)
   useEffect(() => {
     if (avPreviewData?.audioTracks && avPreviewData.audioTracks.length > 0) {
-      // Use tracks from avPreviewData (e.g., from Resolve export)
+      // Only load from avPreviewData once (first time data arrives)
+      if (hasLoadedTracksRef.current) return;
+      hasLoadedTracksRef.current = true;
+
+      // Use tracks from avPreviewData (e.g., from Resolve export or saved state)
       setTracks(avPreviewData.audioTracks);
       // Initialize history with loaded state
       const initialState: HistoryState = {
@@ -298,8 +307,8 @@ export function AVPreview({
       setHistory([initialState]);
       setHistoryIndex(0);
       historyRef.current = { history: [initialState], index: 0 };
-    } else {
-      // Only set defaults if no tracks exist at all (initial mount only)
+    } else if (!hasLoadedTracksRef.current && tracks.length === 0) {
+      // Only set defaults if no tracks exist at all and we haven't loaded yet
       const initialTracks: AVPreviewTrack[] = [
         { id: 'track-voice', name: 'Voice Over', type: 'audio' as const, clips: [] },
         { id: 'track-sfx', name: 'Sound Effects', type: 'sfx' as const, clips: [] },
@@ -316,7 +325,8 @@ export function AVPreview({
       setHistoryIndex(0);
       historyRef.current = { history: [initialState], index: 0 };
     }
-  }, []); // Run only once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [avPreviewData?.audioTracks]); // Re-run when audioTracks data arrives
 
   // Track current tracks in a ref for comparison (avoid dependency on tracks state)
   const tracksRef = useRef<AVPreviewTrack[]>(tracks);
@@ -811,6 +821,18 @@ export function AVPreview({
     setDuration(totalDuration);
   }, [totalDuration]);
 
+  // Filter audio tracks to only show clips belonging to the selected segment
+  // Clips without a segmentId (legacy data) are shown on all segments for backward compatibility
+  const filteredTracks = useMemo(() => {
+    if (!selectedSegmentId) return tracks;
+    return tracks.map(track => ({
+      ...track,
+      clips: track.clips.filter(clip =>
+        clip.segmentId === selectedSegmentId || !clip.segmentId
+      ),
+    }));
+  }, [tracks, selectedSegmentId]);
+
   // Current visual clip based on time
   const currentVisualClip = useMemo(() => {
     return visualPlaylist.find(
@@ -892,8 +914,8 @@ export function AVPreview({
        videoRef.current.pause();
     }
 
-    // Sync Audio Tracks
-    tracks.forEach(track => {
+    // Sync Audio Tracks (only play clips for the selected segment)
+    filteredTracks.forEach(track => {
       track.clips.forEach(clip => {
         const audioKey = `${track.id}-${clip.id}`;
         let audio = audioRefs.current[audioKey];
@@ -969,7 +991,11 @@ export function AVPreview({
   // Generate waveform data from audio file
   const generateWaveform = async (audioUrl: string, clipId: string, samples: number = 200): Promise<number[]> => {
     try {
-      const response = await fetch(audioUrl);
+      const response = await fetch(audioUrl, { mode: 'cors' });
+      if (!response.ok) {
+        console.warn(`Waveform fetch failed for clip ${clipId}: HTTP ${response.status}`);
+        return Array(samples).fill(0.3); // Return a flat waveform as fallback
+      }
       const arrayBuffer = await response.arrayBuffer();
       // Handle both standard AudioContext and webkitAudioContext for browser compatibility
       let audioContext: AudioContext;
@@ -1000,9 +1026,9 @@ export function AVPreview({
       const max = Math.max(...waveform);
       return waveform.map(val => max > 0 ? val / max : 0);
     } catch (error) {
-      console.error('Failed to generate waveform:', error);
-      // Return empty waveform on error
-      return Array(samples).fill(0);
+      console.warn('Failed to generate waveform for clip', clipId, '- using fallback:', error);
+      // Return a flat waveform as fallback so the clip is still visible on the timeline
+      return Array(samples).fill(0.3);
     }
   };
 
@@ -1029,7 +1055,8 @@ export function AVPreview({
                 startTime: currentTime,
                 duration: audioDuration,
                 offset: 0,
-                volume: 1
+                volume: 1,
+                segmentId: selectedSegmentId || undefined,
             };
 
             // Store audio duration
@@ -1105,10 +1132,16 @@ export function AVPreview({
       clearTimeout(autoSaveTimeoutRef.current);
     }
     
-    autoSaveTimeoutRef.current = setTimeout(() => {
+    autoSaveTimeoutRef.current = setTimeout(async () => {
       // Double-check visibility before saving
       if (!isTabVisibleRef.current) {
         console.log('⏸️ Skipping autosave - tab became inactive during debounce');
+        return;
+      }
+
+      // Prevent concurrent saves to avoid Firestore write stream exhaustion
+      if (isSavingRef.current) {
+        console.log('⏸️ Skipping autosave - previous save still in progress');
         return;
       }
 
@@ -1117,68 +1150,76 @@ export function AVPreview({
         return;
       }
 
-      // Construct updated AV Script with new durations and offsets
-      // IMPORTANT: We're only updating durations and offsets, preserving all other shot data
-      const updatedAvScript = {
-        ...avScript,
-        segments: avScript.segments.map(seg => ({
-          ...seg,
-          shots: seg.shots.map(shot => {
-            const edit = clipEdits[shot.id];
-            const newDuration = edit?.duration ?? shot.duration;
-            const newOffset = edit?.offset ?? shot.videoOffset ?? 0;
-            return {
-              ...shot,
-              duration: newDuration,
-              videoOffset: newOffset
-            };
-          })
-        })),
-        updatedAt: new Date()
-      };
+      isSavingRef.current = true;
 
-      const avPreviewData: AVPreviewData = {
-        audioTracks: tracks,
-        videoClipStartTimes: videoClipStartTimes,
-        stableVersions: stableVersions
-      };
+      try {
+        // Construct updated AV Script with new durations and offsets
+        // IMPORTANT: We're only updating durations and offsets, preserving all other shot data
+        const updatedAvScript = {
+          ...avScript,
+          segments: avScript.segments.map(seg => ({
+            ...seg,
+            shots: seg.shots.map(shot => {
+              const edit = clipEdits[shot.id];
+              const newDuration = edit?.duration ?? shot.duration;
+              const newOffset = edit?.offset ?? shot.videoOffset ?? 0;
+              return {
+                ...shot,
+                duration: newDuration,
+                videoOffset: newOffset
+              };
+            })
+          })),
+          updatedAt: new Date()
+        };
 
-      // Mark that we just saved to prevent useEffect from overwriting
-      justSavedRef.current = true;
-      
-      onSave(avPreviewData, updatedAvScript);
-      
-      // Update the hash after saving to reflect the new state
-      const getUpdatedAtTimestamp = (updatedAt: Date | string | number | undefined): number => {
-        if (!updatedAt) return 0;
-        if (updatedAt instanceof Date) return updatedAt.getTime();
-        if (typeof updatedAt === 'number') return updatedAt;
-        if (typeof updatedAt === 'string') return new Date(updatedAt).getTime();
-        if (updatedAt && typeof updatedAt === 'object' && 'toDate' in updatedAt) {
-          return (updatedAt as { toDate: () => Date }).toDate().getTime();
-        }
-        return 0;
-      };
-      
-      lastKnownAvScriptHashRef.current = JSON.stringify({
-        segmentsCount: updatedAvScript.segments.length,
-        totalShots: updatedAvScript.segments.reduce((sum, seg) => sum + (seg.shots?.length || 0), 0),
-        segmentIds: updatedAvScript.segments.map(s => s.id).sort().join(','),
-        shotIds: updatedAvScript.segments.flatMap(seg => seg.shots.map(s => s.id)).sort().join(','),
-        updatedAt: getUpdatedAtTimestamp(updatedAvScript.updatedAt)
-      });
-      
-      // Show save notification
-      setSaveNotification({
-        message: 'Saved at:',
-        timestamp: new Date()
-      });
-      
-      // Hide notification after 3 seconds
-      setTimeout(() => {
-        setSaveNotification(null);
-      }, 3000);
-    }, 1000); // Auto-save after 1 second of inactivity
+        const avPreviewData: AVPreviewData = {
+          audioTracks: tracks,
+          videoClipStartTimes: videoClipStartTimes,
+          stableVersions: stableVersions
+        };
+
+        // Mark that we just saved to prevent useEffect from overwriting
+        justSavedRef.current = true;
+        
+        await onSave(avPreviewData, updatedAvScript);
+        
+        // Update the hash after saving to reflect the new state
+        const getUpdatedAtTimestamp = (updatedAt: Date | string | number | undefined): number => {
+          if (!updatedAt) return 0;
+          if (updatedAt instanceof Date) return updatedAt.getTime();
+          if (typeof updatedAt === 'number') return updatedAt;
+          if (typeof updatedAt === 'string') return new Date(updatedAt).getTime();
+          if (updatedAt && typeof updatedAt === 'object' && 'toDate' in updatedAt) {
+            return (updatedAt as { toDate: () => Date }).toDate().getTime();
+          }
+          return 0;
+        };
+        
+        lastKnownAvScriptHashRef.current = JSON.stringify({
+          segmentsCount: updatedAvScript.segments.length,
+          totalShots: updatedAvScript.segments.reduce((sum, seg) => sum + (seg.shots?.length || 0), 0),
+          segmentIds: updatedAvScript.segments.map(s => s.id).sort().join(','),
+          shotIds: updatedAvScript.segments.flatMap(seg => seg.shots.map(s => s.id)).sort().join(','),
+          updatedAt: getUpdatedAtTimestamp(updatedAvScript.updatedAt)
+        });
+        
+        // Show save notification
+        setSaveNotification({
+          message: 'Saved at:',
+          timestamp: new Date()
+        });
+        
+        // Hide notification after 3 seconds
+        setTimeout(() => {
+          setSaveNotification(null);
+        }, 3000);
+      } catch (error) {
+        console.error('Autosave failed:', error);
+      } finally {
+        isSavingRef.current = false;
+      }
+    }, 3000); // Auto-save after 3 seconds of inactivity (increased to prevent Firestore exhaustion)
   }, [tracks, clipEdits, avScript, onSave, videoClipStartTimes]);
 
   const handleRemoveClip = (trackId: string, clipId: string) => {
@@ -1399,8 +1440,8 @@ export function AVPreview({
       // K key to split all clips at playhead (common in video editors)
       if ((e.key === 'k' || e.key === 'K') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
-        // Split all audio clips that intersect with current time
-        tracks.forEach(track => {
+        // Split all audio clips that intersect with current time (only current segment)
+        filteredTracks.forEach(track => {
           track.clips.forEach(clip => {
             if (currentTime > clip.startTime && currentTime < clip.startTime + clip.duration) {
               handleSplitAudioClip(track.id, clip.id, currentTime);
@@ -1497,7 +1538,7 @@ export function AVPreview({
         }
       });
       
-      tracks.forEach(t => {
+      filteredTracks.forEach(t => {
         t.clips.forEach(c => {
           if (selectedClips.has(c.id)) {
             audioOriginalStartTimes[c.id] = c.startTime;
@@ -1545,7 +1586,7 @@ export function AVPreview({
     // If multiple audio clips are selected, prepare to move them all
     if (selectedClips.size > 1 && selectedClips.has(clip.id)) {
       const originalStartTimes: {[clipId: string]: number} = {};
-      tracks.forEach(t => {
+      filteredTracks.forEach(t => {
         t.clips.forEach(c => {
           if (selectedClips.has(c.id)) {
             originalStartTimes[c.id] = c.startTime;
@@ -1652,6 +1693,12 @@ export function AVPreview({
       // Wait for next frame and try again
       requestAnimationFrame(() => {
         findAndStoreClipElements();
+        // Record original left positions for any newly found elements
+        clipElements.forEach((el, clipId) => {
+          if (!originalLeftPositions.has(clipId)) {
+            recordOriginalLeft(el, clipId);
+          }
+        });
       });
     }
 
@@ -1662,6 +1709,11 @@ export function AVPreview({
       const left = parseFloat(computedStyle.left) || 0;
       originalLeftPositions.set(clipId, left);
     };
+
+    // CRITICAL: Record original left positions for all captured elements immediately
+    clipElements.forEach((el, clipId) => {
+      recordOriginalLeft(el, clipId);
+    });
 
     // Store drag positions in refs (not state) to avoid React re-renders during drag
     const dragPositions = new Map<string, number>();
@@ -2305,7 +2357,7 @@ export function AVPreview({
 
     // Get all track elements and store their original positions
     const trackElements = new Map<number, HTMLElement>();
-    tracks.forEach((track, index) => {
+    filteredTracks.forEach((track, index) => {
       const el = document.querySelector(`[data-track-id="${track.id}"]`) as HTMLElement;
       if (el) {
         trackElements.set(index, el);
@@ -3892,7 +3944,7 @@ export function AVPreview({
       
       // Also set up audio multi-drag
       const audioOriginalStartTimes: {[clipId: string]: number} = {};
-      tracks.forEach(t => {
+      filteredTracks.forEach(t => {
         t.clips.forEach(c => {
           if (selectedClips.has(c.id)) {
             audioOriginalStartTimes[c.id] = c.startTime;
@@ -3905,9 +3957,9 @@ export function AVPreview({
       });
       
       // Also set up audio drag state so audio handler knows about the drag
-      const firstAudioClip = tracks.flatMap(t => t.clips).find(c => selectedClips.has(c.id));
+      const firstAudioClip = filteredTracks.flatMap(t => t.clips).find(c => selectedClips.has(c.id));
       if (firstAudioClip) {
-        const audioTrack = tracks.find(t => t.clips.some(c => c.id === firstAudioClip.id));
+        const audioTrack = filteredTracks.find(t => t.clips.some(c => c.id === firstAudioClip.id));
         if (audioTrack) {
           setAudioDragState({
             clipId: firstAudioClip.id,
@@ -4123,9 +4175,9 @@ export function AVPreview({
       }
     });
 
-    // Check audio clips - calculate Y position for each track
+    // Check audio clips - calculate Y position for each track (only current segment)
     let trackY = videoTrackBottom; // Start after video track
-    tracks.forEach(track => {
+    filteredTracks.forEach(track => {
       const trackHeight = isCompactMode ? 40 : 96; // h-10 = 40px, h-24 = 96px
       track.clips.forEach(clip => {
         const clipLeft = clip.startTime * scale + 192; // Account for sidebar
@@ -5773,7 +5825,7 @@ export function AVPreview({
                   : null;
                 
                 const selectedAudioClip = selectedClips.size > 0
-                  ? tracks.flatMap(t => t.clips).find(c => selectedClips.has(c.id))
+                  ? filteredTracks.flatMap(t => t.clips).find(c => selectedClips.has(c.id))
                   : null;
 
                 const selectedClip = selectedVideoClip || selectedAudioClip;
@@ -6342,8 +6394,8 @@ export function AVPreview({
                 </div>
               </div>
 
-              {/* Audio Tracks */}
-              {tracks.map((track, trackIndex) => (
+              {/* Audio Tracks (filtered by selected segment) */}
+              {filteredTracks.map((track, trackIndex) => (
                 <div 
                   key={track.id}
                   data-track-id={track.id}
@@ -6506,8 +6558,8 @@ export function AVPreview({
                               // Shift+click to select range (if we have a previous selection)
                               if (e.shiftKey && selectedClips.size > 0) {
                                 e.stopPropagation();
-                                // Find all clips between first selected and current
-                                const allClips = tracks.flatMap(t => t.clips.map(c => ({ ...c, trackId: t.id })));
+                                // Find all clips between first selected and current (current segment only)
+                                const allClips = filteredTracks.flatMap(t => t.clips.map(c => ({ ...c, trackId: t.id })));
                                 const selectedClipIds = Array.from(selectedClips);
                                 const firstSelected = allClips.find(c => selectedClipIds.includes(c.id));
                                 const currentClip = allClips.find(c => c.id === clip.id);

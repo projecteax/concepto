@@ -690,6 +690,7 @@ export interface AVPreviewClip {
   offset: number; // Start time within the source file
   volume: number; // 0-1
   sourceDuration?: number; // Total duration of the source audio file
+  segmentId?: string; // Segment/scene this clip belongs to (for per-scene filtering)
 }
 
 export interface AVPreviewTrack {
