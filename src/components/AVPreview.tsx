@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import { Episode, AVScript, AVPreviewData, AVPreviewTrack, GlobalAsset, AVShot, AVSegment, AVPreviewClip, StableVersion } from '@/types';
-import { Play, Pause, Save, Upload, Plus, Trash2, Volume2, VolumeX, Music, Mic, Image as ImageIcon, Film, SkipBack, GripVertical, Video, Loader2, Download, Edit3, GripVertical as DragHandle, ChevronLeft, ChevronRight, Maximize, Scissors, RefreshCw, X, Check, History, RotateCcw, Lock, Unlock } from 'lucide-react';
+import { Play, Pause, Save, Upload, Plus, Trash2, Volume2, VolumeX, Music, Mic, Image as ImageIcon, Film, SkipBack, GripVertical, Video, Loader2, Download, Edit3, GripVertical as DragHandle, ChevronLeft, ChevronRight, Maximize, Minimize, Scissors, RefreshCw, X, Check, History, RotateCcw, Lock, Unlock } from 'lucide-react';
 import { useS3Upload } from '@/hooks/useS3Upload';
 import { useSessionStorageState } from '@/hooks/useSessionStorageState';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
@@ -77,8 +77,10 @@ export function AVPreview({
   // Audio waveform data - store waveform samples for each clip
   const [waveformData, setWaveformData] = useState<{[clipId: string]: number[]}>({});
   
-  // Muted shots - track which video shots have muted audio
-  const [mutedShots, setMutedShots] = useState<Set<string>>(new Set());
+  // Muted shots - track which video shots have muted audio (initialized from saved data)
+  const [mutedShots, setMutedShots] = useState<Set<string>>(
+    new Set(avPreviewData?.mutedShots || [])
+  );
   
   // Video clip volumes - track volume for each video clip (0-1, default 1)
   const [videoClipVolumes, setVideoClipVolumes] = useState<{[clipId: string]: number}>({});
@@ -298,6 +300,10 @@ export function AVPreview({
 
       // Use tracks from avPreviewData (e.g., from Resolve export or saved state)
       setTracks(avPreviewData.audioTracks);
+      // Restore muted shots if saved
+      if (avPreviewData.mutedShots && avPreviewData.mutedShots.length > 0) {
+        setMutedShots(new Set(avPreviewData.mutedShots));
+      }
       // Initialize history with loaded state
       const initialState: HistoryState = {
         tracks: JSON.parse(JSON.stringify(avPreviewData.audioTracks)),
@@ -547,7 +553,8 @@ export function AVPreview({
       const avPreviewData: AVPreviewData = {
         audioTracks: tracks,
         videoClipStartTimes: videoClipStartTimes,
-        stableVersions: stableVersions
+        stableVersions: stableVersions,
+        mutedShots: Array.from(mutedShots),
       };
 
       // Mark that we just saved to prevent useEffect from overwriting
@@ -1173,16 +1180,17 @@ export function AVPreview({
           updatedAt: new Date()
         };
 
-        const avPreviewData: AVPreviewData = {
-          audioTracks: tracks,
-          videoClipStartTimes: videoClipStartTimes,
-          stableVersions: stableVersions
-        };
+      const avPreviewData: AVPreviewData = {
+        audioTracks: tracks,
+        videoClipStartTimes: videoClipStartTimes,
+        stableVersions: stableVersions,
+        mutedShots: Array.from(mutedShots),
+      };
 
-        // Mark that we just saved to prevent useEffect from overwriting
-        justSavedRef.current = true;
-        
-        await onSave(avPreviewData, updatedAvScript);
+      // Mark that we just saved to prevent useEffect from overwriting
+      justSavedRef.current = true;
+      
+      await onSave(avPreviewData, updatedAvScript);
         
         // Update the hash after saving to reflect the new state
         const getUpdatedAtTimestamp = (updatedAt: Date | string | number | undefined): number => {
@@ -1220,7 +1228,7 @@ export function AVPreview({
         isSavingRef.current = false;
       }
     }, 3000); // Auto-save after 3 seconds of inactivity (increased to prevent Firestore exhaustion)
-  }, [tracks, clipEdits, avScript, onSave, videoClipStartTimes]);
+  }, [tracks, clipEdits, avScript, onSave, videoClipStartTimes, mutedShots]);
 
   const handleRemoveClip = (trackId: string, clipId: string) => {
       setClipToDelete({ trackId, clipId });
@@ -1275,6 +1283,7 @@ export function AVPreview({
           }
           return newSet;
       });
+      triggerAutoSave();
   };
 
   // Create new audio track
@@ -4402,7 +4411,8 @@ export function AVPreview({
     const avPreviewData: AVPreviewData = {
       audioTracks: tracks,
       videoClipStartTimes: videoClipStartTimes,
-      stableVersions: stableVersions
+      stableVersions: stableVersions,
+      mutedShots: Array.from(mutedShots),
     };
     
     onSave(avPreviewData, updatedAvScript);
@@ -4451,7 +4461,8 @@ export function AVPreview({
     const avPreviewData: AVPreviewData = {
       audioTracks: tracks,
       videoClipStartTimes: videoClipStartTimes,
-      stableVersions: updatedVersions
+      stableVersions: updatedVersions,
+      mutedShots: Array.from(mutedShots),
     };
 
     if (avScript) {
@@ -4492,7 +4503,8 @@ export function AVPreview({
       const avPreviewData: AVPreviewData = {
         audioTracks: JSON.parse(JSON.stringify(versionToRestore.data.audioTracks)),
         videoClipStartTimes: versionToRestore.data.videoClipStartTimes,
-        stableVersions: stableVersions
+        stableVersions: stableVersions,
+        mutedShots: versionToRestore.data.mutedShots || [],
       };
       onSave(avPreviewData, avScript);
     }
@@ -4525,11 +4537,12 @@ export function AVPreview({
       const avPreviewData: AVPreviewData = {
         audioTracks: tracks,
         videoClipStartTimes: videoClipStartTimes,
-        stableVersions: updatedVersions
+        stableVersions: updatedVersions,
+        mutedShots: Array.from(mutedShots),
       };
       onSave(avPreviewData, avScript);
     }
-  }, [stableVersions, avScript, tracks, videoClipStartTimes, onSave]);
+  }, [stableVersions, avScript, tracks, videoClipStartTimes, onSave, mutedShots]);
 
   // Delete stable version
   const handleDeleteStableVersion = useCallback((versionId: string) => {
@@ -4541,11 +4554,12 @@ export function AVPreview({
       const avPreviewData: AVPreviewData = {
         audioTracks: tracks,
         videoClipStartTimes: videoClipStartTimes,
-        stableVersions: updatedVersions
+        stableVersions: updatedVersions,
+        mutedShots: Array.from(mutedShots),
       };
       onSave(avPreviewData, avScript);
     }
-  }, [stableVersions, avScript, tracks, videoClipStartTimes, onSave]);
+  }, [stableVersions, avScript, tracks, videoClipStartTimes, onSave, mutedShots]);
 
   // Format timecode for FCP XML (HH:MM:SS:FF at 24fps)
   const formatTimecode = (seconds: number): string => {
@@ -5214,7 +5228,7 @@ export function AVPreview({
         volume: number;
       }> = [];
 
-      for (const track of tracks) {
+      for (const track of filteredTracks) {
         if (track.isMuted) continue;
         for (const clip of track.clips) {
           const clipEndTime = clip.startTime + clip.duration;
@@ -5769,7 +5783,11 @@ export function AVPreview({
             </div>
             {/* Video Player - Center */}
             <div className="flex-1 flex items-center justify-center">
-              <div className="aspect-video h-full max-h-[400px] w-full max-w-[800px] bg-gray-900 flex items-center justify-center relative shadow-2xl">
+              <div className={`bg-gray-900 flex items-center justify-center relative shadow-2xl ${
+                isFullscreen 
+                  ? 'w-full h-full' 
+                  : 'aspect-video h-full max-h-[400px] w-full max-w-[800px]'
+              }`}>
                {currentVisualClip ? (
                  <>
                    {currentVisualClip.type === 'video' ? (
@@ -5795,21 +5813,74 @@ export function AVPreview({
                    )}
                    
                    {/* Overlay Info */}
-                   <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-sm px-3 py-1 rounded text-xs font-mono border border-white/10">
+                   <div className={`absolute top-4 left-4 bg-black/50 backdrop-blur-sm px-3 py-1 rounded text-xs font-mono border border-white/10 ${isFullscreen ? 'text-sm px-4 py-2' : ''}`}>
                       Take {currentVisualClip.take}
                       <span className="ml-2 text-gray-400">Length: {formatTime(currentVisualClip.duration)}</span>
                       {currentVisualClip.type === 'video' && currentVisualClip.offset > 0 && (
                         <span className="ml-2 text-yellow-400">Offset: {formatTime(currentVisualClip.offset)}</span>
                       )}
                    </div>
-                   {/* Fullscreen Button */}
-                   <button
-                     onClick={handleFullscreen}
-                     className="absolute bottom-4 right-4 bg-black/50 hover:bg-black/70 backdrop-blur-sm p-2 rounded border border-white/10 transition-colors z-10"
-                     title="Toggle Fullscreen"
-                   >
-                     <Maximize className="w-5 h-5 text-white" />
-                   </button>
+
+                   {/* Fullscreen Controls Overlay */}
+                   {isFullscreen ? (
+                     <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-16 pb-4 px-6 z-20 group">
+                       {/* Progress Bar */}
+                       <div 
+                         className="w-full h-2 bg-white/20 rounded-full cursor-pointer mb-4 hover:h-3 transition-all"
+                         onClick={(e) => {
+                           const rect = e.currentTarget.getBoundingClientRect();
+                           const x = e.clientX - rect.left;
+                           const percent = x / rect.width;
+                           const newTime = percent * duration;
+                           setCurrentTime(newTime);
+                           if (isPlaying) {
+                             playStartOffsetRef.current = newTime;
+                             playStartTimeRef.current = performance.now();
+                           }
+                         }}
+                       >
+                         <div 
+                           className="h-full bg-indigo-500 rounded-full relative"
+                           style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+                         >
+                           <div className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow-lg -mr-2" />
+                         </div>
+                       </div>
+                       {/* Controls Row */}
+                       <div className="flex items-center justify-between">
+                         <div className="flex items-center space-x-4">
+                           {/* Play/Pause */}
+                           <button
+                             onClick={() => setIsPlaying(!isPlaying)}
+                             className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
+                           >
+                             {isPlaying ? <Pause className="w-6 h-6 text-white fill-current" /> : <Play className="w-6 h-6 text-white fill-current" />}
+                           </button>
+                           {/* Time Display */}
+                           <span className="text-white font-mono text-sm">
+                             {formatTime(currentTime)} / {formatTime(duration)}
+                           </span>
+                         </div>
+                         {/* Exit Fullscreen */}
+                         <button
+                           onClick={handleFullscreen}
+                           className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
+                           title="Exit Fullscreen"
+                         >
+                           <Minimize className="w-5 h-5 text-white" />
+                         </button>
+                       </div>
+                     </div>
+                   ) : (
+                     /* Non-fullscreen: simple fullscreen button */
+                     <button
+                       onClick={handleFullscreen}
+                       className="absolute bottom-4 right-4 bg-black/50 hover:bg-black/70 backdrop-blur-sm p-2 rounded border border-white/10 transition-colors z-10"
+                       title="Toggle Fullscreen"
+                     >
+                       <Maximize className="w-5 h-5 text-white" />
+                     </button>
+                   )}
                  </>
                ) : (
                   <p className="text-gray-700">End of Preview</p>

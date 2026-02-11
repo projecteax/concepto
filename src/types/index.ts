@@ -706,6 +706,7 @@ export interface AVPreviewData {
   audioTracks: AVPreviewTrack[];
   videoClipStartTimes?: {[clipId: string]: number}; // Custom start times for video clips (timeline positions)
   stableVersions?: StableVersion[]; // Saved stable versions of the preview state
+  mutedShots?: string[]; // Shot IDs whose video audio is muted
 }
 
 export interface StableVersion {
