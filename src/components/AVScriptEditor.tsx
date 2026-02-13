@@ -2111,6 +2111,22 @@ export function AVScriptEditor({
                         // Show progress - we'll track this in the component
                         const result = await uploadFile(file, `episodes/${episodeId}/av-script/videos/`);
                         if (result) {
+                          // Get the actual video duration from the file
+                          let videoDuration: number | null = null;
+                          try {
+                            const videoEl = document.createElement('video');
+                            videoEl.preload = 'metadata';
+                            const durationPromise = new Promise<number>((resolve, reject) => {
+                              videoEl.onloadedmetadata = () => resolve(videoEl.duration);
+                              videoEl.onerror = () => reject(new Error('Failed to load video metadata'));
+                            });
+                            videoEl.src = URL.createObjectURL(file);
+                            videoDuration = await durationPromise;
+                            URL.revokeObjectURL(videoEl.src);
+                          } catch (err) {
+                            console.warn('Could not read video duration from file:', err);
+                          }
+
                           // Create or update the thread to include the uploaded video
                           const uploadedVidId = `uploaded-vid-${Date.now()}`;
                           const existingThread = shot.imageGenerationThread;
@@ -2152,6 +2168,10 @@ export function AVScriptEditor({
                                             ...s, 
                                             videoUrl: result.url,
                                             imageGenerationThread: newThread,
+                                            // Auto-set duration from uploaded video
+                                            ...(videoDuration && videoDuration > 0 && isFinite(videoDuration)
+                                              ? { duration: videoDuration }
+                                              : {}),
                                             updatedAt: new Date(),
                                           }
                                         : s
@@ -3607,42 +3627,100 @@ function ShotRow({
 
       {/* Duration & Actions */}
       <div className="col-span-12 md:col-span-2 px-2 md:px-4 py-2 md:py-3 border-t md:border-t-0 md:border-l border-gray-100">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <label className="text-xs font-medium text-gray-700">Duration:</label>
-            <input
-              type="text"
-              value={formatDuration(shot.duration)}
-              onChange={(e) => {
-                // Parse MM:SS:FF format to seconds
-                const parts = e.target.value.split(':');
-                if (parts.length === 3) {
-                  const mins = parseInt(parts[0]) || 0;
-                  const secs = parseInt(parts[1]) || 0;
-                  const frames = parseInt(parts[2]) || 0;
-                  if (!isNaN(mins) && !isNaN(secs) && !isNaN(frames) && frames >= 0 && frames < 24) {
-                    const totalSeconds = mins * 60 + secs + frames / 24;
-                    onUpdate({ duration: totalSeconds });
-                  }
-                } else if (parts.length === 2) {
-                  // Also support MM:SS format for backward compatibility
-                  const mins = parseInt(parts[0]) || 0;
-                  const secs = parseInt(parts[1]) || 0;
-                  if (!isNaN(mins) && !isNaN(secs)) {
-                    onUpdate({ duration: mins * 60 + secs });
-                  }
+        <div className="flex flex-col space-y-2">
+          <div>
+            <label className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Duration</label>
+            {(() => {
+              const totalFrames = Math.floor(shot.duration * 24);
+              const mins = Math.floor(totalFrames / (24 * 60));
+              const remainingFrames = totalFrames % (24 * 60);
+              const secs = Math.floor(remainingFrames / 24);
+              const frames = remainingFrames % 24;
+
+              const updateFromParts = (m: number, s: number, f: number) => {
+                const clamped_f = Math.max(0, Math.min(23, f));
+                const clamped_s = Math.max(0, Math.min(59, s));
+                const clamped_m = Math.max(0, m);
+                const totalSeconds = clamped_m * 60 + clamped_s + clamped_f / 24;
+                onUpdate({ duration: Math.max(0, totalSeconds) });
+              };
+
+              const handleWheel = (e: React.WheelEvent, field: 'min' | 'sec' | 'frame') => {
+                e.preventDefault();
+                const delta = e.deltaY < 0 ? 1 : -1;
+                if (field === 'min') updateFromParts(mins + delta, secs, frames);
+                else if (field === 'sec') {
+                  const newSecs = secs + delta;
+                  if (newSecs > 59) updateFromParts(mins + 1, 0, frames);
+                  else if (newSecs < 0 && mins > 0) updateFromParts(mins - 1, 59, frames);
+                  else updateFromParts(mins, Math.max(0, newSecs), frames);
+                } else {
+                  const newFrames = frames + delta;
+                  if (newFrames > 23) updateFromParts(mins, secs + 1, 0);
+                  else if (newFrames < 0 && (secs > 0 || mins > 0)) {
+                    if (secs > 0) updateFromParts(mins, secs - 1, 23);
+                    else updateFromParts(mins - 1, 59, 23);
+                  } else updateFromParts(mins, secs, Math.max(0, newFrames));
                 }
-              }}
-              className="w-20 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-              placeholder="00:00:00"
-            />
+              };
+
+              const fieldClass = "w-7 text-center text-xs font-mono border border-gray-300 rounded px-0 py-1 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
+
+              return (
+                <div className="flex items-center" title="Scroll to adjust values">
+                  <input
+                    type="number"
+                    min={0}
+                    value={mins.toString().padStart(2, '0')}
+                    onChange={(e) => updateFromParts(parseInt(e.target.value) || 0, secs, frames)}
+                    onWheel={(e) => handleWheel(e, 'min')}
+                    onKeyDown={(e) => {
+                      if (e.key === 'ArrowUp') { e.preventDefault(); updateFromParts(mins + 1, secs, frames); }
+                      if (e.key === 'ArrowDown') { e.preventDefault(); updateFromParts(Math.max(0, mins - 1), secs, frames); }
+                    }}
+                    className={fieldClass}
+                    title="Minutes (scroll or arrow keys)"
+                  />
+                  <span className="text-xs font-mono text-gray-400 mx-px">:</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={59}
+                    value={secs.toString().padStart(2, '0')}
+                    onChange={(e) => updateFromParts(mins, parseInt(e.target.value) || 0, frames)}
+                    onWheel={(e) => handleWheel(e, 'sec')}
+                    onKeyDown={(e) => {
+                      if (e.key === 'ArrowUp') { e.preventDefault(); handleWheel({ deltaY: -1, preventDefault: () => {} } as unknown as React.WheelEvent, 'sec'); }
+                      if (e.key === 'ArrowDown') { e.preventDefault(); handleWheel({ deltaY: 1, preventDefault: () => {} } as unknown as React.WheelEvent, 'sec'); }
+                    }}
+                    className={fieldClass}
+                    title="Seconds (scroll or arrow keys)"
+                  />
+                  <span className="text-xs font-mono text-gray-400 mx-px">:</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={23}
+                    value={frames.toString().padStart(2, '0')}
+                    onChange={(e) => updateFromParts(mins, secs, parseInt(e.target.value) || 0)}
+                    onWheel={(e) => handleWheel(e, 'frame')}
+                    onKeyDown={(e) => {
+                      if (e.key === 'ArrowUp') { e.preventDefault(); handleWheel({ deltaY: -1, preventDefault: () => {} } as unknown as React.WheelEvent, 'frame'); }
+                      if (e.key === 'ArrowDown') { e.preventDefault(); handleWheel({ deltaY: 1, preventDefault: () => {} } as unknown as React.WheelEvent, 'frame'); }
+                    }}
+                    className={fieldClass}
+                    title="Frames @24fps (scroll or arrow keys)"
+                  />
+                </div>
+              );
+            })()}
           </div>
           <button
             onClick={onDeleteShot}
-            className="flex items-center space-x-1 text-red-600 hover:text-red-800 hover:bg-red-50 px-2 py-1 rounded transition-colors"
+            className="flex items-center space-x-1 text-red-500 hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded transition-colors self-start"
             title="Delete shot"
           >
-            <Trash2 className="w-4 h-4" />
+            <Trash2 className="w-3.5 h-3.5" />
             <span className="text-xs">Delete</span>
           </button>
         </div>
