@@ -91,14 +91,8 @@ export function AVPreview({
   // Video clip volumes - track volume for each video clip (0-1, default 1)
   const [videoClipVolumes, setVideoClipVolumes] = useState<{[clipId: string]: number}>({});
   
-  // Video buffering state
-  const [isBuffering, setIsBuffering] = useState(false);
-  const isBufferingRef = useRef(false);
-  const isPlayingRef = useRef(false);
-  const currentTimeRef = useRef(0);
-  const lastVideoSrcRef = useRef<string>('');
+  // Preloaded video cache - keeps videos buffered for smooth playback
   const preloadedVideosRef = useRef<Map<string, HTMLVideoElement>>(new Map());
-  const currentVisualClipRef = useRef<VisualClip | undefined>(undefined);
   
   // Resizing State - simpler approach
   const [resizeState, setResizeState] = useState<{
@@ -862,23 +856,9 @@ export function AVPreview({
     );
   }, [currentTime, visualPlaylist]);
 
-  // Keep refs in sync
-  useEffect(() => { isBufferingRef.current = isBuffering; }, [isBuffering]);
-  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
-  useEffect(() => { currentTimeRef.current = currentTime; }, [currentTime]);
-  useEffect(() => { currentVisualClipRef.current = currentVisualClip; }, [currentVisualClip]);
-
-  // Playback Loop - pauses clock when video is buffering
+  // Playback Loop
   const updatePlayback = useCallback(() => {
     if (playStartTimeRef.current === null) return;
-
-    // If buffering, freeze the clock but keep polling
-    if (isBufferingRef.current) {
-      playStartTimeRef.current = performance.now();
-      playStartOffsetRef.current = currentTimeRef.current;
-      rafRef.current = requestAnimationFrame(updatePlayback);
-      return;
-    }
 
     const now = performance.now();
     const elapsed = (now - playStartTimeRef.current) / 1000;
@@ -915,78 +895,27 @@ export function AVPreview({
     };
   }, [isPlaying, updatePlayback]);
 
-  // Video buffering event listeners (persistent, video element is always in DOM)
+  // Preload all video clips in the scene on mount / scene change
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    
-    const onWaiting = () => { setIsBuffering(true); };
-    const onCanPlay = () => {
-      setIsBuffering(false);
-      // When video becomes ready, seek to correct position and play if needed
-      const clip = currentVisualClipRef.current;
-      if (clip && clip.type === 'video' && clip.url) {
-        const timeInClip = currentTimeRef.current - clip.startTime;
-        const sourceTime = clip.offset + timeInClip;
-        if (video.readyState >= 1 && Math.abs(video.currentTime - sourceTime) > 0.5) {
-          video.currentTime = sourceTime;
-        }
-        if (isPlayingRef.current && video.paused) {
-          video.play().catch(() => {});
-        }
-      }
-    };
-    const onPlaying = () => { setIsBuffering(false); };
-    const onError = () => { setIsBuffering(false); };
-    
-    video.addEventListener('waiting', onWaiting);
-    video.addEventListener('canplay', onCanPlay);
-    video.addEventListener('playing', onPlaying);
-    video.addEventListener('error', onError);
-    
-    return () => {
-      video.removeEventListener('waiting', onWaiting);
-      video.removeEventListener('canplay', onCanPlay);
-      video.removeEventListener('playing', onPlaying);
-      video.removeEventListener('error', onError);
-    };
-  }, []);
-
-  // Preload upcoming video clips so they're buffered before playback reaches them
-  useEffect(() => {
-    if (!visualPlaylist.length) return;
-    
     const videoClips = visualPlaylist.filter(c => c.type === 'video' && c.url);
-    const currentIdx = videoClips.findIndex(c => 
-      currentTime >= c.startTime && currentTime < c.startTime + c.duration
-    );
-    
-    // Preload current + next 2 video clips
-    const toPreload = videoClips.slice(
-      Math.max(0, currentIdx), 
-      Math.max(0, currentIdx) + 3
-    );
-    
-    toPreload.forEach(clip => {
+    videoClips.forEach(clip => {
       if (!clip.url || preloadedVideosRef.current.has(clip.url)) return;
-      const preloadEl = document.createElement('video');
-      preloadEl.preload = 'auto';
-      preloadEl.muted = true;
-      preloadEl.src = clip.url;
-      preloadEl.load();
-      preloadedVideosRef.current.set(clip.url, preloadEl);
+      const el = document.createElement('video');
+      el.preload = 'auto';
+      el.muted = true;
+      el.src = clip.url;
+      el.load();
+      preloadedVideosRef.current.set(clip.url, el);
     });
-    
-    // Clean up preloaded videos that are no longer needed (more than 3 clips behind)
-    const activeUrls = new Set(toPreload.map(c => c.url).filter(Boolean));
+    // Clean up URLs no longer in playlist
+    const activeUrls = new Set(videoClips.map(c => c.url).filter(Boolean));
     preloadedVideosRef.current.forEach((el, url) => {
       if (!activeUrls.has(url)) {
         el.src = '';
-        el.load();
         preloadedVideosRef.current.delete(url);
       }
     });
-  }, [visualPlaylist, currentTime]);
+  }, [visualPlaylist]);
 
   // Sync Media Elements
   useEffect(() => {
@@ -1004,25 +933,16 @@ export function AVPreview({
       const clipVolume = videoClipVolumes[currentVisualClip.id] ?? 1;
       video.volume = isMuted ? 0 : clipVolume;
       
-      // Source change - set buffering state and load
-      const resolvedSrc = video.src ? video.src : '';
-      const clipUrl = currentVisualClip.url;
-      if (lastVideoSrcRef.current !== clipUrl) {
-        lastVideoSrcRef.current = clipUrl;
-        setIsBuffering(true);
-        video.src = clipUrl;
+      if (video.src !== currentVisualClip.url) {
+        video.src = currentVisualClip.url;
         video.load();
-        // Don't try to seek or play yet - wait for canplay event
-        return;
       }
       
-      // Sync time (only if video has loaded enough metadata)
-      if (video.readyState >= 1 && Math.abs(video.currentTime - sourceTime) > 0.3) {
+      if (Math.abs(video.currentTime - sourceTime) > 0.3) {
         video.currentTime = sourceTime;
       }
 
-      // Play/pause - only play if video has enough data buffered
-      if (isPlaying && video.paused && video.readyState >= 3) {
+      if (isPlaying && video.paused) {
         video.play().catch(() => {});
       } else if (!isPlaying && !video.paused) {
         video.pause();
@@ -5987,15 +5907,6 @@ export function AVPreview({
                      </div>
                    ) : null}
                    
-                   {/* Buffering indicator */}
-                   {isBuffering && isPlaying && currentVisualClip.type === 'video' && (
-                     <div className="absolute inset-0 flex items-center justify-center bg-black/40 z-10">
-                       <div className="flex flex-col items-center gap-2">
-                         <Loader2 className="w-10 h-10 text-white animate-spin" />
-                         <span className="text-white text-sm font-medium">Buffering...</span>
-                       </div>
-                     </div>
-                   )}
                    
                    {/* Overlay Info */}
                    <div className={`absolute top-4 left-4 bg-black/50 backdrop-blur-sm px-3 py-1 rounded text-xs font-mono border border-white/10 ${isFullscreen ? 'text-sm px-4 py-2' : ''}`}>
