@@ -42,13 +42,19 @@ interface ScreenplayEditorProps {
   screenplayData: ScreenplayData;
   onSave: (data: ScreenplayData) => void | Promise<void>;
   episodeId: string;
+  isReadOnly?: boolean;
 }
 
 const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProps>(({ 
   screenplayData,
-  onSave,
-  episodeId
+  onSave: onSaveProp,
+  episodeId,
+  isReadOnly = false
 }, ref) => {
+  const onSave = useCallback(async (data: ScreenplayData) => {
+    if (isReadOnly) return;
+    await onSaveProp(data);
+  }, [isReadOnly, onSaveProp]);
   const { user } = useAuth();
   const [localData, setLocalData] = useState<ScreenplayData>(screenplayData);
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
@@ -426,6 +432,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   };
 
   const updateCurrentElement = (id: string, content: string) => {
+    if (isReadOnly) return;
     if (language === 'EN') {
       setLocalData(prev => ({
         ...prev,
@@ -473,6 +480,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   };
 
   const addElement = (type: ScreenplayElement['type'], afterId?: string) => {
+    if (isReadOnly) return;
     const currentElements = getCurrentElements();
     const insertIndex = afterId 
       ? currentElements.findIndex(e => e.id === afterId) + 1
@@ -523,6 +531,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   };
 
   const updateElement = (id: string, content: string) => {
+    if (isReadOnly) return;
     const isEN = id.startsWith('en-') || (language === 'EN' && !id.startsWith('pl-'));
     const baseId = id.replace(/^(en-|pl-)/, '');
     
@@ -566,6 +575,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   };
 
   const deleteElement = (id: string) => {
+    if (isReadOnly) return;
     const currentElements = getCurrentElements();
     const elementIndex = currentElements.findIndex(el => el.id === id);
     
@@ -608,6 +618,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   };
 
   const markElementAsReviewed = (id: string) => {
+    if (isReadOnly) return;
     const currentElements = getCurrentElements();
     const elementIndex = currentElements.findIndex(el => el.id === id);
     
@@ -684,6 +695,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
 
   const handleElementClick = (id: string, event: React.MouseEvent) => {
     event.preventDefault();
+    if (isReadOnly) return;
     setSelectedElementId(id);
     setEditingElementId(id);
     
@@ -810,6 +822,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   };
 
   const handleSave = async () => {
+    if (isReadOnly) return;
     setIsSaving(true);
     try {
       await onSave({ ...localData, stableVersions });
@@ -821,6 +834,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
 
   // Stable versions functions
   const handleSaveVersion = useCallback(async () => {
+    if (isReadOnly) return;
     const nextVersionNumber = stableVersions.length + 1;
     const defaultName = `Screenplay_stable_v${nextVersionNumber}`;
 
@@ -852,6 +866,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   }, [stableVersions, localData, onSave]);
 
   const handleRestoreVersion = useCallback(async () => {
+    if (isReadOnly) return;
     if (!versionToRestore) return;
 
     const restoredData = {
@@ -876,6 +891,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   }, [versionToRestore, stableVersions, onSave]);
 
   const handleUpdateVersionName = useCallback(async (versionId: string, newName: string) => {
+    if (isReadOnly) return;
     if (!newName.trim()) return;
     
     const updatedVersions = stableVersions.map(v => 
@@ -896,6 +912,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
   }, [stableVersions, localData, onSave]);
 
   const handleDeleteVersion = useCallback(async (versionId: string) => {
+    if (isReadOnly) return;
     const updatedVersions = stableVersions.filter(v => v.id !== versionId);
     setStableVersions(updatedVersions);
     
@@ -1935,6 +1952,19 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
     );
   };
 
+  const blockReadOnlyInteractions = useCallback((e: React.SyntheticEvent) => {
+    if (!isReadOnly) return;
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+    // Allow language toggle buttons (PL/EN) through
+    if (target.closest('[data-allow-readonly]')) return;
+    // Block all interactive elements AND clickable script elements
+    if (target.closest('button, input, textarea, select, [role="button"], [contenteditable="true"], a, .cursor-pointer')) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, [isReadOnly]);
+
   return (
     <>
       <style jsx global>{`
@@ -1969,7 +1999,22 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
           animation: fadeIn 0.3s ease-out;
         }
       `}</style>
-      <div className="h-full flex flex-col bg-white screenplay-editor" style={{ direction: 'ltr', unicodeBidi: 'embed' }} dir="ltr">
+      <div
+        className="h-full flex flex-col bg-white screenplay-editor"
+        style={{ direction: 'ltr', unicodeBidi: 'embed' }}
+        dir="ltr"
+        onClickCapture={blockReadOnlyInteractions}
+        onMouseDownCapture={blockReadOnlyInteractions}
+        onInputCapture={blockReadOnlyInteractions}
+        onChangeCapture={blockReadOnlyInteractions}
+        onKeyDownCapture={blockReadOnlyInteractions}
+        onDropCapture={blockReadOnlyInteractions}
+      >
+        {isReadOnly && (
+          <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-800 text-sm">
+            Viewer mode: screenplay is read-only.
+          </div>
+        )}
         {/* Editor with left sidebar */}
         <div className="flex-1 bg-gray-100 p-4 sm:p-6 flex flex-col lg:flex-row relative">
           {!isPreviewMode && (
@@ -1979,6 +2024,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                 <div className="flex flex-row lg:flex-col gap-1 mb-2 flex-shrink-0">
                   <button
                     onClick={() => setLanguage('PL')}
+                    data-allow-readonly
                     className={`w-12 h-8 rounded-md font-medium text-xs transition-colors ${
                       language === 'PL'
                         ? 'bg-blue-600 text-white'
@@ -1990,6 +2036,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                   </button>
                   <button
                     onClick={() => setLanguage('EN')}
+                    data-allow-readonly
                     className={`w-12 h-8 rounded-md font-medium text-xs transition-colors ${
                       language === 'EN'
                         ? 'bg-blue-600 text-white'
@@ -2002,7 +2049,7 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                 </div>
                 
                 {/* AI Generate Button for Translation */}
-                {(language === 'EN' || language === 'PL') && (
+                {!isReadOnly && (language === 'EN' || language === 'PL') && (
                   <button
                     onClick={() => setShowTranslationConfirmation(true)}
                     className="w-12 h-12 rounded-md bg-purple-600 hover:bg-purple-700 shadow text-white flex items-center justify-center"
@@ -2011,6 +2058,8 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                     <Wand2 className="w-5 h-5" />
                   </button>
                 )}
+                {!isReadOnly && (
+                <>
                 <div className="hidden lg:block w-full border-t border-gray-300 my-2"></div>
                 
                 {/* Stable Versions Panel Toggle */}
@@ -2077,6 +2126,8 @@ const ScreenplayEditor = forwardRef<ScreenplayEditorHandle, ScreenplayEditorProp
                 >
                   <FileText className="w-5 h-5" />
                 </button>
+                </>
+                )}
               </div>
             </div>
           )}

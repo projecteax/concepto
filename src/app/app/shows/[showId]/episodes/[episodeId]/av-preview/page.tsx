@@ -3,20 +3,25 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { AVPreview } from '@/components/AVPreview';
-import { Episode, Show, AVScript, AVPreviewData, GlobalAsset } from '@/types';
-import { episodeService, globalAssetService } from '@/lib/firebase-services';
+import { Episode, Show, AVScript, AVPreviewData, GlobalAsset, ShowAccess, EpisodeAccess } from '@/types';
+import { episodeService, globalAssetService, showAccessService, episodeAccessService } from '@/lib/firebase-services';
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { useRealtimeEpisode } from '@/hooks/useRealtimeEpisode';
+import { useAuth } from '@/contexts/AuthContext';
+import { getEpisodeRole, canEdit } from '@/lib/access-control';
 
 export default function AVPreviewPage() {
   const params = useParams();
   const showId = params.showId as string;
   const episodeId = params.episodeId as string;
   
+  const { user } = useAuth();
   const [episode, setEpisode] = useState<Episode | null>(null);
   const [show, setShow] = useState<Show | null>(null);
   const [globalAssets, setGlobalAssets] = useState<GlobalAsset[]>([]);
+  const [showAccess, setShowAccess] = useState<ShowAccess[]>([]);
+  const [episodeAccess, setEpisodeAccess] = useState<EpisodeAccess[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,11 +45,17 @@ export default function AVPreviewPage() {
           updatedAt: showSnap.data().updatedAt?.toDate?.() || new Date(),
         } as Show;
         
-        // Get global assets
-        const assets = await globalAssetService.getByShow(showId);
+        // Get global assets and access data
+        const [assets, showAccessData, episodeAccessData] = await Promise.all([
+          globalAssetService.getByShow(showId),
+          user ? showAccessService.getByUser(user.id) : Promise.resolve([]),
+          user ? episodeAccessService.getByUser(user.id) : Promise.resolve([]),
+        ]);
         
         setShow(showData);
         setGlobalAssets(assets);
+        setShowAccess(showAccessData);
+        setEpisodeAccess(episodeAccessData);
       } catch (err) {
         console.error('Error loading initial data:', err);
         setError('Failed to load data');
@@ -143,7 +154,11 @@ export default function AVPreviewPage() {
     }
   }, [episodeId, episode]);
 
+  const episodeRole = getEpisodeRole(user, episode, show, showAccess, episodeAccess);
+  const isReadOnly = !canEdit(episodeRole);
+
   const handleSave = async (avPreviewData: AVPreviewData, avScript?: AVScript) => {
+    if (isReadOnly) return;
     if (!episode) return;
     
     try {
@@ -184,6 +199,7 @@ export default function AVPreviewPage() {
       avPreviewData={episode.avPreviewData}
       globalAssets={globalAssets}
       onSave={handleSave}
+      isReadOnly={isReadOnly}
     />
   );
 }

@@ -64,6 +64,7 @@ export function EpisodeList({
   });
 
   const handleAddEpisode = () => {
+    if (readOnly) return;
     if (newEpisodeTitle.trim()) {
       const episodeData: Omit<Episode, 'id' | 'createdAt' | 'updatedAt'> = {
         showId: show.id,
@@ -425,7 +426,7 @@ export function EpisodeList({
                 <div className="flex space-x-3">
                   <button
                     onClick={handleAddEpisode}
-                    disabled={!newEpisodeTitle.trim()}
+                    disabled={!newEpisodeTitle.trim() || readOnly}
                     className={cn(
                       "flex-1 px-4 py-2 rounded-lg font-medium transition-colors",
                       newEpisodeTitle.trim()

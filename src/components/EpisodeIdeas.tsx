@@ -37,6 +37,7 @@ export function EpisodeIdeas({
   const [newTag, setNewTag] = useState('');
 
   const handleSaveNewIdea = async () => {
+    if (readOnly) return;
     if (!newIdea.title.trim()) return;
     
     try {
@@ -65,6 +66,7 @@ export function EpisodeIdeas({
   // };
 
   const handleDeleteIdea = async (id: string) => {
+    if (readOnly) return;
     if (confirm('Are you sure you want to delete this episode idea?')) {
       try {
         await onDeleteIdea(id);

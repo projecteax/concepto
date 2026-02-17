@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { AVScript, AVSegment, AVShot, AVShotImageGenerationThread, GlobalAsset, ScreenplayData, AVScriptStableVersion } from '@/types';
 import { 
@@ -57,6 +57,7 @@ interface AVScriptEditorProps {
   globalAssets?: GlobalAsset[];
   screenplayData?: ScreenplayData;
   showId?: string;
+  isReadOnly?: boolean;
 }
 
 export function AVScriptEditor({ 
@@ -67,6 +68,7 @@ export function AVScriptEditor({
   globalAssets = [],
   screenplayData,
   showId = '',
+  isReadOnly = false,
 }: AVScriptEditorProps) {
   // Session-only persistence for the current episode (survives component switches, clears on tab close)
   const scriptSceneFilterKey = `concepto:av:scriptSceneFilter:${episodeId}`;
@@ -422,6 +424,7 @@ export function AVScriptEditor({
 
   // Manual save handler - use immediate save if available for real-time sync
   const handleManualSave = async () => {
+    if (isReadOnly) return;
     setIsSaving(true);
     try {
       const scriptToSave = { ...script, stableVersions };
@@ -443,6 +446,7 @@ export function AVScriptEditor({
 
   // Stable versions functions
   const handleSaveVersion = async () => {
+    if (isReadOnly) return;
     const nextVersionNumber = stableVersions.length + 1;
     const defaultName = `AVScript_stable_v${nextVersionNumber}`;
 
@@ -482,6 +486,7 @@ export function AVScriptEditor({
   };
 
   const handleRestoreVersion = async () => {
+    if (isReadOnly) return;
     if (!versionToRestore) return;
 
     const restoredScript = {
@@ -514,6 +519,7 @@ export function AVScriptEditor({
   };
 
   const handleUpdateVersionName = async (versionId: string, newName: string) => {
+    if (isReadOnly) return;
     if (!newName.trim()) return;
     
     const updatedVersions = stableVersions.map(v => 
@@ -541,6 +547,7 @@ export function AVScriptEditor({
   };
 
   const handleDeleteVersion = async (versionId: string) => {
+    if (isReadOnly) return;
     const updatedVersions = stableVersions.filter(v => v.id !== versionId);
     setStableVersions(updatedVersions);
     
@@ -658,6 +665,7 @@ export function AVScriptEditor({
   }, [avScript]);
 
   useEffect(() => {
+    if (isReadOnly) return;
     // Don't autosave if tab is not visible
     if (!isTabVisibleRef.current) {
       console.log('⏸️ Skipping autosave - tab is not visible');
@@ -729,9 +737,10 @@ export function AVScriptEditor({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [script.segments, script.title, script.version, onSave, autosaveDelay]);
+  }, [script.segments, script.title, script.version, onSave, autosaveDelay, isReadOnly]);
 
   const handleAddSegment = () => {
+    if (isReadOnly) return;
     if (!newSegmentTitle.trim()) return;
 
     const newSegment: AVSegment = {
@@ -759,6 +768,7 @@ export function AVScriptEditor({
 
   // Insert a new shot at a specific position (between existing shots)
   const handleInsertShot = (segmentId: string, afterIndex: number) => {
+    if (isReadOnly) return;
     const segment = script.segments.find(s => s.id === segmentId);
     if (!segment) return;
 
@@ -823,6 +833,7 @@ export function AVScriptEditor({
   };
 
   const handleAddShot = (segmentId: string) => {
+    if (isReadOnly) return;
     const segment = script.segments.find(s => s.id === segmentId);
     if (!segment) return;
 
@@ -878,6 +889,7 @@ export function AVScriptEditor({
   };
 
   const handleUpdateShot = (segmentId: string, shotId: string, updates: Partial<AVShot>) => {
+    if (isReadOnly) return;
     const updatedScript = {
       ...script,
       segments: script.segments.map(segment => 
@@ -1155,6 +1167,7 @@ export function AVScriptEditor({
   };
 
   const handleDeleteSegment = async (segmentId: string) => {
+    if (isReadOnly) return;
     const updatedScript = {
       ...script,
       segments: script.segments.filter(segment => segment.id !== segmentId),
@@ -1175,6 +1188,7 @@ export function AVScriptEditor({
   };
 
   const handleDeleteShot = async (segmentId: string, shotId: string) => {
+    if (isReadOnly) return;
     const updatedScript = {
       ...script,
       segments: script.segments.map(segment => 
@@ -1244,6 +1258,7 @@ export function AVScriptEditor({
   };
 
   const handleDrop = (e: React.DragEvent, targetIndex: number, segmentId: string) => {
+    if (isReadOnly) return;
     e.preventDefault();
     
     if (!draggedShot || draggedShot.segmentId !== segmentId) {
@@ -1339,6 +1354,7 @@ export function AVScriptEditor({
     time: string;
     segmentNumber: number;
   }>, targetSegmentId: string | null) => {
+    if (isReadOnly) return;
     // Convert imported shots to the same format as generated shots
     const convertedShots = importedShots.map(shot => ({
       shotNumber: shot.order,
@@ -1362,6 +1378,7 @@ export function AVScriptEditor({
     time: string;
     segmentNumber: number;
   }>, targetSegmentId: string | null = null) => {
+    if (isReadOnly) return;
     // Update or create segments and shots
     const updatedSegments = [...script.segments];
     
@@ -1535,6 +1552,11 @@ export function AVScriptEditor({
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+        {isReadOnly && (
+          <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-800 text-sm">
+            Viewer mode: AV script is read-only.
+          </div>
+        )}
         {/* Header */}
         <div className="border-b border-gray-200 p-4 sm:p-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -1579,7 +1601,7 @@ export function AVScriptEditor({
                   variant="outline"
                   size="icon"
                   onClick={handleManualSave}
-                  disabled={isSaving}
+                  disabled={isSaving || isReadOnly}
                   title="Save"
                 >
                   {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -1593,14 +1615,14 @@ export function AVScriptEditor({
                 {/* Hamburger menu for the rest */}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button type="button" variant="outline" size="icon" title="More actions">
+                    <Button type="button" variant="outline" size="icon" title="More actions" disabled={isReadOnly}>
                       <Menu className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-56">
                     <DropdownMenuLabel>AV Script Actions</DropdownMenuLabel>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onSelect={() => setShowImportAVDialog(true)}>
+                    <DropdownMenuItem onSelect={() => setShowImportAVDialog(true)} disabled={isReadOnly}>
                       <Upload className="h-4 w-4" />
                       <span>Import AV</span>
                     </DropdownMenuItem>
@@ -1627,7 +1649,7 @@ export function AVScriptEditor({
                       <span>Resolve Plugin</span>
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onSelect={() => setShowAutoPopulateDialog(true)} disabled={!screenplayData}>
+                    <DropdownMenuItem onSelect={() => setShowAutoPopulateDialog(true)} disabled={!screenplayData || isReadOnly}>
                       <Sparkles className="h-4 w-4" />
                       <span>Auto-populate</span>
                     </DropdownMenuItem>
@@ -1653,6 +1675,7 @@ export function AVScriptEditor({
             <h3 className="text-sm font-semibold text-gray-300">Stable Versions</h3>
             <button
               onClick={handleSaveVersion}
+              disabled={isReadOnly}
               className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-xs font-medium flex items-center space-x-1"
               title="Save current state as a stable version"
             >
@@ -2035,9 +2058,11 @@ export function AVScriptEditor({
                       segmentId={segment.id}
                       onUpdate={(updates) => handleUpdateShot(segment.id, shot.id, updates)}
                       onDragStart={handleDragStart}
+                      isReadOnly={isReadOnly}
                       isAnyPopupOpen={isAnyPopupOpen}
                       calculateShotCost={calculateShotCost}
                       onImageUpload={async (file) => {
+                        if (isReadOnly) return;
                         const result = await uploadFile(file, `episodes/${episodeId}/av-script/storyboards/`);
                         if (result) {
                           // Create or update the thread to include the uploaded image
@@ -2108,6 +2133,7 @@ export function AVScriptEditor({
                         }
                       }}
                       onVideoUpload={async (file) => {
+                        if (isReadOnly) return;
                         // Show progress - we'll track this in the component
                         const result = await uploadFile(file, `episodes/${episodeId}/av-script/videos/`);
                         if (result) {
@@ -2197,6 +2223,7 @@ export function AVScriptEditor({
                         }
                       }}
                       onImageGenerate={() => {
+                        if (isReadOnly) return;
                         setCurrentShotForGeneration({ segmentId: segment.id, shotId: shot.id });
                         setShowImageGenerationDialog(true);
                       }}
@@ -2208,16 +2235,20 @@ export function AVScriptEditor({
                       }}
                       onEnlargeImage={setEnlargedImage}
                       onEnlargeVideo={setEnlargedVideo}
-                      onDeleteShot={() => setDeleteConfirmation({
-                        type: 'shot',
-                        id: shot.id,
-                        segmentId: segment.id,
-                        title: `Shot ${formatShotNumber(segment.segmentNumber, shotIndex + 1)}`
-                      })}
+                      onDeleteShot={() => {
+                        if (isReadOnly) return;
+                        setDeleteConfirmation({
+                          type: 'shot',
+                          id: shot.id,
+                          segmentId: segment.id,
+                          title: `Shot ${formatShotNumber(segment.segmentNumber, shotIndex + 1)}`
+                        });
+                      }}
                       // onDeleteImage removed - images can only be deleted from the popup dialog
                       formatDuration={formatDuration}
                       formatShotNumber={formatShotNumber}
                       onAudioUpload={async (file, audioFileId, voiceId, voiceName) => {
+                        if (isReadOnly) return;
                         const result = await uploadFile(file, `episodes/${episodeId}/av-script/audio/`);
                         if (result) {
                           // Use a function to get the latest state, since React state updates are async
@@ -2416,11 +2447,13 @@ export function AVScriptEditor({
               onChange={(e) => setNewSegmentTitle(e.target.value)}
               placeholder="Enter segment title..."
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              disabled={isReadOnly}
               onKeyPress={(e) => e.key === 'Enter' && handleAddSegment()}
             />
             <div className="mt-3 flex space-x-2">
               <button
                 onClick={handleAddSegment}
+                disabled={isReadOnly}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
               >
                 Add Segment
@@ -2437,6 +2470,7 @@ export function AVScriptEditor({
           <div className="mt-8">
             <button
               onClick={() => setShowAddSegment(true)}
+              disabled={isReadOnly}
               className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
             >
               <Plus className="w-4 h-4 mr-2" />
@@ -2526,6 +2560,7 @@ export function AVScriptEditor({
         return (
           <ImageGenerationDialog
             isOpen={showImageGenerationDialog}
+            isReadOnly={isReadOnly}
             onClose={() => {
               setShowImageGenerationDialog(false);
               setCurrentShotForGeneration(null);
@@ -2535,6 +2570,7 @@ export function AVScriptEditor({
             currentShotImageUrl={shot?.imageUrl}
             currentShotVideoUrl={shot?.videoUrl}
             onImageGenerated={async (imageUrl, thread) => {
+              if (isReadOnly) return;
               if (segment && shot) {
                 // Extract videoUrl from thread if mainVideoId is set
                 let videoUrl: string | undefined = undefined;
@@ -2632,6 +2668,7 @@ export function AVScriptEditor({
       {showImportAVDialog && (
         <ImportAVDialog
           isOpen={showImportAVDialog}
+          isReadOnly={isReadOnly}
           onClose={() => setShowImportAVDialog(false)}
           onImport={handleImportCSV}
           availableSegments={script.segments.map(s => ({
@@ -2656,6 +2693,7 @@ export function AVScriptEditor({
       {showAutoPopulateDialog && (
         <AutoPopulateDialog
           isOpen={showAutoPopulateDialog}
+          isReadOnly={isReadOnly}
           onClose={() => setShowAutoPopulateDialog(false)}
           onAutopopulate={handleAutopopulate}
           screenplayData={screenplayData}
@@ -2791,6 +2829,7 @@ interface ShotRowProps {
   onDragStart?: (e: React.DragEvent, shot: AVShot, segmentId: string, index: number) => void;
   isAnyPopupOpen?: boolean;
   calculateShotCost?: (shot: AVShot) => number;
+  isReadOnly?: boolean;
 }
 
 function ShotRow({ 
@@ -2814,7 +2853,8 @@ function ShotRow({
   onPopupStateChange,
   onDragStart,
   isAnyPopupOpen = false,
-  calculateShotCost
+  calculateShotCost,
+  isReadOnly = false
 }: ShotRowProps) {
   const { user } = useAuth();
   const [showAudioPopup, setShowAudioPopup] = useState(false);
@@ -2850,8 +2890,40 @@ function ShotRow({
   const [deleteConfirmAudioId, setDeleteConfirmAudioId] = useState<string | null>(null);
   const audioRefs = React.useRef<{ [key: string]: HTMLAudioElement }>({});
   
+  // Paste-to-upload: track hover state on image box
+  const isImageBoxHovered = useRef(false);
+  const [isPasteUploading, setIsPasteUploading] = useState(false);
+
+  useEffect(() => {
+    const handlePaste = async (e: ClipboardEvent) => {
+      if (!isImageBoxHovered.current || isPasteUploading) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          e.preventDefault();
+          const blob = items[i].getAsFile();
+          if (blob) {
+            setIsPasteUploading(true);
+            try {
+              const file = new File([blob], `pasted-${Date.now()}.png`, { type: blob.type || 'image/png' });
+              await onImageUpload(file);
+            } catch (err) {
+              console.error('Paste upload failed:', err);
+            } finally {
+              setIsPasteUploading(false);
+            }
+          }
+          break;
+        }
+      }
+    };
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [onImageUpload, isPasteUploading]);
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (isReadOnly) return;
     const file = event.target.files?.[0];
     if (file) {
       onImageUpload(file);
@@ -2859,6 +2931,7 @@ function ShotRow({
   };
 
   const handleAudioFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (isReadOnly) return;
     const file = event.target.files?.[0];
     if (file) {
       setUploadedFile(file);
@@ -2868,6 +2941,7 @@ function ShotRow({
   };
 
   const handleGenerateAudio = async () => {
+    if (isReadOnly) return;
     if (!generateText.trim()) {
       alert('Please enter text to generate audio');
       return;
@@ -2912,6 +2986,7 @@ function ShotRow({
   };
 
   const handleSaveAudio = async () => {
+    if (isReadOnly) return;
     let file: File | null = null;
     let tempUrl: string | null = null;
 
@@ -3015,10 +3090,12 @@ function ShotRow({
   };
 
   const handleDeleteAudio = (audioId: string) => {
+    if (isReadOnly) return;
     setDeleteConfirmAudioId(audioId);
   };
 
   const confirmDeleteAudio = () => {
+    if (isReadOnly) return;
     if (deleteConfirmAudioId) {
       const currentAudioFiles = shot.audioFiles || [];
       onUpdate({
@@ -3034,9 +3111,9 @@ function ShotRow({
       <div className="col-span-12 md:col-span-1 px-2 py-3 flex flex-col">
         <div className="flex items-center mb-1">
           <div
-            draggable={!isAnyPopupOpen && !!onDragStart}
+            draggable={!isReadOnly && !isAnyPopupOpen && !!onDragStart}
             onDragStart={(e) => {
-              if (isAnyPopupOpen || !onDragStart) {
+              if (isReadOnly || isAnyPopupOpen || !onDragStart) {
                 e.preventDefault();
                 e.stopPropagation();
                 return;
@@ -3084,11 +3161,13 @@ function ShotRow({
           onChange={(e) => onUpdate({ audio: e.target.value })}
           placeholder="Audio..."
           className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none"
+          disabled={isReadOnly}
         />
         {/* Audio Controls */}
         <div className="mt-2 flex items-center gap-2 flex-wrap">
           <button
             onClick={() => {
+              if (isReadOnly) return;
               setGenerateText(shot.audio);
               setPopupMode('generate');
               // Reset to default voice when opening popup
@@ -3098,22 +3177,26 @@ function ShotRow({
             }}
             className="flex items-center gap-1 px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
             title="Generate audio"
+            disabled={isReadOnly}
           >
             <Volume2 className="w-3 h-3" />
             Generate
           </button>
           <button
             onClick={() => {
+              if (isReadOnly) return;
               setShowEnhanceDialog(true);
             }}
             className="flex items-center gap-1 px-2 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700"
             title="Enhance text"
+            disabled={isReadOnly}
           >
             <Sparkles className="w-3 h-3" />
             Enhance
           </button>
           <button
             onClick={() => {
+              if (isReadOnly) return;
               setPopupMode('upload');
               // Reset to default voice when opening popup
               setSelectedVoiceId(defaultVoice.id);
@@ -3122,6 +3205,7 @@ function ShotRow({
             }}
             className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-700"
             title="Upload audio"
+            disabled={isReadOnly}
           >
             <Upload className="w-3 h-3" />
             Upload
@@ -3409,8 +3493,17 @@ function ShotRow({
       </div>
 
       {/* Image */}
-      <div className="col-span-12 md:col-span-2 px-2 md:px-4 py-1 md:py-3">
+      <div
+        className="col-span-12 md:col-span-2 px-2 md:px-4 py-1 md:py-3"
+        onMouseEnter={() => { isImageBoxHovered.current = true; }}
+        onMouseLeave={() => { isImageBoxHovered.current = false; }}
+      >
         <div className="relative">
+          {isPasteUploading && (
+            <div className="absolute inset-0 bg-indigo-500/20 border-2 border-indigo-500 rounded-lg flex items-center justify-center z-20">
+              <span className="text-xs font-medium text-indigo-700 animate-pulse">Uploading...</span>
+            </div>
+          )}
           {shot.imageUrl ? (
             <div className="relative group">
               <img
@@ -3472,6 +3565,7 @@ function ShotRow({
               <label className="flex flex-col items-center justify-center w-full aspect-video border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
                 <ImageIcon className="w-6 h-6 text-gray-400 mb-1" />
                 <span className="text-xs text-gray-500">Upload</span>
+                <span className="text-[10px] text-gray-400">or Ctrl+V</span>
                 <input
                   type="file"
                   accept="image/*"
@@ -3731,6 +3825,7 @@ function ShotRow({
         <AVEnhanceDialog
           isOpen={showEnhanceDialog}
           onClose={() => setShowEnhanceDialog(false)}
+          isReadOnly={isReadOnly}
           onEnhancementComplete={(selectedText, thread) => {
             // Update the shot with enhanced text and thread
             onUpdate({

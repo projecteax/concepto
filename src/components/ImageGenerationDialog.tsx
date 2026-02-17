@@ -24,7 +24,9 @@ import {
   Copy,
   CheckCircle,
   Info,
-  Car
+  Car,
+  Lock,
+  Unlock
 } from 'lucide-react';
 import { GlobalAsset, Character, AVShotImageGenerationThread } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -47,6 +49,7 @@ interface ImageGenerationDialogProps {
   audioText?: string; // Audio text from AV script to pre-populate video prompt
   currentShotImageUrl?: string; // Current shot's imageUrl (from Blender or other sources)
   currentShotVideoUrl?: string; // Current shot's videoUrl (from Blender or other sources)
+  isReadOnly?: boolean;
 }
 
 interface ChatMessage {
@@ -68,7 +71,7 @@ interface SelectedAsset {
 export function ImageGenerationDialog({
   isOpen,
   onClose,
-  onImageGenerated,
+  onImageGenerated: onImageGeneratedProp,
   visualDescription,
   locationDescription,
   locationId,
@@ -80,8 +83,13 @@ export function ImageGenerationDialog({
   audioText,
   currentShotImageUrl,
   currentShotVideoUrl,
+  isReadOnly = false,
 }: ImageGenerationDialogProps) {
   const { user } = useAuth();
+  const onImageGenerated = React.useCallback((imageUrl: string, thread: AVShotImageGenerationThread) => {
+    if (isReadOnly) return;
+    onImageGeneratedProp(imageUrl, thread);
+  }, [isReadOnly, onImageGeneratedProp]);
   
   // Helper function to format model names for display
   const formatModelName = (modelName?: string): string => {
@@ -470,6 +478,80 @@ export function ImageGenerationDialog({
   const characterVideoFileInputRef = useRef<HTMLInputElement>(null);
   const additionalReferenceImageFileInputRef = useRef<HTMLInputElement>(null);
   const { uploadFile } = useS3Upload();
+
+  // Image dimensions tracking (url -> {width, height})
+  const [imageDimensions, setImageDimensions] = useState<Record<string, { width: number; height: number }>>({});
+  // Resize panel state
+  const [resizeTarget, setResizeTarget] = useState<{ url: string; width: number; height: number; imageId: string; source: 'uploaded' | 'generated' } | null>(null);
+  const [resizeWidth, setResizeWidth] = useState(0);
+  const [resizeHeight, setResizeHeight] = useState(0);
+  const [resizeLockAspect, setResizeLockAspect] = useState(true);
+  const [isResizing, setIsResizing] = useState(false);
+  // Paste upload state
+  const [isPasteUploading, setIsPasteUploading] = useState(false);
+
+  // Track image dimensions when images load
+  const handleImageLoad = (url: string, e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    if (img.naturalWidth && img.naturalHeight) {
+      setImageDimensions(prev => {
+        if (prev[url]?.width === img.naturalWidth && prev[url]?.height === img.naturalHeight) return prev;
+        return { ...prev, [url]: { width: img.naturalWidth, height: img.naturalHeight } };
+      });
+    }
+  };
+
+  // Resize an image using canvas
+  const handleResizeImage = async () => {
+    if (!resizeTarget || resizeWidth <= 0 || resizeHeight <= 0) return;
+    setIsResizing(true);
+    try {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('Failed to load image for resize'));
+        img.src = resizeTarget.url;
+      });
+      
+      const canvas = document.createElement('canvas');
+      canvas.width = resizeWidth;
+      canvas.height = resizeHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas not supported');
+      ctx.drawImage(img, 0, 0, resizeWidth, resizeHeight);
+      
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(b => b ? resolve(b) : reject(new Error('Failed to create blob')), 'image/png', 0.95);
+      });
+      
+      const file = new File([blob], `resized-${resizeWidth}x${resizeHeight}-${Date.now()}.png`, { type: 'image/png' });
+      const result = await uploadFile(file, `episodes/${episodeId}/av-script/images/`);
+      if (result) {
+        const newImgId = `uploaded-img-${Date.now()}`;
+        const newImage = { id: newImgId, imageUrl: result.url, createdAt: new Date() };
+        setUploadedImages(prev => [...prev, newImage]);
+        // Update dimensions for the new image
+        setImageDimensions(prev => ({ ...prev, [result.url]: { width: resizeWidth, height: resizeHeight } }));
+      }
+      setResizeTarget(null);
+    } catch (err) {
+      console.error('Resize failed:', err);
+      alert('Failed to resize image. The image may have CORS restrictions.');
+    } finally {
+      setIsResizing(false);
+    }
+  };
+
+  // Common AI model resolution presets (16:9 landscape only)
+  const resolutionPresets = [
+    { label: '1920×1080', w: 1920, h: 1080, hint: 'Full HD' },
+    { label: '3840×2160', w: 3840, h: 2160, hint: '4K UHD' },
+    { label: '2560×1440', w: 2560, h: 1440, hint: '2K QHD' },
+    { label: '1344×768', w: 1344, h: 768, hint: 'Runway' },
+    { label: '1280×720', w: 1280, h: 720, hint: '720p HD' },
+    { label: '1024×576', w: 1024, h: 576, hint: 'SD 16:9' },
+  ];
 
   // Helper function to extract filename from URL
   const extractFilename = (url: string): string => {
@@ -1603,7 +1685,7 @@ export function ImageGenerationDialog({
 
   const handlePasteImage = async (event: ClipboardEvent) => {
     // Only handle paste when dialog is open
-    if (!isOpen) return;
+    if (!isOpen || isPasteUploading) return;
 
     const items = event.clipboardData?.items;
     if (!items) return;
@@ -1614,22 +1696,75 @@ export function ImageGenerationDialog({
         event.preventDefault();
         const blob = item.getAsFile();
         if (blob) {
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            const imageData = e.target?.result as string;
-            if (imageData) {
-              // Set as sketch image
-              setSketchImage(imageData);
-              // If canvas is open, close it since we're using the uploaded/pasted image
-              if (showDrawingCanvas) {
+          // If drawing canvas is open, paste as sketch (old behavior)
+          if (showDrawingCanvas) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              const imageData = e.target?.result as string;
+              if (imageData) {
+                setSketchImage(imageData);
                 setShowDrawingCanvas(false);
               }
+            };
+            reader.readAsDataURL(blob);
+            break;
+          }
+
+          // Otherwise, upload directly as a new image
+          setIsPasteUploading(true);
+          try {
+            const file = new File([blob], `pasted-${Date.now()}.png`, { type: blob.type || 'image/png' });
+            isPerformingOperation.current = true;
+            const result = await uploadFile(file, `episodes/${episodeId}/av-script/images/`);
+            if (result) {
+              const uploadedImgId = `uploaded-img-${Date.now()}`;
+              const uploadedImageMainId = `uploaded-image-${uploadedImgId}`;
+              const newImage = { id: uploadedImgId, imageUrl: result.url, createdAt: new Date() };
+              const currentMainImageUrl = getMainImageUrl();
+              const shouldSetAsMain = !currentMainImageUrl;
+
+              setUploadedImages(prev => [...prev, newImage]);
+              if (shouldSetAsMain) {
+                setMainImageId(uploadedImageMainId);
+              }
+
+              // Save the thread with the new image
+              await new Promise(resolve => setTimeout(resolve, 150));
+              const allImages = [
+                ...uploadedImages, newImage,
+                ...generatedImages.map(img => ({ id: img.id, imageUrl: img.imageUrl, prompt: img.prompt, style: selectedStyle as 'storyboard' | '3d-render', createdAt: img.createdAt })),
+              ].map(img => ({ id: img.id, imageUrl: img.imageUrl, prompt: ('prompt' in img && typeof img.prompt === 'string') ? img.prompt : 'Pasted image', style: selectedStyle as 'storyboard' | '3d-render', createdAt: img.createdAt }));
+              const allVideos = [
+                ...uploadedVideos.map(vid => ({ id: vid.id, videoUrl: vid.videoUrl, prompt: 'Uploaded video', createdAt: vid.createdAt, manualCost: vid.manualCost, modelName: vid.modelName })),
+                ...generatedVideos,
+              ];
+              const thread = {
+                id: existingThread?.id || `thread-${Date.now()}`,
+                selectedAssets: selectedAssets.map(a => ({ id: a.id, type: a.type, name: a.name })),
+                sketchImage: sketchImage || undefined,
+                startFrame: startFrame || undefined,
+                endFrame: endFrame || undefined,
+                referenceImage: referenceImage || undefined,
+                referenceVideo: referenceVideo || undefined,
+                mainImageId: shouldSetAsMain ? uploadedImageMainId : (mainImageId || undefined),
+                mainVideoId: mainVideoId || undefined,
+                messages,
+                generatedImages: allImages,
+                generatedVideos: allVideos.length > 0 ? allVideos : undefined,
+                selectedImageId: selectedImageId || undefined,
+                createdAt: existingThread?.createdAt || new Date(),
+                updatedAt: new Date(),
+              };
+              const imageUrlToSave = shouldSetAsMain ? result.url : (currentMainImageUrl || result.url);
+              onImageGenerated(imageUrlToSave, thread);
             }
-          };
-          reader.onerror = () => {
-            alert('Failed to paste image');
-          };
-          reader.readAsDataURL(blob);
+          } catch (err) {
+            console.error('Paste upload failed:', err);
+            alert('Failed to upload pasted image');
+          } finally {
+            setIsPasteUploading(false);
+            isPerformingOperation.current = false;
+          }
         }
         break;
       }
@@ -2602,6 +2737,7 @@ export function ImageGenerationDialog({
   };
 
   const handleUseImage = () => {
+    if (isReadOnly) return;
     // Determine which image to use as main
     const mainImageUrl = getMainImageUrl();
     const imageToUse = mainImageId 
@@ -2620,10 +2756,27 @@ export function ImageGenerationDialog({
     onClose();
   };
 
+  const blockReadOnlyInteractions = (e: React.SyntheticEvent) => {
+    if (!isReadOnly) return;
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+    if (target.closest('button, input, textarea, select, [role="button"], [contenteditable="true"], a')) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
-    <>
+    <div
+      onClickCapture={blockReadOnlyInteractions}
+      onMouseDownCapture={blockReadOnlyInteractions}
+      onInputCapture={blockReadOnlyInteractions}
+      onChangeCapture={blockReadOnlyInteractions}
+      onKeyDownCapture={blockReadOnlyInteractions}
+      onDropCapture={blockReadOnlyInteractions}
+    >
       {/* MOBILE LAYOUT - Full Screen */}
       <div className="sm:hidden fixed inset-0 bg-white z-50 flex flex-col">
         {/* Header - Fixed at top */}
@@ -3002,7 +3155,24 @@ export function ImageGenerationDialog({
                         src={img.imageUrl}
                         alt="Uploaded"
                         className="w-full h-full object-cover"
+                        onLoad={(e) => handleImageLoad(img.imageUrl, e)}
                       />
+                      {/* Resolution badge */}
+                      {imageDimensions[img.imageUrl] && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const dims = imageDimensions[img.imageUrl];
+                            setResizeTarget({ url: img.imageUrl, width: dims.width, height: dims.height, imageId: img.id, source: 'uploaded' });
+                            setResizeWidth(1920);
+                            setResizeHeight(1080);
+                          }}
+                          className="absolute bottom-1 left-1 bg-black/70 text-white text-[10px] px-1.5 py-0.5 rounded font-mono z-10 hover:bg-indigo-600 transition-colors"
+                          title="Click to resize"
+                        >
+                          {imageDimensions[img.imageUrl].width}×{imageDimensions[img.imageUrl].height}
+                        </button>
+                      )}
                       {mainImageId === `uploaded-image-${img.id}` && (
                         <div className="absolute top-1 left-1 bg-green-500 text-white text-xs px-2 py-1 rounded z-10">
                           MAIN
@@ -3397,7 +3567,24 @@ export function ImageGenerationDialog({
                             src={img.imageUrl}
                             alt="Generated"
                             className="w-full h-full object-cover"
+                            onLoad={(e) => handleImageLoad(img.imageUrl, e)}
                           />
+                          {/* Resolution badge - mobile generated images */}
+                          {imageDimensions[img.imageUrl] && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const dims = imageDimensions[img.imageUrl];
+                                setResizeTarget({ url: img.imageUrl, width: dims.width, height: dims.height, imageId: img.id, source: 'generated' });
+                                setResizeWidth(1920);
+                                setResizeHeight(1080);
+                              }}
+                              className="absolute bottom-1 left-1 bg-black/70 text-white text-[10px] px-1.5 py-0.5 rounded font-mono z-10 hover:bg-indigo-600 transition-colors"
+                              title="Click to resize"
+                            >
+                              {imageDimensions[img.imageUrl].width}×{imageDimensions[img.imageUrl].height}
+                            </button>
+                          )}
                           {mainImageId === img.id && (
                             <div className="absolute top-1 left-1 bg-green-500 text-white text-xs px-2 py-1 rounded z-10">
                               MAIN
@@ -4178,7 +4365,24 @@ export function ImageGenerationDialog({
                         src={img.imageUrl}
                         alt="Uploaded"
                         className="w-full h-full object-cover"
+                        onLoad={(e) => handleImageLoad(img.imageUrl, e)}
                       />
+                      {/* Resolution badge - desktop uploaded */}
+                      {imageDimensions[img.imageUrl] && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const dims = imageDimensions[img.imageUrl];
+                            setResizeTarget({ url: img.imageUrl, width: dims.width, height: dims.height, imageId: img.id, source: 'uploaded' });
+                            setResizeWidth(1920);
+                            setResizeHeight(1080);
+                          }}
+                          className="absolute bottom-1 left-1 bg-black/70 text-white text-[10px] px-1.5 py-0.5 rounded font-mono z-10 hover:bg-indigo-600 transition-colors"
+                          title="Click to resize"
+                        >
+                          {imageDimensions[img.imageUrl].width}×{imageDimensions[img.imageUrl].height}
+                        </button>
+                      )}
                       {mainImageId === `uploaded-image-${img.id}` && (
                         <div className="absolute top-1 left-1 bg-green-500 text-white text-xs px-2 py-1 rounded z-10">
                           MAIN
@@ -4449,10 +4653,10 @@ export function ImageGenerationDialog({
                                 className="text-gray-500 hover:text-gray-700"
                                 title="Select model"
                               >
-                                <Edit3 className="w-3 h-3" />
-                              </button>
-                            </div>
+                            <Edit3 className="w-3 h-3" />
+                            </button>
                           </div>
+                        </div>
                         )}
                       </div>
                     </div>
@@ -4486,7 +4690,24 @@ export function ImageGenerationDialog({
                             src={img.imageUrl}
                             alt="Generated"
                             className="w-full h-full object-cover"
+                            onLoad={(e) => handleImageLoad(img.imageUrl, e)}
                           />
+                          {/* Resolution badge - desktop generated images */}
+                          {imageDimensions[img.imageUrl] && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const dims = imageDimensions[img.imageUrl];
+                                setResizeTarget({ url: img.imageUrl, width: dims.width, height: dims.height, imageId: img.id, source: 'generated' });
+                                setResizeWidth(1920);
+                                setResizeHeight(1080);
+                              }}
+                              className="absolute bottom-1 left-1 bg-black/70 text-white text-[10px] px-1.5 py-0.5 rounded font-mono z-10 hover:bg-indigo-600 transition-colors"
+                              title="Click to resize"
+                            >
+                              {imageDimensions[img.imageUrl].width}×{imageDimensions[img.imageUrl].height}
+                            </button>
+                          )}
                           {mainImageId === img.id && (
                             <div className="absolute top-1 left-1 bg-green-500 text-white text-xs px-2 py-1 rounded z-10">
                               MAIN
@@ -7577,7 +7798,134 @@ export function ImageGenerationDialog({
           </div>
         </div>
       )}
-    </>
+
+      {/* Paste Upload Indicator */}
+      {isPasteUploading && (
+        <div className="fixed bottom-6 right-6 bg-indigo-600 text-white px-4 py-3 rounded-lg shadow-xl z-[90] flex items-center space-x-3 animate-pulse">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span className="text-sm font-medium">Uploading pasted image...</span>
+        </div>
+      )}
+
+      {/* Resize Panel Modal */}
+      {resizeTarget && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[80] p-4" onClick={() => setResizeTarget(null)}>
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">Resize Image</h3>
+              <button onClick={() => setResizeTarget(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              {/* Current size */}
+              <div className="text-sm text-gray-500">
+                Original: <span className="font-mono font-medium text-gray-700">{resizeTarget.width}×{resizeTarget.height}</span>
+              </div>
+
+              {/* Size inputs */}
+              <div className="flex items-center space-x-3">
+                <div className="flex-1">
+                  <label className="text-xs font-medium text-gray-600 mb-1 block">Width</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={resizeWidth}
+                    onChange={(e) => {
+                      const w = parseInt(e.target.value) || 0;
+                      setResizeWidth(w);
+                      if (resizeLockAspect && resizeTarget.width > 0) {
+                        setResizeHeight(Math.round(w * (resizeTarget.height / resizeTarget.width)));
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+                <button
+                  onClick={() => setResizeLockAspect(!resizeLockAspect)}
+                  className={`mt-5 p-2 rounded-lg border transition-colors ${resizeLockAspect ? 'bg-indigo-50 border-indigo-300 text-indigo-600' : 'bg-gray-50 border-gray-300 text-gray-400'}`}
+                  title={resizeLockAspect ? 'Aspect ratio locked' : 'Aspect ratio unlocked'}
+                >
+                  {resizeLockAspect ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                </button>
+                <div className="flex-1">
+                  <label className="text-xs font-medium text-gray-600 mb-1 block">Height</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={resizeHeight}
+                    onChange={(e) => {
+                      const h = parseInt(e.target.value) || 0;
+                      setResizeHeight(h);
+                      if (resizeLockAspect && resizeTarget.height > 0) {
+                        setResizeWidth(Math.round(h * (resizeTarget.width / resizeTarget.height)));
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* Presets */}
+              <div>
+                <label className="text-xs font-medium text-gray-600 mb-2 block">AI Model Presets</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {resolutionPresets.map((preset) => (
+                    <button
+                      key={preset.label}
+                      onClick={() => { setResizeWidth(preset.w); setResizeHeight(preset.h); }}
+                      className={`text-left px-3 py-2 rounded-lg border text-sm transition-colors ${
+                        resizeWidth === preset.w && resizeHeight === preset.h
+                          ? 'bg-indigo-50 border-indigo-300 text-indigo-700'
+                          : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+                      }`}
+                    >
+                      <span className="font-mono font-medium">{preset.label}</span>
+                      <span className="text-xs text-gray-400 ml-1">({preset.hint})</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Preview info */}
+              <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-600">
+                Resized copy: <span className="font-mono font-medium text-gray-800">{resizeWidth}×{resizeHeight}</span>
+                {resizeWidth !== resizeTarget.width || resizeHeight !== resizeTarget.height ? (
+                  <span className="text-indigo-600 ml-2">
+                    ({Math.round((resizeWidth / resizeTarget.width) * 100)}% × {Math.round((resizeHeight / resizeTarget.height) * 100)}%)
+                  </span>
+                ) : (
+                  <span className="text-gray-400 ml-2">(no change)</span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-2 p-4 border-t">
+              <button
+                onClick={() => setResizeTarget(null)}
+                className="flex-1 px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleResizeImage}
+                disabled={isResizing || (resizeWidth === resizeTarget.width && resizeHeight === resizeTarget.height) || resizeWidth <= 0 || resizeHeight <= 0}
+                className="flex-1 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+              >
+                {isResizing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Resizing...</span>
+                  </>
+                ) : (
+                  <span>Resize & Save Copy</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

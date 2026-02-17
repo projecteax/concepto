@@ -493,6 +493,7 @@ export default function EpisodeDetail({
 
   // Inline editing handlers
   const handleSaveTitle = () => {
+    if (readOnly) return;
     if (tempTitle.trim() !== localEpisode.title) {
       const updatedEpisode = { ...localEpisode, title: tempTitle.trim() };
       updateEpisodeAndSave(updatedEpisode);
@@ -506,6 +507,7 @@ export default function EpisodeDetail({
   };
 
   const handleSaveDescription = () => {
+    if (readOnly) return;
     if (tempDescription.trim() !== (localEpisode.description || '')) {
       const updatedEpisode = { ...localEpisode, description: tempDescription.trim() };
       updateEpisodeAndSave(updatedEpisode);
@@ -519,6 +521,7 @@ export default function EpisodeDetail({
   };
 
   const handleSaveEpisodeNumber = async () => {
+    if (readOnly) return;
     if (tempEpisodeNumber !== localEpisode.episodeNumber) {
       const previousEpisode = localEpisode;
       const updatedEpisode = { ...localEpisode, episodeNumber: tempEpisodeNumber };
@@ -554,6 +557,7 @@ export default function EpisodeDetail({
   };
 
   const handleAddScene = () => {
+    if (readOnly) return;
     const currentScenes = localEpisode.scenes || [];
     const newSceneNumber = currentScenes.length + 1;
     const newSceneId = `scene-${Date.now()}`;
@@ -593,11 +597,13 @@ export default function EpisodeDetail({
   };
 
   const handleDeleteScene = (sceneId: string) => {
+    if (readOnly) return;
     setSceneToDelete(sceneId);
     setShowDeleteConfirm(true);
   };
 
   const confirmDeleteScene = () => {
+    if (readOnly) return;
     if (sceneToDelete) {
       const updatedScenes = (localEpisode.scenes || []).filter(s => s.id !== sceneToDelete);
       const updatedEpisode: Episode = {
@@ -700,6 +706,7 @@ export default function EpisodeDetail({
   };
 
   const handleAddShot = (sceneId: string) => {
+    if (readOnly) return;
     const scene = (localEpisode.scenes || []).find(s => s.id === sceneId);
     if (!scene) return;
 
@@ -751,6 +758,7 @@ export default function EpisodeDetail({
   };
 
   const handleDeleteShot = (sceneId: string, shotId: string) => {
+    if (readOnly) return;
     const updatedScenes = (localEpisode.scenes || []).map(s => {
       if (s.id === sceneId) {
         const filteredShots = (s.shots || []).filter(shot => shot.id !== shotId);
@@ -776,6 +784,7 @@ export default function EpisodeDetail({
   };
 
   const handleShotDescriptionChange = (sceneId: string, shotId: string, description: string) => {
+    if (readOnly) return;
     const updatedScenes = (localEpisode.scenes || []).map(s => {
       if (s.id === sceneId) {
         return {
@@ -803,6 +812,7 @@ export default function EpisodeDetail({
   };
 
   const handleShotTypeChange = (sceneId: string, shotId: string, shotType: string) => {
+    if (readOnly) return;
     const updatedScenes = (localEpisode.scenes || []).map(s => {
       if (s.id === sceneId) {
         return {
@@ -834,6 +844,7 @@ export default function EpisodeDetail({
   };
 
   const handleAddCharacterToEpisode = (characterId: string) => {
+    if (readOnly) return;
     const characterAsset = globalAssets.find(asset => 
       asset.category === 'character' && asset.id === characterId
     ) as Character | undefined;
@@ -855,6 +866,7 @@ export default function EpisodeDetail({
   };
 
   const handleRemoveCharacterFromEpisode = (characterId: string) => {
+    if (readOnly) return;
     const updatedEpisode: Episode = {
       ...localEpisode,
       characters: (localEpisode.characters || []).filter(c => c.characterId !== characterId),
@@ -863,6 +875,7 @@ export default function EpisodeDetail({
   };
 
   const handleAddLocationToEpisode = (locationId: string) => {
+    if (readOnly) return;
     const locationAsset = globalAssets.find(asset => 
       asset.category === 'location' && asset.id === locationId
     );
@@ -883,6 +896,7 @@ export default function EpisodeDetail({
   };
 
   const handleRemoveLocationFromEpisode = (locationId: string) => {
+    if (readOnly) return;
     const updatedEpisode: Episode = {
       ...localEpisode,
       locations: (localEpisode.locations || []).filter(l => l.locationId !== locationId),
@@ -891,11 +905,13 @@ export default function EpisodeDetail({
   };
 
   const handleOpenDrawer = (shotId: string, sceneId: string, type: 'storyboard' | 'inspiration') => {
+    if (readOnly) return;
     setDrawingContext({ shotId, sceneId, type });
     setShowDrawer(true);
   };
 
   const handleSaveDrawing = async (imageData: string) => {
+    if (readOnly) return;
     if (!drawingContext) return;
 
     setUploadingDrawing(true);
@@ -954,6 +970,7 @@ export default function EpisodeDetail({
   };
 
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>, shotId: string, sceneId: string, type: 'storyboard' | 'inspiration') => {
+    if (readOnly) return;
     const files = Array.from(event.target.files || []);
     if (files.length === 0) return;
 
@@ -1020,6 +1037,7 @@ export default function EpisodeDetail({
 
   // Image removal function
   const handleRemoveImage = (sceneId: string, shotId: string, imageUrl: string, type: 'storyboard' | 'inspiration') => {
+    if (readOnly) return;
     const updatedScenes = (localEpisode.scenes || []).map(s => {
       if (s.id === sceneId) {
         return {
@@ -1109,6 +1127,7 @@ export default function EpisodeDetail({
   };
 
   const handleAddShotFromText = (sceneId: string, selectedText: string, selectionStart: number, selectionEnd: number) => {
+    if (readOnly) return;
     setShowContextMenu(null);
     setShowShotPopup({
       sceneId,
@@ -1134,6 +1153,7 @@ export default function EpisodeDetail({
 
   // Shot image upload handlers
   const handleShotImageUpload = async (files: FileList) => {
+    if (readOnly) return;
     if (!files.length) return;
     
     setUploadingShotImages(true);
@@ -1173,6 +1193,7 @@ export default function EpisodeDetail({
 
   // Shot creation handler
   const handleCreateShot = async () => {
+    if (readOnly) return;
     if (!showShotPopup || !shotFormData.shotNumber || !shotFormData.description) return;
 
     const newShot: SceneShot = {
@@ -1259,6 +1280,7 @@ export default function EpisodeDetail({
 
 
   const handleSaveScript = (sceneId: string) => {
+    if (readOnly) return;
     const script = editingScripts[sceneId];
     if (script === undefined) return;
 
@@ -1356,8 +1378,8 @@ export default function EpisodeDetail({
                 className={`text-left w-full text-xl sm:text-2xl font-bold line-clamp-2 ${
                   headerIsDark ? 'text-white hover:text-white/95' : 'text-foreground hover:text-foreground/90'
                 }`}
-                  onClick={() => setEditingTitle(true)}
-                  title="Click to edit title"
+                  onClick={() => !readOnly && setEditingTitle(true)}
+                  title={readOnly ? undefined : "Click to edit title"}
                 >
                   {localEpisode.title}
               </button>
@@ -1427,9 +1449,10 @@ export default function EpisodeDetail({
               type="button"
               variant="outline"
               size="icon"
-              disabled={screenplayIsSaving}
+              disabled={screenplayIsSaving || readOnly}
               title="Save"
               onClick={async () => {
+                if (readOnly) return;
                 if (!screenplayEditorRef.current) return;
                 setScreenplayIsSaving(true);
                 try {
@@ -1452,16 +1475,16 @@ export default function EpisodeDetail({
                 <DropdownMenuLabel>Screenwriting</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {!hasOnlyEpisodeAccess && (
-                  <DropdownMenuItem onSelect={() => setShowScreenplayDialog(true)}>
+                  <DropdownMenuItem onSelect={() => setShowScreenplayDialog(true)} disabled={readOnly}>
                     <Wand2 className="h-4 w-4" />
                     <span>Auto-Create</span>
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuItem onSelect={() => setShowNarrativeDialog(true)}>
+                <DropdownMenuItem onSelect={() => setShowNarrativeDialog(true)} disabled={readOnly}>
                   <BookOpen className="h-4 w-4" />
                   <span>Narrative descriptions</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setShowCopyScriptDialog(true)}>
+                <DropdownMenuItem onSelect={() => setShowCopyScriptDialog(true)} disabled={readOnly}>
                   <Copy className="h-4 w-4" />
                   <span>Copy script from</span>
                 </DropdownMenuItem>
@@ -1576,7 +1599,7 @@ export default function EpisodeDetail({
             <div className="bg-white rounded-lg shadow p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-medium text-gray-900">Episode Description</h2>
-                {!editingDescription && (
+                {!editingDescription && !readOnly && (
                   <button
                     onClick={() => setShowDescriptionDialog(true)}
                     className="flex items-center space-x-1 px-3 py-1 text-xs bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 transition-colors"
@@ -1654,8 +1677,8 @@ export default function EpisodeDetail({
                 <div className="space-y-2">
                   <div
                     className="cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition-colors"
-                    onClick={() => setEditingDescription(true)}
-                    title="Click to edit description"
+                    onClick={() => !readOnly && setEditingDescription(true)}
+                    title={readOnly ? undefined : "Click to edit description"}
                   >
                     <p className="text-gray-600">
                       {localEpisode.description || 'No description available. Click to add one.'}
@@ -1695,8 +1718,9 @@ export default function EpisodeDetail({
                     </button>
                   )}
                   <button
-                    onClick={() => setShowNarrativeDialog(true)}
-                    className="flex items-center space-x-1 px-3 py-1 text-xs bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition-colors"
+                    onClick={() => !readOnly && setShowNarrativeDialog(true)}
+                    disabled={readOnly}
+                    className="flex items-center space-x-1 px-3 py-1 text-xs bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     title="Generate/manage narrative stories with AI"
                   >
                     <BookOpen className="w-3 h-3" />
@@ -1841,9 +1865,11 @@ export default function EpisodeDetail({
               episodeId={episode.id}
               avScript={localEpisode.avScript}
               onSave={(avScript) => {
+                if (readOnly) return;
                 const updatedEpisode = { ...localEpisode, avScript };
                 updateEpisodeAndSave(updatedEpisode, false); // Use debounced save
               }}
+              isReadOnly={readOnly}
             />
           </div>
         )}
@@ -1863,6 +1889,7 @@ export default function EpisodeDetail({
               episodeId={episode.id}
               avScript={localEpisode.avScript}
               onSave={async (avScript) => {
+                if (readOnly) return;
                 const updatedEpisode = { ...localEpisode, avScript };
                 // Use real-time save if enabled, otherwise fall back to regular save
                 if (isRealtimeEnabled) {
@@ -1885,6 +1912,7 @@ export default function EpisodeDetail({
                 );
               }}
               onSaveImmediately={async (avScript) => {
+                if (readOnly) return;
                 const updatedEpisode = { ...localEpisode, avScript };
                 // Use real-time immediate save if enabled
                 if (isRealtimeEnabled) {
@@ -1908,6 +1936,7 @@ export default function EpisodeDetail({
               globalAssets={globalAssets}
               screenplayData={localEpisode.screenplayData}
               showId={show.id}
+              isReadOnly={readOnly}
             />
           </div>
         )}
@@ -1915,7 +1944,7 @@ export default function EpisodeDetail({
         {activeTab === 'screenwriting' && (
           <div className="bg-white md:rounded-lg md:shadow-sm h-full flex flex-col">
             {/* Mobile Auto-Create Button - Hidden if user only has episode access */}
-            {!hasOnlyEpisodeAccess && (
+            {!hasOnlyEpisodeAccess && !readOnly && (
               <div className="md:hidden p-4 border-b border-gray-200">
                 <button
                   onClick={() => setShowScreenplayDialog(true)}
@@ -1937,6 +1966,7 @@ export default function EpisodeDetail({
                   elements: []
                 }}
                 onSave={(screenplayData) => {
+                  if (readOnly) return;
                   const updatedEpisode: Episode = { ...localEpisode, screenplayData };
                   setLocalEpisode(updatedEpisode);
                   setScreenplayLastSavedAt(Date.now());
@@ -1952,6 +1982,7 @@ export default function EpisodeDetail({
                     screenplayHash
                   );
                 }}
+                isReadOnly={readOnly}
               />
             </div>
           </div>
@@ -1964,6 +1995,7 @@ export default function EpisodeDetail({
           currentEpisodeId={episode.id}
           showId={show.id}
           onCopyComplete={(screenplayData) => {
+            if (readOnly) return;
             const updatedEpisode: Episode = { 
               ...localEpisode, 
               screenplayData: {
@@ -2001,6 +2033,7 @@ export default function EpisodeDetail({
           initialPlotThemeId={localEpisode.plotThemeId}
           initialCharacterIds={localEpisode.characters?.map((c) => c.characterId) || []}
           onScreenplayGenerated={(elements, language) => {
+            if (readOnly) return;
             console.log('📝 onScreenplayGenerated called with elements:', elements);
             console.log('📝 Elements length:', elements.length);
             console.log('📝 First element sample:', elements[0]);
@@ -2120,11 +2153,13 @@ export default function EpisodeDetail({
               <h2 className="text-lg font-medium text-gray-900">Characters</h2>
               <select
                 onChange={(e) => {
+                  if (readOnly) return;
                   if (e.target.value) {
                     handleAddCharacterToEpisode(e.target.value);
                     e.target.value = '';
                   }
                 }}
+                disabled={readOnly}
                 className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 defaultValue=""
               >
@@ -2192,7 +2227,8 @@ export default function EpisodeDetail({
                             <button
                               onClick={() => handleRemoveCharacterFromEpisode(char.characterId)}
                               onClickCapture={(e) => e.stopPropagation()}
-                              className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded flex-shrink-0"
+                              disabled={readOnly}
+                              className={`p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded flex-shrink-0 ${readOnly ? 'hidden' : ''}`}
                               title="Remove character from episode"
                             >
                               <X className="w-4 h-4" />
@@ -2210,8 +2246,10 @@ export default function EpisodeDetail({
                           <input
                             type="text"
                             value={char.role || ''}
+                            disabled={readOnly}
                             onClick={(e) => e.stopPropagation()}
                             onChange={(e) => {
+                              if (readOnly) return;
                               // Update local state immediately for UI responsiveness
                               const updatedEpisode: Episode = {
                                 ...localEpisode,
@@ -2262,11 +2300,13 @@ export default function EpisodeDetail({
               <h2 className="text-lg font-medium text-gray-900">Locations</h2>
               <select
                 onChange={(e) => {
+                  if (readOnly) return;
                   if (e.target.value) {
                     handleAddLocationToEpisode(e.target.value);
                     e.target.value = '';
                   }
                 }}
+                disabled={readOnly}
                 className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 defaultValue=""
               >
@@ -2292,7 +2332,8 @@ export default function EpisodeDetail({
                         <h3 className="font-medium">{locationAsset?.name || 'Unknown Location'}</h3>
                         <button
                           onClick={() => handleRemoveLocationFromEpisode(loc.locationId)}
-                          className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded"
+                          disabled={readOnly}
+                          className={`p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded ${readOnly ? 'hidden' : ''}`}
                         >
                           <X className="w-4 h-4" />
                         </button>
@@ -2301,7 +2342,9 @@ export default function EpisodeDetail({
                         <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
                         <textarea
                           value={loc.description || ''}
+                          disabled={readOnly}
                           onChange={(e) => {
+                            if (readOnly) return;
                             // Update local state immediately for UI responsiveness
                             const updatedEpisode: Episode = {
                               ...localEpisode,
@@ -2788,6 +2831,7 @@ export default function EpisodeDetail({
         isOpen={showDescriptionDialog}
         onClose={() => setShowDescriptionDialog(false)}
         onDescriptionSelected={(description) => {
+          if (readOnly) return;
           const updatedEpisode = { ...localEpisode, description: description.trim() };
           setTempDescription(description.trim());
           updateEpisodeAndSave(updatedEpisode);
@@ -2816,6 +2860,7 @@ export default function EpisodeDetail({
         selectedNarrativeIdPL={localEpisode.selectedNarrativeStoryId}
         selectedNarrativeIdEN={localEpisode.selectedNarrativeStoryIdEN}
         onNarrativeSelected={({ language, story }) => {
+          if (readOnly) return;
           const now = new Date();
 
           const upsert = (arr: import('@/types').NarrativeStoryVersion[]) => {

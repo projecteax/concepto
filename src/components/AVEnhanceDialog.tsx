@@ -16,6 +16,7 @@ interface AVEnhanceDialogProps {
   onClose: () => void;
   onEnhancementComplete: (selectedText: string, thread: EnhancementThread) => void;
   shot: AVShot;
+  isReadOnly?: boolean;
 }
 
 export function AVEnhanceDialog({
@@ -23,6 +24,7 @@ export function AVEnhanceDialog({
   onClose,
   onEnhancementComplete,
   shot,
+  isReadOnly = false,
 }: AVEnhanceDialogProps) {
   const { user } = useAuth();
   const [messages, setMessages] = useState<EnhancementMessage[]>([]);
@@ -68,6 +70,7 @@ export function AVEnhanceDialog({
   }, [messages, generatedAlternatives]);
 
   const handleGenerate = async () => {
+    if (isReadOnly) return;
     if (!editablePrompt.trim()) {
       alert('Please enter a prompt');
       return;
@@ -199,6 +202,7 @@ export function AVEnhanceDialog({
               rows={4}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none text-sm"
               placeholder="Enter or edit the original text..."
+              disabled={isReadOnly}
             />
           </div>
 
@@ -211,7 +215,7 @@ export function AVEnhanceDialog({
                 </h3>
                 <button
                   onClick={handleInsertText}
-                  disabled={selectedAlternative === null}
+                  disabled={selectedAlternative === null || isReadOnly}
                   className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
                 >
                   <Check className="w-4 h-4" />
@@ -222,7 +226,10 @@ export function AVEnhanceDialog({
                 {generatedAlternatives.map((alt, index) => (
                   <div
                     key={index}
-                    onClick={() => setSelectedAlternative(index)}
+                    onClick={() => {
+                      if (isReadOnly) return;
+                      setSelectedAlternative(index);
+                    }}
                     className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
                       selectedAlternative === index
                         ? 'border-indigo-600 bg-indigo-50'
@@ -268,7 +275,7 @@ export function AVEnhanceDialog({
               rows={3}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none font-mono text-sm"
               placeholder="Enter enhancement instructions..."
-              disabled={isGenerating}
+              disabled={isGenerating || isReadOnly}
             />
           </div>
 
@@ -276,7 +283,7 @@ export function AVEnhanceDialog({
           <div className="flex items-center justify-end">
             <button
               onClick={handleGenerate}
-              disabled={isGenerating || !editablePrompt.trim()}
+              disabled={isGenerating || !editablePrompt.trim() || isReadOnly}
               className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
               {isGenerating ? (

@@ -23,9 +23,10 @@ interface ImportAVDialogProps {
   onClose: () => void;
   onImport: (shots: ImportedShot[], targetSegmentId: string | null) => void;
   availableSegments?: AVSegment[];
+  isReadOnly?: boolean;
 }
 
-export function ImportAVDialog({ isOpen, onClose, onImport, availableSegments = [] }: ImportAVDialogProps) {
+export function ImportAVDialog({ isOpen, onClose, onImport, availableSegments = [], isReadOnly = false }: ImportAVDialogProps) {
   const [importedShots, setImportedShots] = useState<ImportedShot[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -252,6 +253,7 @@ export function ImportAVDialog({ isOpen, onClose, onImport, availableSegments = 
   };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (isReadOnly) return;
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -287,6 +289,7 @@ export function ImportAVDialog({ isOpen, onClose, onImport, availableSegments = 
   };
 
   const handleImport = () => {
+    if (isReadOnly) return;
     if (importedShots.length === 0) {
       setError('No shots to import');
       return;
@@ -333,6 +336,7 @@ export function ImportAVDialog({ isOpen, onClose, onImport, availableSegments = 
               <select
                 value={targetSegmentId || ''}
                 onChange={(e) => setTargetSegmentId(e.target.value || null)}
+                disabled={isReadOnly}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               >
                 <option value="">-- Select a segment --</option>
@@ -361,6 +365,7 @@ export function ImportAVDialog({ isOpen, onClose, onImport, availableSegments = 
                 type="file"
                 accept=".csv,.srt"
                 onChange={handleFileUpload}
+                disabled={isReadOnly}
                 className="hidden"
                 id="file-upload"
               />
@@ -439,7 +444,7 @@ export function ImportAVDialog({ isOpen, onClose, onImport, availableSegments = 
           </button>
           <button
             onClick={handleImport}
-            disabled={importedShots.length === 0 || (availableSegments.length > 0 && !targetSegmentId)}
+            disabled={isReadOnly || importedShots.length === 0 || (availableSegments.length > 0 && !targetSegmentId)}
             className="w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
           >
             <CheckCircle2 className="w-4 h-4" />

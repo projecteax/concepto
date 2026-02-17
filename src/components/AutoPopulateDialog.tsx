@@ -17,6 +17,7 @@ interface AutoPopulateDialogProps {
   onAutopopulate: (generatedShots: GeneratedShot[]) => void;
   screenplayData?: ScreenplayData;
   avScript?: AVScript;
+  isReadOnly?: boolean;
 }
 
 interface ChatMessage {
@@ -41,6 +42,7 @@ export function AutoPopulateDialog({
   onAutopopulate,
   screenplayData,
   avScript,
+  isReadOnly = false,
 }: AutoPopulateDialogProps) {
   const { user } = useAuth();
   const [selectedLanguage, setSelectedLanguage] = useState<'pl' | 'en'>('pl');
@@ -244,6 +246,7 @@ export function AutoPopulateDialog({
   };
 
   const handleGenerate = async () => {
+    if (isReadOnly) return;
     if (!screenplayData) {
       alert('No screenplay data available. Please ensure screenplay data exists.');
       return;
@@ -901,6 +904,7 @@ Generate the complete AV script following this format exactly. Maintain the sequ
   };
 
   const handleAutopopulate = async () => {
+    if (isReadOnly) return;
     if (generatedShots.length === 0) {
       alert('No generated shots to populate. Please generate AV script first.');
       return;
@@ -978,7 +982,7 @@ Generate the complete AV script following this format exactly. Maintain the sequ
             <select
               value={selectedLanguage}
               onChange={(e) => setSelectedLanguage(e.target.value as 'pl' | 'en')}
-              disabled={isGenerating || generatedShots.length > 0}
+              disabled={isGenerating || generatedShots.length > 0 || isReadOnly}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
             >
               <option value="pl">Polish</option>
@@ -991,7 +995,7 @@ Generate the complete AV script following this format exactly. Maintain the sequ
             <div className="mb-4">
               <button
                 onClick={handleGenerate}
-                disabled={isGenerating || !screenplayData}
+                disabled={isGenerating || !screenplayData || isReadOnly}
                 className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isGenerating ? (
@@ -1113,7 +1117,7 @@ Generate the complete AV script following this format exactly. Maintain the sequ
           {generatedShots.length > 0 && (
             <button
               onClick={handleAutopopulate}
-              disabled={isAutopopulating}
+              disabled={isAutopopulating || isReadOnly}
               className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isAutopopulating ? (

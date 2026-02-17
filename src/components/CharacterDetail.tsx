@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Character, AssetConcept, CharacterGeneral, CharacterClothing, CharacterPose, CharacterVoice, AIRefImages } from '@/types';
 import { 
   ArrowLeft, 
@@ -54,10 +54,11 @@ export function CharacterDetail({
   show,
   character,
   onBack,
-  onSave,
-  onAddConcept,
-  onDeleteConcept,
-  globalAssets = []
+  onSave: onSaveProp,
+  onAddConcept: onAddConceptProp,
+  onDeleteConcept: onDeleteConceptProp,
+  globalAssets = [],
+  isReadOnly = false
 }: CharacterDetailProps) {
   const basePath = useBasePath();
   const headerIsDark = Boolean(show.coverImageUrl);
@@ -170,6 +171,32 @@ export function CharacterDetail({
   // Image generation state
   const [showImageGenerationDialog, setShowImageGenerationDialog] = useState(false);
   const [selectedConceptIds, setSelectedConceptIds] = useState<Set<string>>(new Set());
+
+  const onSave = React.useCallback((updatedCharacter: Character) => {
+    if (isReadOnly) return;
+    onSaveProp(updatedCharacter);
+  }, [isReadOnly, onSaveProp]);
+
+  const onDeleteConcept = React.useCallback((conceptId: string) => {
+    if (isReadOnly) return;
+    onDeleteConceptProp(conceptId);
+  }, [isReadOnly, onDeleteConceptProp]);
+
+  const onAddConcept = React.useCallback((concept: Omit<AssetConcept, 'id' | 'createdAt' | 'updatedAt'>) => {
+    if (isReadOnly) return;
+    onAddConceptProp(concept);
+  }, [isReadOnly, onAddConceptProp]);
+
+  const blockReadOnlyInteractions = React.useCallback((e: React.SyntheticEvent) => {
+    if (!isReadOnly) return;
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+    if (target.closest('[data-viewer-visible]')) return;
+    if (target.closest('button, input, textarea, select, [role="button"], [contenteditable="true"], a')) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, [isReadOnly]);
   
   // REF assignment modal state
   const [refAssignmentModal, setRefAssignmentModal] = useState<{ conceptId: string; imageUrl: string; conceptName: string } | null>(null);
@@ -954,7 +981,34 @@ export function CharacterDetail({
   ] as const;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div
+      className="min-h-screen bg-gray-50"
+      data-asset-readonly={isReadOnly || undefined}
+      onClickCapture={blockReadOnlyInteractions}
+      onMouseDownCapture={blockReadOnlyInteractions}
+      onInputCapture={blockReadOnlyInteractions}
+      onChangeCapture={blockReadOnlyInteractions}
+      onKeyDownCapture={blockReadOnlyInteractions}
+      onDropCapture={blockReadOnlyInteractions}
+    >
+      {isReadOnly && (
+        <>
+        <style>{`
+          [data-asset-readonly] button:not([data-viewer-visible]),
+          [data-asset-readonly] input[type="file"],
+          [data-asset-readonly] label.cursor-pointer { display: none !important; }
+          [data-asset-readonly] input[type="text"]:not([data-viewer-visible]),
+          [data-asset-readonly] textarea:not([data-viewer-visible]),
+          [data-asset-readonly] select:not([data-viewer-visible]) {
+            pointer-events: none; background: #f9fafb; border-color: transparent; resize: none;
+          }
+        `}</style>
+        <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-800 text-sm">
+          Viewer mode: character details are read-only.
+        </div>
+        </>
+      
+      )}
       <AppBreadcrumbHeader
         coverImageUrl={show.coverImageUrl}
         logoUrl={show.logoUrl}
@@ -1059,6 +1113,7 @@ export function CharacterDetail({
             {tabs.map((tab) => (
               <button
                 key={tab.id}
+                data-viewer-visible
                 onClick={() => setActiveTab(tab.id)}
                 className={`flex items-center space-x-2 py-3 sm:py-4 px-1 border-b-2 font-medium text-xs sm:text-sm whitespace-nowrap flex-shrink-0 ${
                   activeTab === tab.id

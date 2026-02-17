@@ -91,6 +91,7 @@ export function GlobalAssetsManager({
   };
 
   const handleAddAsset = () => {
+    if (readOnly) return;
     if (newAssetName.trim()) {
       onAddAsset({
         showId: show.id,
@@ -271,6 +272,7 @@ export function GlobalAssetsManager({
                     : `No ${categoryLabels[selectedCategory as AssetCategory]?.toLowerCase()} found.`
                   }
                 </p>
+                {!readOnly && (
                 <button
                   onClick={() => setShowAddForm(true)}
                   className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors mx-auto text-sm sm:text-base"
@@ -278,6 +280,7 @@ export function GlobalAssetsManager({
                   <Plus className="w-4 h-4" />
                   <span>Add Asset</span>
                 </button>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-4 sm:gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -429,7 +432,7 @@ export function GlobalAssetsManager({
                 <div className="flex space-x-3">
                   <button
                     onClick={handleAddAsset}
-                    disabled={!newAssetName.trim()}
+                    disabled={!newAssetName.trim() || readOnly}
                     className={cn(
                       "flex-1 px-4 py-2 rounded-lg font-medium transition-colors",
                       newAssetName.trim()

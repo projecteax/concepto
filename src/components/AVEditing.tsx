@@ -25,6 +25,7 @@ interface AVEditingProps {
   episodeId: string;
   avScript?: AVScript;
   onSave: (avScript: AVScript) => void;
+  isReadOnly?: boolean;
 }
 
 const MIN_PIXELS_PER_SECOND = 10; // Minimum zoom: 10px = 1 second
@@ -33,7 +34,7 @@ const DEFAULT_PIXELS_PER_SECOND = 50; // Default zoom: 50px = 1 second
 const ZOOM_STEP = 1.2; // Zoom increment/decrement factor
 const MIN_DURATION = 0.5; // Minimum slide duration in seconds
 
-export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
+export function AVEditing({ episodeId, avScript, onSave, isReadOnly = false }: AVEditingProps) {
   const [editingData, setEditingData] = useState<AVEditingData | null>(null);
   const [slides, setSlides] = useState<AVEditingSlide[]>([]);
   const [audioTracks, setAudioTracks] = useState<AVEditingAudioTrack[]>([]);
@@ -1988,7 +1989,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
       });
 
       // If there were changes, update the AV script
-      if (hasChanges) {
+      if (hasChanges && !isReadOnly) {
         const updatedScript: AVScript = {
           ...avScript,
           segments: updatedSegments,
@@ -2005,7 +2006,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
         clearTimeout(avScriptUpdateTimeoutRef.current);
       }
     };
-  }, [slides, avScript, onSave, isDragging, isResizing]);
+  }, [slides, avScript, onSave, isDragging, isResizing, isReadOnly]);
 
   // Generate waveform data for audio track
   const generateWaveform = async (audioUrl: string, trackId: string): Promise<number[]> => {
@@ -2645,6 +2646,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
   };
 
   const handleAddSlide = async () => {
+    if (isReadOnly) return;
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*';
@@ -2732,10 +2734,12 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
   };
 
   const handleAddAudioTrack = () => {
+    if (isReadOnly) return;
     setShowAddAudioPopup(true);
   };
 
   const handleAudioFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isReadOnly) return;
     const file = e.target.files?.[0];
     if (file) {
       setNewAudioFile(file);
@@ -2743,6 +2747,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
   };
 
   const handleSaveNewAudioTrack = async () => {
+    if (isReadOnly) return;
     if (!newAudioFile) return;
 
     try {
@@ -2816,6 +2821,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
   };
 
   const handleDeleteSlide = (slideId: string) => {
+    if (isReadOnly) return;
     const slide = slides.find(s => s.id === slideId);
     if (slide) {
       setDeleteConfirm({
@@ -2827,6 +2833,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
   };
 
   const handleDeleteAudioTrack = (trackId: string) => {
+    if (isReadOnly) return;
     const track = audioTracks.find(t => t.id === trackId);
     if (track) {
       setDeleteConfirm({
@@ -2838,6 +2845,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
   };
 
   const confirmDelete = () => {
+    if (isReadOnly) return;
     if (!deleteConfirm) return;
     
     if (deleteConfirm.type === 'slide') {
@@ -4116,6 +4124,11 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
+      {isReadOnly && (
+        <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-800 text-sm">
+          Viewer mode: AV editing is read-only.
+        </div>
+      )}
       {/* Header */}
       <div className="bg-white border-b border-gray-200 p-4">
         <div className="flex items-center justify-between">
@@ -4157,6 +4170,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
             <div className="flex items-center space-x-2">
               <button
                 onClick={() => {
+                  if (isReadOnly) return;
                   if (editingDataRef.current) {
                     const totalDuration = Math.max(
                       ...(slides.length > 0 ? slides.map(s => s.startTime + s.duration) : [0]),
@@ -4186,7 +4200,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
                     ? 'bg-red-600 text-white'
                     : 'bg-indigo-600 text-white hover:bg-indigo-700'
                 }`}
-                disabled={saveStatus === 'saving'}
+                disabled={saveStatus === 'saving' || isReadOnly}
                 title={saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved!' : saveStatus === 'error' ? 'Error saving' : 'Save now'}
               >
                 <Save className="w-4 h-4" />
@@ -4244,6 +4258,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
             <h3 className="text-lg font-semibold text-gray-900">All Slides</h3>
             <button
               onClick={handleAddSlide}
+              disabled={isReadOnly}
               className="flex items-center space-x-2 px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm"
             >
               <Plus className="w-4 h-4" />
@@ -4292,9 +4307,11 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
                   )}
                   <button
                     onClick={(e) => {
+                      if (isReadOnly) return;
                       e.stopPropagation();
                       handleDeleteSlide(slide.id);
                     }}
+                    disabled={isReadOnly}
                     className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 hover:opacity-100 transition-opacity"
                   >
                     <X className="w-3 h-3" />
@@ -4345,6 +4362,7 @@ export function AVEditing({ episodeId, avScript, onSave }: AVEditingProps) {
                 </div>
                 <button
                   onClick={handleAddAudioTrack}
+                  disabled={isReadOnly}
                   className="flex items-center space-x-2 px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
                 >
                   <Volume2 className="w-4 h-4" />

@@ -133,6 +133,7 @@ export function ShowDashboard({
   };
 
   const handleAddAsset = () => {
+    if (readOnly) return;
     if (newAssetName.trim()) {
       onAddGlobalAsset?.({
         showId: show.id,
@@ -146,6 +147,7 @@ export function ShowDashboard({
   };
 
   const handleAddEpisode = () => {
+    if (readOnly) return;
     if (newEpisodeTitle.trim()) {
       onAddEpisode?.({
         showId: show.id,
@@ -162,6 +164,7 @@ export function ShowDashboard({
   };
 
   const handleSaveShow = () => {
+    if (readOnly) return;
     if (onSaveShow) {
       const updatedShow: Show = {
         ...show,
@@ -203,6 +206,7 @@ export function ShowDashboard({
     });
 
   const handleUploadShowImage = async (file: File, kind: 'cover' | 'logo') => {
+    if (readOnly) return;
     // Soft validation + guidance (we still allow upload).
     try {
       const { width, height } = await readImageSize(file);
@@ -353,10 +357,12 @@ export function ShowDashboard({
                 <FolderOpen className="w-6 h-6 text-primary" />
                 <CardTitle>Global Assets</CardTitle>
               </div>
+              {!readOnly && (
               <Button onClick={() => setShowAddAsset(true)} className="gap-2" size="sm">
                 <Plus className="w-4 h-4" />
                 Add Asset
               </Button>
+              )}
             </CardHeader>
             <CardContent>
             <div className="flex items-center justify-between mb-6">
@@ -409,10 +415,12 @@ export function ShowDashboard({
                 <Play className="w-6 h-6 text-primary" />
                 <CardTitle>Episodes</CardTitle>
               </div>
+              {!readOnly && (
               <Button onClick={() => setShowAddEpisode(true)} className="gap-2" size="sm">
                 <Plus className="w-4 h-4" />
                 Add Episode
               </Button>
+              )}
             </CardHeader>
             <CardContent>
 

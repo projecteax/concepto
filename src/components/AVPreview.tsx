@@ -16,6 +16,7 @@ interface AVPreviewProps {
   avPreviewData?: AVPreviewData;
   onSave: (data: AVPreviewData, avScript?: AVScript) => void;
   globalAssets: GlobalAsset[];
+  isReadOnly?: boolean;
 }
 
 interface VisualClip {
@@ -42,9 +43,14 @@ export function AVPreview({
   episodeId,
   avScript,
   avPreviewData,
-  onSave,
-  globalAssets
+  onSave: onSaveProp,
+  globalAssets,
+  isReadOnly = false
 }: AVPreviewProps) {
+  const onSave = useCallback((data: AVPreviewData, script?: AVScript) => {
+    if (isReadOnly) return;
+    onSaveProp(data, script);
+  }, [isReadOnly, onSaveProp]);
   // Session-only persistence for the current episode (survives component switches, clears on tab close)
   const scriptSceneFilterKey = `concepto:av:scriptSceneFilter:${episodeId}`;
   const previewSelectedSegmentKey = `concepto:av:selectedSegmentId:${episodeId}`;
@@ -1040,6 +1046,7 @@ export function AVPreview({
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, trackId: string) => {
+    if (isReadOnly) return;
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
@@ -1231,6 +1238,7 @@ export function AVPreview({
   }, [tracks, clipEdits, avScript, onSave, videoClipStartTimes, mutedShots]);
 
   const handleRemoveClip = (trackId: string, clipId: string) => {
+      if (isReadOnly) return;
       setClipToDelete({ trackId, clipId });
   };
 
@@ -1274,6 +1282,7 @@ export function AVPreview({
 
   // Toggle mute for a video shot
   const handleToggleMute = (shotId: string) => {
+      if (isReadOnly) return;
       setMutedShots(prev => {
           const newSet = new Set(prev);
           if (newSet.has(shotId)) {
@@ -1288,6 +1297,7 @@ export function AVPreview({
 
   // Create new audio track
   const handleAddTrack = () => {
+    if (isReadOnly) return;
     saveToHistory(); // Save to history before adding
     const newTrack: AVPreviewTrack = {
       id: `track-${Date.now()}`,
@@ -1329,6 +1339,7 @@ export function AVPreview({
 
   // Delete track
   const handleDeleteTrack = (trackId: string) => {
+    if (isReadOnly) return;
     setTrackToDelete(trackId);
   };
 
@@ -1481,6 +1492,7 @@ export function AVPreview({
 
   // Start dragging audio clip
   const handleAudioClipMouseDown = (e: React.MouseEvent, clip: AVPreviewClip, trackId: string) => {
+    if (isReadOnly) return;
     e.stopPropagation();
     e.preventDefault(); // Prevent default to avoid focus issues
     
@@ -3381,6 +3393,7 @@ export function AVPreview({
 
   // Handle audio clip volume change
   const handleClipVolumeChange = (trackId: string, clipId: string, volume: number) => {
+    if (isReadOnly) return;
     setTracks(prev => prev.map(t => 
       t.id === trackId ? {
         ...t,
@@ -3821,6 +3834,7 @@ export function AVPreview({
   }, [resizeState, visualPlaylist, saveToHistory, triggerAutoSave]);
 
   const handleResizeStart = (e: React.MouseEvent, clip: VisualClip, edge: 'left' | 'right') => {
+    if (isReadOnly) return;
     e.stopPropagation();
     e.preventDefault();
     
@@ -3843,6 +3857,7 @@ export function AVPreview({
 
   // Start audio clip resize
   const handleAudioResizeStart = (e: React.MouseEvent, clip: AVPreviewClip, trackId: string, edge: 'left' | 'right') => {
+    if (isReadOnly) return;
     e.stopPropagation();
     e.preventDefault();
     
@@ -3867,6 +3882,7 @@ export function AVPreview({
   };
 
   const handleClipMouseDown = (e: React.MouseEvent, clip: VisualClip) => {
+    if (isReadOnly) return;
     // Don't handle if clicking on a resize handle (resize handles capture their own events)
     if ((e.target as HTMLElement).closest('[data-resize-handle]')) {
       return;
@@ -4248,6 +4264,7 @@ export function AVPreview({
 
   // Razor tool - split audio clip at specified time
   const handleSplitAudioClip = (trackId: string, clipId: string, splitTime: number) => {
+    if (isReadOnly) return;
     const track = tracks.find(t => t.id === trackId);
     if (!track) return;
 
@@ -4376,6 +4393,7 @@ export function AVPreview({
   }, [avScript]);
 
   const handleSaveProject = () => {
+    if (isReadOnly) return;
     if (!avScript) {
       console.warn('No AV Script to save');
       return;
@@ -4431,6 +4449,7 @@ export function AVPreview({
 
   // Save stable version
   const handleSaveStableVersion = useCallback(() => {
+    if (isReadOnly) return;
     if (!selectedSegmentId || !avScript) return;
 
     const segment = avScript.segments.find(s => s.id === selectedSegmentId);
@@ -4481,6 +4500,7 @@ export function AVPreview({
 
   // Confirm restore
   const handleConfirmRestore = useCallback(() => {
+    if (isReadOnly) return;
     if (!versionToRestore) return;
 
     // Restore all state from the version
@@ -4523,6 +4543,7 @@ export function AVPreview({
 
   // Update version name
   const handleUpdateVersionName = useCallback((versionId: string, newName: string) => {
+    if (isReadOnly) return;
     if (!newName.trim()) return;
 
     const updatedVersions = stableVersions.map(v =>
@@ -4546,6 +4567,7 @@ export function AVPreview({
 
   // Delete stable version
   const handleDeleteStableVersion = useCallback((versionId: string) => {
+    if (isReadOnly) return;
     const updatedVersions = stableVersions.filter(v => v.id !== versionId);
     setStableVersions(updatedVersions);
 
@@ -4654,6 +4676,7 @@ export function AVPreview({
   };
 
   const handleExportFCPXML = async () => {
+    if (isReadOnly) return;
     if (!avScript || !selectedSegmentId) {
       alert('Please select a scene to export');
       return;
@@ -5137,6 +5160,7 @@ export function AVPreview({
   };
 
   const handleRender = async () => {
+    if (isReadOnly) return;
     if (!avScript || !selectedSegmentId) {
       alert('Please select a scene to render');
       return;
@@ -5537,13 +5561,54 @@ export function AVPreview({
         </div>
       )}
 
-      <div className="flex flex-col h-screen w-screen bg-gray-950 text-white overflow-hidden select-none">
+      <div
+        className="flex flex-col h-screen w-screen bg-gray-950 text-white overflow-hidden select-none"
+        onClickCapture={(e) => {
+          if (!isReadOnly) return;
+          const target = e.target as HTMLElement | null;
+          if (!target) return;
+          if (target.closest('[data-allow-readonly]')) return;
+          if (target.closest('button, input, textarea, select, [role="button"], [contenteditable="true"], a')) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }}
+        onMouseDownCapture={(e) => {
+          if (!isReadOnly) return;
+          const target = e.target as HTMLElement | null;
+          if (!target) return;
+          if (target.closest('[data-allow-readonly]')) return;
+          if (target.closest('button, input, textarea, select, [role="button"], [contenteditable="true"], a')) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }}
+        onChangeCapture={(e) => {
+          if (!isReadOnly) return;
+          const target = e.target as HTMLElement | null;
+          if (!target) return;
+          if (target.closest('[data-allow-readonly]')) return;
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onDropCapture={(e) => {
+          if (!isReadOnly) return;
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+      >
+      {isReadOnly && (
+        <div className="px-4 py-1.5 bg-amber-600 text-white text-sm text-center font-medium">
+          Viewer mode: AV preview is view/play only. Editing is disabled.
+        </div>
+      )}
       {/* Header / Toolbar */}
       <div className="border-b border-gray-800 bg-gray-900 shadow-sm px-3 py-3 sm:px-4 sm:h-14 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center bg-gray-800 rounded-lg p-1 border border-gray-700">
              <button
                 onClick={handlePlayFromBeginning}
+                data-allow-readonly
                 className="p-2 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition-colors"
                 title="Play from Beginning"
              >
@@ -5551,6 +5616,7 @@ export function AVPreview({
              </button>
              <button
                 onClick={() => setIsPlaying(!isPlaying)}
+                data-allow-readonly
                 className={`mx-1 p-2 rounded-md transition-all ${isPlaying ? 'bg-red-500/20 text-red-500' : 'bg-indigo-500/20 text-indigo-400'} hover:bg-opacity-30`}
              >
                 {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current" />}
@@ -5559,11 +5625,13 @@ export function AVPreview({
                 onClick={() => setIsRazorMode(!isRazorMode)}
                 className={`ml-1 p-2 rounded-md transition-all ${isRazorMode ? 'bg-yellow-500/20 text-yellow-500' : 'bg-gray-700/20 text-gray-400'} hover:bg-opacity-30`}
                 title="Razor Tool (C) - Split audio clips"
+                disabled={isReadOnly}
              >
                 <Scissors className="w-4 h-4" />
              </button>
              <button
                 onClick={() => setIsLengthLocked(!isLengthLocked)}
+                disabled={isReadOnly}
                 className={`ml-1 p-2 rounded-md transition-all ${isLengthLocked ? 'bg-indigo-500/20 text-indigo-400' : 'bg-gray-700/20 text-gray-400'} hover:bg-opacity-30`}
                 title={isLengthLocked ? "Length Locked - Only offset can be changed" : "Length Unlocked - Both offset and duration can be changed"}
              >
@@ -5578,6 +5646,7 @@ export function AVPreview({
           <div className="hidden sm:block h-6 w-px bg-gray-800 mx-2" />
 
           <select 
+            data-allow-readonly
             value={selectedSegmentId}
             onChange={(e) => {
                 const next = e.target.value;
@@ -5852,6 +5921,7 @@ export function AVPreview({
                            {/* Play/Pause */}
                            <button
                              onClick={() => setIsPlaying(!isPlaying)}
+                             data-allow-readonly
                              className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
                            >
                              {isPlaying ? <Pause className="w-6 h-6 text-white fill-current" /> : <Play className="w-6 h-6 text-white fill-current" />}
@@ -5864,6 +5934,7 @@ export function AVPreview({
                          {/* Exit Fullscreen */}
                          <button
                            onClick={handleFullscreen}
+                           data-allow-readonly
                            className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
                            title="Exit Fullscreen"
                          >
@@ -5875,6 +5946,7 @@ export function AVPreview({
                      /* Non-fullscreen: simple fullscreen button */
                      <button
                        onClick={handleFullscreen}
+                       data-allow-readonly
                        className="absolute bottom-4 right-4 bg-black/50 hover:bg-black/70 backdrop-blur-sm p-2 rounded border border-white/10 transition-colors z-10"
                        title="Toggle Fullscreen"
                      >

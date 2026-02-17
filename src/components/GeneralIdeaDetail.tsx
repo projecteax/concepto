@@ -81,6 +81,7 @@ export function GeneralIdeaDetail({
   }, [selectedImage]);
 
   const handleSave = () => {
+    if (readOnly) return;
     const tagArray = tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
     
     const updatedIdea: GeneralIdea = {
@@ -105,6 +106,7 @@ export function GeneralIdeaDetail({
   };
 
   const handleImageUpload = async (file: File) => {
+    if (readOnly) return;
     const uploadId = `upload-${Date.now()}`;
     setUploadingFiles(prev => new Map(prev).set(uploadId, { progress: 0 }));
 
@@ -146,6 +148,7 @@ export function GeneralIdeaDetail({
   };
 
   const handleRemoveImage = (imageUrl: string) => {
+    if (readOnly) return;
     const newImages = images.filter(img => img !== imageUrl);
     setImages(newImages);
     
@@ -368,6 +371,7 @@ export function GeneralIdeaDetail({
                       </div>
                       
                       {/* Remove button */}
+                      {!readOnly && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -378,6 +382,7 @@ export function GeneralIdeaDetail({
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
+                      )}
                       
                       <div className="p-3">
                         <p className="text-sm font-medium text-gray-900">
