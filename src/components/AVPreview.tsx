@@ -91,8 +91,10 @@ export function AVPreview({
   // Video clip volumes - track volume for each video clip (0-1, default 1)
   const [videoClipVolumes, setVideoClipVolumes] = useState<{[clipId: string]: number}>({});
   
-  // Preloaded video cache - keeps videos buffered for smooth playback
-  const preloadedVideosRef = useRef<Map<string, HTMLVideoElement>>(new Map());
+  // Video preload cache: remote URL → blob URL (fully downloaded into memory)
+  const blobUrlCacheRef = useRef<Map<string, string>>(new Map());
+  const [videoLoadStatus, setVideoLoadStatus] = useState<{[url: string]: 'loading' | 'loaded' | 'error'}>({});
+  const currentVideoClipUrlRef = useRef<string>(''); // tracks which remote URL is currently loaded in the player
   
   // Resizing State - simpler approach
   const [resizeState, setResizeState] = useState<{
@@ -895,26 +897,45 @@ export function AVPreview({
     };
   }, [isPlaying, updatePlayback]);
 
-  // Preload all video clips in the scene on mount / scene change
+  // Preload videos for the current scene: fetch into blob URLs for instant playback
   useEffect(() => {
+    let cancelled = false;
     const videoClips = visualPlaylist.filter(c => c.type === 'video' && c.url);
-    videoClips.forEach(clip => {
-      if (!clip.url || preloadedVideosRef.current.has(clip.url)) return;
-      const el = document.createElement('video');
-      el.preload = 'auto';
-      el.muted = true;
-      el.src = clip.url;
-      el.load();
-      preloadedVideosRef.current.set(clip.url, el);
-    });
-    // Clean up URLs no longer in playlist
-    const activeUrls = new Set(videoClips.map(c => c.url).filter(Boolean));
-    preloadedVideosRef.current.forEach((el, url) => {
-      if (!activeUrls.has(url)) {
-        el.src = '';
-        preloadedVideosRef.current.delete(url);
+    const currentUrls = new Set(videoClips.map(c => c.url!));
+
+    // Revoke blob URLs no longer in the current scene to free memory
+    blobUrlCacheRef.current.forEach((blobUrl, remoteUrl) => {
+      if (!currentUrls.has(remoteUrl)) {
+        URL.revokeObjectURL(blobUrl);
+        blobUrlCacheRef.current.delete(remoteUrl);
       }
     });
+
+    // Fetch videos that aren't cached yet
+    const urlsToLoad = [...currentUrls].filter(
+      url => !blobUrlCacheRef.current.has(url)
+    );
+
+    urlsToLoad.forEach(url => {
+      setVideoLoadStatus(prev => ({ ...prev, [url]: 'loading' }));
+      fetch(url)
+        .then(res => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.blob();
+        })
+        .then(blob => {
+          if (cancelled) return;
+          const blobUrl = URL.createObjectURL(blob);
+          blobUrlCacheRef.current.set(url, blobUrl);
+          setVideoLoadStatus(prev => ({ ...prev, [url]: 'loaded' }));
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setVideoLoadStatus(prev => ({ ...prev, [url]: 'error' }));
+        });
+    });
+
+    return () => { cancelled = true; };
   }, [visualPlaylist]);
 
   // Sync Media Elements
@@ -933,9 +954,20 @@ export function AVPreview({
       const clipVolume = videoClipVolumes[currentVisualClip.id] ?? 1;
       video.volume = isMuted ? 0 : clipVolume;
       
-      if (video.src !== currentVisualClip.url) {
-        video.src = currentVisualClip.url;
-        video.load();
+      // Only change video source when the CLIP changes (different remote URL)
+      if (currentVideoClipUrlRef.current !== currentVisualClip.url) {
+        currentVideoClipUrlRef.current = currentVisualClip.url;
+        const playbackUrl = blobUrlCacheRef.current.get(currentVisualClip.url) || currentVisualClip.url;
+        // Hide video during source switch to avoid flash of frame 0
+        video.style.opacity = '0';
+        video.src = playbackUrl;
+        const onSeeked = () => {
+          video.style.opacity = '1';
+          video.removeEventListener('seeked', onSeeked);
+        };
+        video.addEventListener('seeked', onSeeked);
+        // Fallback: show after short delay in case seeked never fires
+        setTimeout(() => { video.style.opacity = '1'; }, 150);
       }
       
       if (Math.abs(video.currentTime - sourceTime) > 0.3) {
@@ -6435,6 +6467,24 @@ export function AVPreview({
                             <div className="flex items-center space-x-1">
                                 {clip.type === 'video' && <Film className="w-3 h-3 text-indigo-300" />}
                                 {clip.type === 'image' && <ImageIcon className="w-3 h-3 text-blue-300" />}
+                                {clip.type === 'video' && clip.url && (
+                                  <span
+                                    className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                                      videoLoadStatus[clip.url] === 'loaded'
+                                        ? 'bg-green-400'
+                                        : videoLoadStatus[clip.url] === 'error'
+                                        ? 'bg-red-400'
+                                        : 'bg-orange-400 animate-pulse'
+                                    }`}
+                                    title={
+                                      videoLoadStatus[clip.url] === 'loaded'
+                                        ? 'Video cached'
+                                        : videoLoadStatus[clip.url] === 'error'
+                                        ? 'Failed to load'
+                                        : 'Loading video...'
+                                    }
+                                  />
+                                )}
                                 <span className="text-[10px] font-bold text-white/90 truncate">
                                     {clip.take}
                                 </span>
